@@ -1,6 +1,6 @@
 extern crate embedded_sdmmc;
 
-use embedded_sdmmc::{Block, BlockDevice, Controller, Error};
+use embedded_sdmmc::{Block, BlockDevice, BlockIdx, Controller, Error};
 use std::fs::File;
 use std::io::prelude::*;
 use std::io::SeekFrom;
@@ -25,20 +25,18 @@ impl LinuxBlockDevice {
 impl BlockDevice for LinuxBlockDevice {
     type Error = std::io::Error;
 
-    fn read(&mut self, blocks: &mut [Block], start_block_idx: u32) -> Result<(), Self::Error> {
-        let mut byte_idx: u64 = Block::LEN as u64;
-        byte_idx *= start_block_idx as u64;
+    fn read(&mut self, blocks: &mut [Block], start_block_idx: BlockIdx) -> Result<(), Self::Error> {
         self.file
-            .seek(SeekFrom::Start(byte_idx))?;
+            .seek(SeekFrom::Start(start_block_idx.into_bytes()))?;
         for block in blocks.iter_mut() {
             self.file.read_exact(&mut block.contents)?;
         }
         Ok(())
     }
 
-    fn write(&mut self, blocks: &[Block], start_block_idx: u32) -> Result<(), Self::Error> {
+    fn write(&mut self, blocks: &[Block], start_block_idx: BlockIdx) -> Result<(), Self::Error> {
         self.file
-            .seek(SeekFrom::Start((Block::LEN as u64) * (start_block_idx as u64)))?;
+            .seek(SeekFrom::Start(start_block_idx.into_bytes()))?;
         for block in blocks.iter() {
             self.file.write_all(&block.contents)?;
         }

@@ -19,4 +19,3 @@ pub struct File<'a> {
     _parent: &'a Volume,
     _offset: u32,
 }
-

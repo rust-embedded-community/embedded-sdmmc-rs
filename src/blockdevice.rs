@@ -13,13 +13,16 @@ pub struct Block {
     pub contents: [u8; Block::LEN],
 }
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct BlockIdx(pub u32);
+
 /// Represents a block device which is <= 2 TiB in size.
 pub trait BlockDevice {
     type Error;
     /// Read one or more blocks, starting at the given block index.
-    fn read(&mut self, blocks: &mut [Block], start_block_idx: u32) -> Result<(), Self::Error>;
+    fn read(&mut self, blocks: &mut [Block], start_block_idx: BlockIdx) -> Result<(), Self::Error>;
     /// Write one or more blocks, starting at the given block index.
-    fn write(&mut self, blocks: &[Block], start_block_idx: u32) -> Result<(), Self::Error>;
+    fn write(&mut self, blocks: &[Block], start_block_idx: BlockIdx) -> Result<(), Self::Error>;
     /// Complete a multi-block transaction and return the SD card to idle mode.
     fn sync(&mut self) -> Result<(), Self::Error>;
 }
@@ -48,5 +51,11 @@ impl Block {
         Block {
             contents: [0u8; Self::LEN],
         }
+    }
+}
+
+impl BlockIdx {
+    pub fn into_bytes(self) -> u64 {
+        (self.0 as u64) * (Block::LEN as u64)
     }
 }
