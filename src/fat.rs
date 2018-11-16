@@ -25,7 +25,7 @@ impl core::fmt::Debug for Volume {
 
 pub fn parse_volume<D>(controller: &mut Controller<D>, lba_start: u32, num_blocks: u32) -> Result<Volume, Error<D>> where D: BlockDevice {
     const FOOTER_START: usize = 510;
-    const FOOTER_VALUE: u16 = 0x55AA;
+    const FOOTER_VALUE: u16 = 0xAA55;
 
     let mut blocks = [Block::new()];
     controller.block_device.read(&mut blocks, lba_start).map_err(|e| Error::DeviceError(e))?;

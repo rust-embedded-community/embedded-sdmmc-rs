@@ -44,7 +44,7 @@ impl<D> Controller<D> where D: BlockDevice {
         const PARTITION3_START: usize = 478;
         const PARTITION4_START: usize = 492;
         const FOOTER_START: usize = 510;
-        const FOOTER_VALUE: u16 = 0x55AA;
+        const FOOTER_VALUE: u16 = 0xAA55;
         const PARTITION_INFO_LENGTH: usize = 16;
         const PARTITION_INFO_STATUS_INDEX: usize = 0;
         const PARTITION_INFO_TYPE_INDEX: usize = 4;
