@@ -4,18 +4,14 @@
 
 use byteorder::{ByteOrder, LittleEndian};
 
-/// Represents a standard 512 byte block/sector.
-#[derive(Clone)]
-pub struct Block {
-    pub contents: [u8; Block::LEN],
-}
+pub mod blockdevice;
+pub mod fat;
+pub mod filesystem;
+pub mod sdmmc;
 
-/// Represents a block device which is <= 2 TiB in size.
-pub trait BlockDevice {
-    type Error;
-    fn read(&mut self, blocks: &mut [Block], start_block_idx: u32) -> Result<(), Self::Error>;
-    fn write(&mut self, blocks: &[Block], start_block_idx: u32) -> Result<(), Self::Error>;
-}
+pub use crate::blockdevice::{Block, BlockDevice};
+pub use crate::fat::Volume as FatVolume;
+pub use crate::filesystem::{DirEntry, Directory, File};
 
 #[derive(Debug, Copy, Clone)]
 pub enum Error<D> where D: BlockDevice {
@@ -24,66 +20,17 @@ pub enum Error<D> where D: BlockDevice {
     NoSuchVolume,
 }
 
+/// A `Controller` wraps a block device and gives access to the volumes within it.
 pub struct Controller<D> where D: BlockDevice {
     pub block_device: D
 }
 
-pub struct Card {
-    _x: (),
-}
-
-/// Identifies a FAT32 Volume on the disk.
-pub struct Volume {
-    lba_start: u32,
-    num_blocks: u32,
-    name: [u8; 11],
-}
-
-pub struct Directory<'a> {
-    _parent: &'a Volume,
-}
-
-pub struct DirEntry {
-    pub name: [u8; 11],
-    pub mtine: u32,
-    pub ctime: u32,
-    pub attributes: u8,
-}
-
-pub struct File<'a> {
-    _parent: &'a Volume,
-    _offset: u32,
-}
-
-impl core::ops::Deref for Block {
-    type Target = [u8];
-    fn deref(&self) -> &[u8] {
-        &self.contents
-    }
-}
-
-impl core::fmt::Debug for Block {
-    fn fmt(&self, fmt: &mut core::fmt::Formatter) -> core::fmt::Result {
-        write!(fmt, "Block: ")?;
-        for b in self.contents.iter() {
-            write!(fmt, "{:02x} ", b)?;
-        }
-        Ok(())
-    }
-}
-
-impl Block {
-    pub const LEN: usize = 512;
-
-    pub fn new() -> Block {
-        Block {
-            contents: [0u8; Self::LEN],
-        }
-    }
+#[derive(Debug)]
+pub enum Volume {
+    Fat(FatVolume)
 }
 
 impl<D> Controller<D> where D: BlockDevice {
-    pub const PARTITION_ID_FAT32_LBA: u8 = 0x0C;
 
     pub fn new(block_device: D) -> Controller<D> {
         Controller {
@@ -92,71 +39,56 @@ impl<D> Controller<D> where D: BlockDevice {
     }
 
     pub fn get_volume(&mut self, volume_idx: usize) -> Result<Volume, Error<D>> {
-        let mut blocks = [Block::new()];
+        const PARTITION1_START: usize = 446;
+        const PARTITION2_START: usize = 462;
+        const PARTITION3_START: usize = 478;
+        const PARTITION4_START: usize = 492;
+        const FOOTER_START: usize = 510;
+        const FOOTER_VALUE: u16 = 0x55AA;
+        const PARTITION_INFO_LENGTH: usize = 16;
+        const PARTITION_INFO_STATUS_INDEX: usize = 0;
+        const PARTITION_INFO_TYPE_INDEX: usize = 4;
+
         let (lba_start, num_blocks) = {
+            let mut blocks = [Block::new()];
             self.block_device.read(&mut blocks, 0).map_err(|e| Error::DeviceError(e))?;
             let block = &blocks[0];
-            if block[511] != 0xAA {
-                return Err(Error::FormatError("Invalid MBR signature."));
-            }
-            if block[510] != 0x55 {
+            // We only support Master Boot Record (MBR) partitioned cards, not
+            // GUID Partition Table (GPT)
+            if LittleEndian::read_u16(&block[FOOTER_START..FOOTER_START+2]) != FOOTER_VALUE {
                 return Err(Error::FormatError("Invalid MBR signature."));
             }
             let partition = match volume_idx {
                 0 => {
-                    &block[446..462]
+                    &block[PARTITION1_START..(PARTITION1_START+PARTITION_INFO_LENGTH)]
                 }
                 1 => {
-                    &block[462..478]
+                    &block[PARTITION2_START..(PARTITION2_START+PARTITION_INFO_LENGTH)]
                 }
                 2 => {
-                    &block[478..492]
+                    &block[PARTITION3_START..(PARTITION3_START+PARTITION_INFO_LENGTH)]
                 }
                 3 => {
-                    &block[492..510]
+                    &block[PARTITION4_START..(PARTITION4_START+PARTITION_INFO_LENGTH)]
                 }
                 _ => {
                     return Err(Error::NoSuchVolume);
                 }
             };
-            if (partition[0] & 0x7F) != 0x00 {
+            // Only 0x80 and 0x00 are value (bootable, and non-bootable)
+            if (partition[PARTITION_INFO_STATUS_INDEX] & 0x7F) != 0x00 {
                 return Err(Error::FormatError("Invalid partition status."));
             }
-            if partition[4] != Self::PARTITION_ID_FAT32_LBA {
+            // We only handle FAT32 LBA for now
+            if partition[PARTITION_INFO_TYPE_INDEX] != fat::PARTITION_ID_FAT32_LBA {
                 return Err(Error::FormatError("Partition is not of type FAT32 LBA."));
             }
-            (
-                LittleEndian::read_u32(&partition[8..12]),
-                LittleEndian::read_u32(&partition[12..16]),
-            )
+            let lba_start = LittleEndian::read_u32(&partition[8..12]);
+            let num_blocks = LittleEndian::read_u32(&partition[12..16]);
+            (lba_start, num_blocks)
         };
-        let volume = {
-            self.block_device.read(&mut blocks, lba_start).map_err(|e| Error::DeviceError(e))?;
-            let block = &blocks[0];
-            if block[511] != 0xAA {
-                return Err(Error::FormatError("Invalid partition signature."));
-            }
-            if block[510] != 0x55 {
-                return Err(Error::FormatError("Invalid partition signature."));
-            }
-            let mut volume = Volume {
-                lba_start,
-                num_blocks,
-                name: [0u8; 11]
-            };
-            volume.name[..].copy_from_slice(&block[71..82]);
-            volume
-        };
-        Ok(volume)
-    }
-}
-
-impl core::fmt::Debug for Volume {
-    fn fmt(&self, fmt: &mut core::fmt::Formatter) -> core::fmt::Result {
-        write!(fmt, "Volume(name={:?}, ", core::str::from_utf8(&self.name))?;
-        write!(fmt, "lba_start=0x{:08x}, ", self.lba_start)?;
-        write!(fmt, "num_blocks=0x{:08x})", self.num_blocks)?;
-        Ok(())
+        let volume = fat::parse_volume(self, lba_start, num_blocks)?;
+        Ok(Volume::Fat(volume))
     }
 }
 
