@@ -31,7 +31,7 @@ pub fn parse_volume<D>(
 ) -> Result<Volume, Error<D>>
 where
     D: BlockDevice,
-    D::Error: core::fmt::Debug
+    D::Error: core::fmt::Debug,
 {
     const FOOTER_START: usize = 510;
     const FOOTER_VALUE: u16 = 0xAA55;

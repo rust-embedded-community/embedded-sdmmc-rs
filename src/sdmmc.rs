@@ -34,7 +34,11 @@ impl BlockDevice for SdMmcDevice {
     type Error = SdError;
 
     /// Read one or more blocks, starting at the given block index.
-    fn read(&mut self, _blocks: &mut [Block], _start_block_idx: BlockIdx) -> Result<(), Self::Error> {
+    fn read(
+        &mut self,
+        _blocks: &mut [Block],
+        _start_block_idx: BlockIdx,
+    ) -> Result<(), Self::Error> {
         unimplemented!();
     }
     /// Write one or more blocks, starting at the given block index.
