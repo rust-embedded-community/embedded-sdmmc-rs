@@ -18,7 +18,7 @@ pub struct BlockIdx(pub u32);
 
 /// Represents a block device which is <= 2 TiB in size.
 pub trait BlockDevice {
-    type Error;
+    type Error: core::fmt::Debug;
     /// Read one or more blocks, starting at the given block index.
     fn read(&mut self, blocks: &mut [Block], start_block_idx: BlockIdx) -> Result<(), Self::Error>;
     /// Write one or more blocks, starting at the given block index.

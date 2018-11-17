@@ -8,6 +8,7 @@ use byteorder::{ByteOrder, LittleEndian};
 pub const PARTITION_ID_FAT32_LBA: u8 = 0x0C;
 
 /// Identifies a FAT32 Volume on the disk.
+#[derive(PartialEq, Eq)]
 pub struct Volume {
     pub(crate) lba_start: BlockIdx,
     pub(crate) num_blocks: BlockIdx,
@@ -30,6 +31,7 @@ pub fn parse_volume<D>(
 ) -> Result<Volume, Error<D>>
 where
     D: BlockDevice,
+    D::Error: core::fmt::Debug
 {
     const FOOTER_START: usize = 510;
     const FOOTER_VALUE: u16 = 0xAA55;
