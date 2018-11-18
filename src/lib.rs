@@ -8,6 +8,7 @@ pub mod blockdevice;
 pub mod fat;
 pub mod filesystem;
 pub mod sdmmc;
+pub mod sdmmc_proto;
 
 pub use crate::blockdevice::{Block, BlockDevice, BlockIdx};
 pub use crate::fat::Volume as FatVolume;
