@@ -288,11 +288,11 @@ pub struct Cid {
 }
 
 pub struct CsdV1 {
-    data: [u8; 16],
+    pub data: [u8; 16],
 }
 
 pub struct CsdV2 {
-    data: [u8; 16],
+    pub data: [u8; 16],
 }
 
 pub enum Csd {
@@ -334,6 +334,10 @@ macro_rules! define_field {
 }
 
 impl CsdV1 {
+    pub fn new() -> CsdV1 {
+        CsdV1 { data: [0u8; 16] }
+    }
+
     define_field!(csd_ver, u8, 0, 6, 2);
     define_field!(data_read_access_time1, u8, 1, 0, 8);
     define_field!(data_read_access_time2, u8, 2, 0, 8);
@@ -378,6 +382,10 @@ impl CsdV1 {
 }
 
 impl CsdV2 {
+    pub fn new() -> CsdV2 {
+        CsdV2 { data: [0u8; 16] }
+    }
+
     define_field!(csd_ver, u8, 0, 6, 2);
     define_field!(data_read_access_time1, u8, 1, 0, 8);
     define_field!(data_read_access_time2, u8, 2, 0, 8);
