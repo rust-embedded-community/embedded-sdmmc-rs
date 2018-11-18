@@ -364,91 +364,33 @@ impl CsdV1 {
     define_field!(crc, u8, 15, 0, 8);
 }
 
-// impl CsdV1 {
-//     // byte 10
-//     // unsigned char sector_size_high : 6;
-//     // unsigned char erase_blk_en : 1;
-//     // unsigned char c_size_mult_low : 1;
-
-//     pub fn erase_blk_en(&self) -> bool {
-//         ((self.data[10] >> 1) & 0x01) != 0
-//     }
-
-//     pub fn sector_size(&self) -> u16 {
-//         let high = ((self.data[10] >> 2) & 0x3F) as u16;
-//         let lo = (self.data[11] & 0x01) as u16;
-//         (high << 1) | low
-//     }
-
-//     // byte 11
-//     // unsigned char wp_grp_size : 7;
-//     // unsigned char sector_size_low : 1;
-
-//     pub fn wr_grp_size(&self) -> u8 {
-//         (self.data[9] >> 1) & 0x7F
-//     }
-
-//     // byte 12
-//     // unsigned char write_bl_len_high : 2;
-//     // unsigned char r2w_factor : 3;
-//     // unsigned char reserved3 : 2;
-//     // unsigned char wp_grp_enable : 1;
-
-//     pub fn r2w_factor(&self) -> u8 {
-//         (self.data[12] >> 3) & 0x07)
-//     }
-
-//     pub fn wp_grp_enable(&self) -> bool {
-//         ((self.data[12] >> 0) & 0x01) != 0
-//     }
-
-//     pub fn write_bl_len(&self) -> u16 {
-//         let high = ((self.data[12] >> 6) & 0x03) as u16;
-//         let lo = (self.data[13] & 0x03) as u16;
-//         (high << 2) | low
-//     }
-
-//     // byte 13
-//     // unsigned char reserved4 : 5;
-//     // unsigned char write_partial : 1;
-//     // unsigned char write_bl_len_low : 2;
-
-//     pub fn write_partial(&self) -> bool {
-//         ((self.data[13] >> 2) & 0x01) != 0
-//     }
-
-//     // byte 14
-//     // unsigned char reserved5: 2;
-//     // unsigned char file_format : 2;
-//     // unsigned char tmp_write_protect : 1;
-//     // unsigned char perm_write_protect : 1;
-//     // unsigned char copy : 1;
-//     // unsigned char file_format_grp : 1;
-
-//     pub fn file_format(&self) -> u8 {
-//         (self.data[14] >> 4) & 0x03)
-//     }
-
-//     pub fn tmp_write_protect(&self) -> bool {
-//         ((self.data[14] >> 3) & 0x01) != 0
-//     }
-
-//     pub fn perm_write_protect(&self) -> bool {
-//         ((self.data[14] >> 2) & 0x01) != 0
-//     }
-
-//     pub fn copy(&self) -> bool {
-//         ((self.data[14] >> 1) & 0x01) != 0
-//     }
-
-//     pub fn file_format_grp(&self) -> bool {
-//         ((self.data[14] >> 0) & 0x01) != 0
-//     }
-
-//     // byte 15
-//     // unsigned char always1 : 1;
-//     // unsigned char crc : 7;
-// }
+impl CsdV2 {
+    define_field!(csd_ver, u8, 0, 6, 2);
+    define_field!(data_read_access_time1, u8, 1, 0, 8);
+    define_field!(data_read_access_time2, u8, 2, 0, 8);
+    define_field!(max_data_transfer_rate, u8, 3, 0, 8);
+    define_field!(card_command_classes, u16, [(4, 0, 8), (5, 4, 4)]);
+    define_field!(read_block_length, u8, 5, 0, 4);
+    define_field!(read_partial_blocks, bool, 6, 7);
+    define_field!(write_block_misalignment, bool, 6, 6);
+    define_field!(read_block_misalignment, bool, 6, 5);
+    define_field!(dsr_implemented, bool, 6, 4);
+    define_field!(device_size, u32, [(7, 0, 6), (8, 0, 8), (9, 0, 8)]);
+    define_field!(device_size_multiplier, u8, [(9, 0, 2), (10, 7, 1)]);
+    define_field!(erase_single_block_enabled, bool, 10, 6);
+    define_field!(erase_sector_size, u8, [(10, 0, 6), (11, 7, 1)]);
+    define_field!(write_protect_group_size, u8, 11, 0, 7);
+    define_field!(write_protect_group_enable, bool, 12, 7);
+    define_field!(write_speed_factor, u8, 12, 2, 3);
+    define_field!(max_write_data_length, u8, [(12, 0, 2), (13, 6, 2)]);
+    define_field!(write_partial_blocks, bool, 13, 5);
+    define_field!(file_format, u8, 14, 2, 2);
+    define_field!(temporary_write_protection, bool, 14, 4);
+    define_field!(permanent_write_protection, bool, 14, 5);
+    define_field!(copy_flag_set, bool, 14, 6);
+    define_field!(file_format_group_set, bool, 14, 7);
+    define_field!(crc, u8, 15, 0, 8);
+}
 
 #[cfg(test)]
 mod test {
@@ -466,115 +408,118 @@ mod test {
         // CSD Structure: describes version of CSD structure
         // 0b00 [Interpreted: Version 1.0]
         assert_eq!(EXAMPLE.csd_ver(), 0x00);
-        //
-        // Data Read Access Time 1: defines Asynchronous part of the read access time
-        // 0x26 [Interpreted: 1.5 x 1ms]
+
+        // Data Read Access Time 1: defines Asynchronous part of the read
+        // access time 0x26 [Interpreted: 1.5 x 1ms]
         assert_eq!(EXAMPLE.data_read_access_time1(), 0x26);
-        //
-        // Data Read Access Time 2: worst case clock dependent factor for data access time
-        // 0x00 [Decimal: 0 x 100 Clocks]
+
+        // Data Read Access Time 2: worst case clock dependent factor for data
+        // access time 0x00 [Decimal: 0 x 100 Clocks]
         assert_eq!(EXAMPLE.data_read_access_time2(), 0x00);
-        //
+
         // Max Data Transfer Rate: sometimes stated as Mhz
         // 0x32 [Interpreted: 2.5 x 10Mbit/s]
         assert_eq!(EXAMPLE.max_data_transfer_rate(), 0x32);
-        //
-        // Card Command Classes:
-        // 0x5f5 [Interpreted: Class 0: Yes. Class 1: No. Class 2: Yes. Class 3: No. Class 4: Yes. Class 5: Yes. Class 6: Yes. Class 7: Yes. Class 8: Yes. Class 9: No. Class 10: Yes. Class 11: No. ]
+
+        // Card Command Classes: 0x5f5 [Interpreted: Class 0: Yes. Class 1:
+        // No. Class 2: Yes. Class 3: No. Class 4: Yes. Class 5: Yes. Class 6:
+        // Yes. Class 7: Yes. Class 8: Yes. Class 9: No. Class 10: Yes. Class
+        // 11: No. ]
         assert_eq!(EXAMPLE.card_command_classes(), 0x5f5);
-        //
+
         // Max Read Data Block Length:
         // 0x9 [Interpreted: 512 Bytes]
         assert_eq!(EXAMPLE.read_block_length(), 0x09);
-        //
+
         // Partial Blocks for Read Allowed:
         // 0b1 [Interpreted: Yes]
         assert_eq!(EXAMPLE.read_partial_blocks(), true);
-        //
+
         // Write Block Misalignment:
         // 0b0 [Interpreted: No]
         assert_eq!(EXAMPLE.write_block_misalignment(), false);
-        //
+
         // Read Block Misalignment:
         // 0b0 [Interpreted: No]
         assert_eq!(EXAMPLE.read_block_misalignment(), false);
-        //
-        // DSR Implemented: indicates configurable driver stage integrated on card
-        // 0b0 [Interpreted: No]
+
+        // DSR Implemented: indicates configurable driver stage integrated on
+        // card 0b0 [Interpreted: No]
         assert_eq!(EXAMPLE.dsr_implemented(), false);
-        //
-        // Device Size: to calculate the card capacity excl. security area ((device size + 1)*device size multiplier*max read data block length) bytes
-        // 0xf22 [Decimal: 3874]
+
+        // Device Size: to calculate the card capacity excl. security area
+        // ((device size + 1)*device size multiplier*max read data block
+        // length) bytes 0xf22 [Decimal: 3874]
         assert_eq!(EXAMPLE.device_size(), 3874);
-        //
+
         // Max Read Current @ VDD Min:
         // 0x5 [Interpreted: 35mA]
         assert_eq!(EXAMPLE.max_read_current_vdd_min(), 5);
-        //
+
         // Max Read Current @ VDD Max:
         // 0x5 [Interpreted: 80mA]
         assert_eq!(EXAMPLE.max_read_current_vdd_max(), 5);
-        //
+
         // Max Write Current @ VDD Min:
         // 0x6 [Interpreted: 60mA]
         assert_eq!(EXAMPLE.max_write_current_vdd_min(), 6);
-        //
+
         // Max Write Current @ VDD Max::
         // 0x6 [Interpreted: 200mA]
         assert_eq!(EXAMPLE.max_write_current_vdd_max(), 6);
-        //
+
         // Device Size Multiplier:
         // 0x7 [Interpreted: x512]
         assert_eq!(EXAMPLE.device_size_multiplier(), 7);
-        //
+
         // Erase Single Block Enabled:
         // 0x1 [Interpreted: Yes]
         assert_eq!(EXAMPLE.erase_single_block_enabled(), true);
-        //
+
         // Erase Sector Size: size of erasable sector in write blocks
         // 0x1f [Interpreted: 32 blocks]
         assert_eq!(EXAMPLE.erase_sector_size(), 0x1F);
-        //
+
         // Write Protect Group Size:
         // 0x7f [Interpreted: 128 sectors]
         assert_eq!(EXAMPLE.write_protect_group_size(), 0x7f);
-        //
+
         // Write Protect Group Enable:
         // 0x1 [Interpreted: Yes]
         assert_eq!(EXAMPLE.write_protect_group_enable(), true);
-        //
+
         // Write Speed Factor: block program time as multiple of read access time
         // 0x4 [Interpreted: x16]
         assert_eq!(EXAMPLE.write_speed_factor(), 0x4);
-        //
+
         // Max Write Data Block Length:
         // 0x9 [Interpreted: 512 Bytes]
         assert_eq!(EXAMPLE.max_write_data_length(), 0x9);
-        //
+
         // Partial Blocks for Write Allowed:
         // 0x0 [Interpreted: No]
         assert_eq!(EXAMPLE.write_partial_blocks(), false);
-        //
+
         // File Format Group:
         // 0b0 [Interpreted: is either Hard Disk with Partition Table/DOS FAT without Partition Table/Universal File Format/Other/Unknown]
         assert_eq!(EXAMPLE.file_format_group_set(), false);
-        //
+
         // Copy Flag:
         // 0b1 [Interpreted: Non-Original]
         assert_eq!(EXAMPLE.copy_flag_set(), true);
-        //
+
         // Permanent Write Protection:
         // 0b0 [Interpreted: No]
         assert_eq!(EXAMPLE.permanent_write_protection(), false);
-        //
+
         // Temporary Write Protection:
         // 0b0 [Interpreted: No]
         assert_eq!(EXAMPLE.temporary_write_protection(), false);
-        //
+
         // File Format:
         // 0x0 [Interpreted: Hard Disk with Partition Table]
         assert_eq!(EXAMPLE.file_format(), 0x00);
-        //
+
         // CRC7 Checksum + always 1 in LSB:
         // 0xa5
         assert_eq!(EXAMPLE.crc(), 0xa5);
@@ -704,5 +649,111 @@ mod test {
         // CRC7 Checksum + always 1 in LSB:
         // 0x6f
         assert_eq!(EXAMPLE.crc(), 0x6F);
+    }
+
+    #[test]
+    fn test_csdv2() {
+        const EXAMPLE: CsdV2 = CsdV2 {
+            data: [
+                0x40, 0x0e, 0x00, 0x32, 0x5b, 0x59, 0x00, 0x00, 0x1d, 0x69, 0x7f, 0x80, 0x0a, 0x40,
+                0x00, 0x8b,
+            ],
+        };
+        // CSD Structure: describes version of CSD structure
+        // 0b01 [Interpreted: Version 2.0 SDHC]
+        assert_eq!(EXAMPLE.csd_ver(), 0x01);
+
+        // Data Read Access Time 1: defines Asynchronous part of the read access time
+        // 0x0e [Interpreted: 1.0 x 1ms]
+        assert_eq!(EXAMPLE.data_read_access_time1(), 0x0E);
+
+        // Data Read Access Time 2: worst case clock dependent factor for data access time
+        // 0x00 [Decimal: 0 x 100 Clocks]
+        assert_eq!(EXAMPLE.data_read_access_time2(), 0x00);
+
+        // Max Data Transfer Rate: sometimes stated as Mhz
+        // 0x32 [Interpreted: 2.5 x 10Mbit/s]
+        assert_eq!(EXAMPLE.max_data_transfer_rate(), 0x32);
+
+        // Card Command Classes:
+        // 0x5b5 [Interpreted: Class 0: Yes. Class 1: No. Class 2: Yes. Class 3: No. Class 4: Yes. Class 5: Yes. Class 6: No. Class 7: Yes. Class 8: Yes. Class 9: No. Class 10: Yes. Class 11: No. ]
+        assert_eq!(EXAMPLE.card_command_classes(), 0x5b5);
+
+        // Max Read Data Block Length:
+        // 0x9 [Interpreted: 512 Bytes]
+        assert_eq!(EXAMPLE.read_block_length(), 0x09);
+
+        // Partial Blocks for Read Allowed:
+        // 0b0 [Interpreted: Yes]
+        assert_eq!(EXAMPLE.read_partial_blocks(), false);
+
+        // Write Block Misalignment:
+        // 0b0 [Interpreted: No]
+        assert_eq!(EXAMPLE.write_block_misalignment(), false);
+
+        // Read Block Misalignment:
+        // 0b0 [Interpreted: No]
+        assert_eq!(EXAMPLE.read_block_misalignment(), false);
+
+        // DSR Implemented: indicates configurable driver stage integrated on card
+        // 0b0 [Interpreted: No]
+        assert_eq!(EXAMPLE.dsr_implemented(), false);
+
+        // Device Size: to calculate the card capacity excl. security area
+        // ((device size + 1)* 512kbytes
+        // 0x001d69 [Decimal: 7529]
+        assert_eq!(EXAMPLE.device_size(), 7529);
+
+        // Erase Single Block Enabled:
+        // 0x1 [Interpreted: Yes]
+        assert_eq!(EXAMPLE.erase_single_block_enabled(), true);
+
+        // Erase Sector Size: size of erasable sector in write blocks
+        // 0x7f [Interpreted: 128 blocks]
+        assert_eq!(EXAMPLE.erase_sector_size(), 0x7F);
+
+        // Write Protect Group Size:
+        // 0x00 [Interpreted: 1 sectors]
+        assert_eq!(EXAMPLE.write_protect_group_size(), 0x00);
+
+        // Write Protect Group Enable:
+        // 0x0 [Interpreted: No]
+        assert_eq!(EXAMPLE.write_protect_group_enable(), false);
+
+        // Write Speed Factor: block program time as multiple of read access time
+        // 0x2 [Interpreted: x4]
+        assert_eq!(EXAMPLE.write_speed_factor(), 0x2);
+
+        // Max Write Data Block Length:
+        // 0x9 [Interpreted: 512 Bytes]
+        assert_eq!(EXAMPLE.max_write_data_length(), 0x9);
+
+        // Partial Blocks for Write Allowed:
+        // 0x0 [Interpreted: No]
+        assert_eq!(EXAMPLE.write_partial_blocks(), false);
+
+        // File Format Group:
+        // 0b0 [Interpreted: is either Hard Disk with Partition Table/DOS FAT without Partition Table/Universal File Format/Other/Unknown]
+        assert_eq!(EXAMPLE.file_format_group_set(), false);
+
+        // Copy Flag:
+        // 0b0 [Interpreted: Original]
+        assert_eq!(EXAMPLE.copy_flag_set(), false);
+
+        // Permanent Write Protection:
+        // 0b0 [Interpreted: No]
+        assert_eq!(EXAMPLE.permanent_write_protection(), false);
+
+        // Temporary Write Protection:
+        // 0b0 [Interpreted: No]
+        assert_eq!(EXAMPLE.temporary_write_protection(), false);
+
+        // File Format:
+        // 0x0 [Interpreted: Hard Disk with Partition Table]
+        assert_eq!(EXAMPLE.file_format(), 0x00);
+
+        // CRC7 Checksum + always 1 in LSB:
+        // 0x6f
+        assert_eq!(EXAMPLE.crc(), 0x8b);
     }
 }
