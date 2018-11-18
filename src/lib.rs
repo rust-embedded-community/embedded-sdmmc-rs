@@ -22,6 +22,7 @@ where
     DeviceError(D::Error),
     FormatError(&'static str),
     NoSuchVolume,
+    Unknown,
 }
 
 /// A `Controller` wraps a block device and gives access to the volumes within it.

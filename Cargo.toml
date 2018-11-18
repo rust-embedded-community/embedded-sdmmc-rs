@@ -13,3 +13,4 @@ edition = "2018"
 embedded-hal = "0.2.2"
 byteorder = { version = "1", default-features = false }
 crc = { version = "1.8", default-features = false }
+nb = "0.1"
