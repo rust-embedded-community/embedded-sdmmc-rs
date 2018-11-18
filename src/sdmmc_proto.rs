@@ -362,6 +362,12 @@ impl CsdV1 {
     define_field!(copy_flag_set, bool, 14, 6);
     define_field!(file_format_group_set, bool, 14, 7);
     define_field!(crc, u8, 15, 0, 8);
+
+    /// Returns the card capacity in bytes
+    pub fn card_capacity_bytes(&self) -> u32 {
+        let multiplier = self.device_size_multiplier() + self.read_block_length() + 2;
+        (self.device_size() as u32 + 1) << multiplier
+    }
 }
 
 impl CsdV2 {
@@ -376,7 +382,6 @@ impl CsdV2 {
     define_field!(read_block_misalignment, bool, 6, 5);
     define_field!(dsr_implemented, bool, 6, 4);
     define_field!(device_size, u32, [(7, 0, 6), (8, 0, 8), (9, 0, 8)]);
-    define_field!(device_size_multiplier, u8, [(9, 0, 2), (10, 7, 1)]);
     define_field!(erase_single_block_enabled, bool, 10, 6);
     define_field!(erase_sector_size, u8, [(10, 0, 6), (11, 7, 1)]);
     define_field!(write_protect_group_size, u8, 11, 0, 7);
@@ -390,6 +395,11 @@ impl CsdV2 {
     define_field!(copy_flag_set, bool, 14, 6);
     define_field!(file_format_group_set, bool, 14, 7);
     define_field!(crc, u8, 15, 0, 8);
+
+    /// Returns the card capacity in bytes
+    pub fn card_capacity_bytes(&self) -> u32 {
+        (self.device_size() + 1) * 512 * 1024
+    }
 }
 
 #[cfg(test)]
@@ -523,6 +533,8 @@ mod test {
         // CRC7 Checksum + always 1 in LSB:
         // 0xa5
         assert_eq!(EXAMPLE.crc(), 0xa5);
+
+        assert_eq!(EXAMPLE.card_capacity_bytes(), 1_015_808_000);
     }
 
     #[test]
@@ -649,6 +661,8 @@ mod test {
         // CRC7 Checksum + always 1 in LSB:
         // 0x6f
         assert_eq!(EXAMPLE.crc(), 0x6F);
+
+        assert_eq!(EXAMPLE.card_capacity_bytes(), 1_978_662_912);
     }
 
     #[test]
@@ -755,5 +769,7 @@ mod test {
         // CRC7 Checksum + always 1 in LSB:
         // 0x6f
         assert_eq!(EXAMPLE.crc(), 0x8b);
+
+        assert_eq!(EXAMPLE.card_capacity_bytes(), 3_947_888_640);
     }
 }
