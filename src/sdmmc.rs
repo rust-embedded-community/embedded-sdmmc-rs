@@ -6,31 +6,42 @@ use super::{Block, BlockDevice, BlockIdx};
 
 use super::Error as GenericError;
 
-type Error = GenericError<SdMmcDevice>;
+type Error<S> = GenericError<SdMmcSpi<S>>;
 
-pub struct SdMmcDevice();
+pub struct SdMmcSpi<S>
+where
+    S: embedded_hal::spi::FullDuplex<u8>,
+{
+    spi: S,
+}
 
 #[derive(Debug, Clone)]
 pub enum SdError {
     Unknown,
 }
 
-impl SdMmcDevice {
-    pub fn new(_spi: ()) -> Result<SdMmcDevice, Error> {
+impl<S> SdMmcSpi<S>
+where
+    S: embedded_hal::spi::FullDuplex<u8>,
+{
+    pub fn new(spi: S) -> SdMmcSpi<S> {
+        SdMmcSpi { spi }
+    }
+    pub fn init(&mut self) -> Result<(), Error<S>> {
         unimplemented!()
     }
-    pub fn init(&mut self) -> Result<(), Error> {
+    pub fn card_size(&mut self) -> Result<BlockIdx, Error<S>> {
         unimplemented!()
     }
-    pub fn card_size(&mut self) -> Result<BlockIdx, Error> {
-        unimplemented!()
-    }
-    pub fn erase(&mut self, _first_block: BlockIdx, _last_block: BlockIdx) -> Result<(), Error> {
+    pub fn erase(&mut self, _first_block: BlockIdx, _last_block: BlockIdx) -> Result<(), Error<S>> {
         unimplemented!()
     }
 }
 
-impl BlockDevice for SdMmcDevice {
+impl<S> BlockDevice for SdMmcSpi<S>
+where
+    S: embedded_hal::spi::FullDuplex<u8>,
+{
     type Error = SdError;
 
     /// Read one or more blocks, starting at the given block index.
