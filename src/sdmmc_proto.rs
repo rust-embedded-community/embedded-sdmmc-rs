@@ -411,7 +411,6 @@ impl CsdV2 {
     pub fn card_capacity_blocks(&self) -> u32 {
         (self.device_size() + 1) * 1024
     }
-
 }
 
 #[cfg(test)]
