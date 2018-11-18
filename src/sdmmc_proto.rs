@@ -413,9 +413,33 @@ impl CsdV2 {
     }
 }
 
+/// Perform the 7-bit CRC used on the SD card
+pub fn crc7(data: &[u8]) -> u8 {
+    let mut crc = 0u8;
+    for mut d in data.iter().cloned() {
+        for _bit in 0..8 {
+            crc <<= 1;
+            if ((d & 0x80) ^ (crc & 0x80)) != 0 {
+                crc ^= 0x09;
+            }
+            d <<= 1;
+        }
+    }
+    (crc << 1) | 1
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
+
+    #[test]
+    fn test_crc() {
+        const DATA: [u8; 15] = [
+            0x00, 0x26, 0x00, 0x32, 0x5f, 0x59, 0x83, 0xc8, 0xad, 0xdb, 0xcf, 0xff, 0xd2, 0x40,
+            0x40,
+        ];
+        assert_eq!(crc7(&DATA), 0xA5);
+    }
 
     #[test]
     fn test_csdv1b() {
