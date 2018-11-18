@@ -25,6 +25,8 @@
 /// > FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 /// > DEALINGS IN THE SOFTWARE.
 
+use crc::crc16;
+
 //==============================================================================
 
 // Possible errors the SD card can return
@@ -428,17 +430,26 @@ pub fn crc7(data: &[u8]) -> u8 {
     (crc << 1) | 1
 }
 
+pub fn crc16_ccitt(data: &[u8]) -> u16 {
+    crc16::checksum_x25(data)
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
 
     #[test]
-    fn test_crc() {
+    fn test_crc7() {
         const DATA: [u8; 15] = [
             0x00, 0x26, 0x00, 0x32, 0x5f, 0x59, 0x83, 0xc8, 0xad, 0xdb, 0xcf, 0xff, 0xd2, 0x40,
             0x40,
         ];
         assert_eq!(crc7(&DATA), 0xA5);
+    }
+
+    #[test]
+    fn test_crc16() {
+        assert_eq!(crc16_ccitt(b"\x82\x2f\x0a\x40\x00\x00\x7a\x44"), 0xd831);
     }
 
     #[test]
