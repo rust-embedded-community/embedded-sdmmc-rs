@@ -368,6 +368,12 @@ impl CsdV1 {
         let multiplier = self.device_size_multiplier() + self.read_block_length() + 2;
         (self.device_size() as u32 + 1) << multiplier
     }
+
+    /// Returns the card capacity in 512-byte blocks
+    pub fn card_capacity_blocks(&self) -> u32 {
+        let multiplier = self.device_size_multiplier() + self.read_block_length() - 7;
+        (self.device_size() as u32 + 1) << multiplier
+    }
 }
 
 impl CsdV2 {
@@ -400,6 +406,12 @@ impl CsdV2 {
     pub fn card_capacity_bytes(&self) -> u32 {
         (self.device_size() + 1) * 512 * 1024
     }
+
+    /// Returns the card capacity in 512-byte blocks
+    pub fn card_capacity_blocks(&self) -> u32 {
+        (self.device_size() + 1) * 1024
+    }
+
 }
 
 #[cfg(test)]
@@ -535,6 +547,7 @@ mod test {
         assert_eq!(EXAMPLE.crc(), 0xa5);
 
         assert_eq!(EXAMPLE.card_capacity_bytes(), 1_015_808_000);
+        assert_eq!(EXAMPLE.card_capacity_blocks(), 1_984_000);
     }
 
     #[test]
@@ -663,6 +676,7 @@ mod test {
         assert_eq!(EXAMPLE.crc(), 0x6F);
 
         assert_eq!(EXAMPLE.card_capacity_bytes(), 1_978_662_912);
+        assert_eq!(EXAMPLE.card_capacity_blocks(), 3_864_576);
     }
 
     #[test]
@@ -771,5 +785,6 @@ mod test {
         assert_eq!(EXAMPLE.crc(), 0x8b);
 
         assert_eq!(EXAMPLE.card_capacity_bytes(), 3_947_888_640);
+        assert_eq!(EXAMPLE.card_capacity_blocks(), 7_710_720);
     }
 }
