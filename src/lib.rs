@@ -13,11 +13,13 @@ pub mod sdmmc_proto;
 pub use crate::blockdevice::{Block, BlockDevice, BlockIdx};
 pub use crate::fat::Volume as FatVolume;
 pub use crate::filesystem::{DirEntry, Directory, File};
+pub use crate::sdmmc::{SdMmcSpi, SdMmcError};
 
 #[derive(Debug, Copy, Clone)]
 pub enum Error<D>
 where
     D: BlockDevice,
+    <D as BlockDevice>::Error: core::fmt::Debug
 {
     DeviceError(D::Error),
     FormatError(&'static str),
@@ -29,6 +31,7 @@ where
 pub struct Controller<D>
 where
     D: BlockDevice,
+    <D as BlockDevice>::Error: core::fmt::Debug
 {
     pub block_device: D,
 }
@@ -41,10 +44,15 @@ pub enum Volume {
 impl<D> Controller<D>
 where
     D: BlockDevice,
+    <D as BlockDevice>::Error: core::fmt::Debug
 {
     /// Create a new Disk Controller using a generic `BlockDevice`.
     pub fn new(block_device: D) -> Controller<D> {
         Controller { block_device }
+    }
+
+    pub fn device(&mut self) -> &mut D {
+        &mut self.block_device
     }
 
     /// Get a volume (or partition) based on entries in the Master Boot
