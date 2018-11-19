@@ -12,6 +12,7 @@ pub struct SdMmcSpi<SPI, CS>
 where
     SPI: embedded_hal::spi::FullDuplex<u8>,
     CS: embedded_hal::digital::OutputPin,
+    <SPI as embedded_hal::spi::FullDuplex<u8>>::Error: core::fmt::Debug
 {
     spi: SPI,
     cs: CS,
@@ -50,6 +51,10 @@ where
         }
     }
 
+    pub fn spi(&mut self) -> &mut SPI {
+        &mut self.spi
+    }
+
     /// This routine must be performed with an SPI clock speed of around 100 - 400 kHz.
     /// Afterwards you may increase the SPI clock speed.
     pub fn init(&mut self) -> Result<(), Error<SdMmcSpi<SPI, CS>>> {
@@ -67,14 +72,22 @@ where
         }
         // Assert CS
         self.cs.set_low();
+        // Enter SPI mode
         while self.card_command(CMD0, 0)? != R1_IDLE_STATE {
             // TODO: Check for timeout
+            // Crude delay loop to avoid battering the card
+            let foo: u32 = 0;
+            for _ in 0..2_000_000 {
+                unsafe { core::ptr::read_volatile(&foo) };
+            }
         }
+        // Enable CRC
         if self.card_command(CMD59, 1)? != R1_IDLE_STATE {
             return Err(Error::DeviceError(SdMmcError::CantEnableCRC));
         }
+        // Check card version
         loop {
-            if self.card_command(CMD0, 0x1AA)? == (R1_ILLEGAL_COMMAND | R1_IDLE_STATE) {
+            if self.card_command(CMD8, 0x1AA)? == (R1_ILLEGAL_COMMAND | R1_IDLE_STATE) {
                 self.card_type = CardType::SD1;
                 break;
             }
@@ -84,6 +97,7 @@ where
             let status = self.receive()?;
             if status == 0xAA {
                 self.card_type = CardType::SD2;
+                break;
             }
             // TODO: Check for timeout
         }
@@ -196,7 +210,7 @@ where
 
         for _ in 0..255 {
             let result = self.receive()?;
-            if (result & 0x80) != 0 {
+            if (result & 0x80) == 0 {
                 return Ok(result);
             }
         }
@@ -224,7 +238,7 @@ where
     fn wait_not_busy(&mut self) -> Result<(), Error<SdMmcSpi<SPI, CS>>> {
         loop {
             let s = self.receive()?;
-            if s != 0xFF {
+            if s == 0xFF {
                 break;
             }
             // TODO: Handle timeout here
