@@ -23,8 +23,6 @@ pub trait BlockDevice {
     fn read(&mut self, blocks: &mut [Block], start_block_idx: BlockIdx) -> Result<(), Self::Error>;
     /// Write one or more blocks, starting at the given block index.
     fn write(&mut self, blocks: &[Block], start_block_idx: BlockIdx) -> Result<(), Self::Error>;
-    /// Complete a multi-block transaction and return the SD card to idle mode.
-    fn sync(&mut self) -> Result<(), Self::Error>;
 }
 
 impl core::ops::Deref for Block {
@@ -36,9 +34,20 @@ impl core::ops::Deref for Block {
 
 impl core::fmt::Debug for Block {
     fn fmt(&self, fmt: &mut core::fmt::Formatter) -> core::fmt::Result {
-        write!(fmt, "Block: ")?;
-        for b in self.contents.iter() {
-            write!(fmt, "{:02x} ", b)?;
+        writeln!(fmt, "Block:")?;
+        for line in self.contents.chunks(32) {
+            for b in line {
+                write!(fmt, "{:02x}", b)?;
+            }
+            write!(fmt, " ")?;
+            for &b in line {
+                if b >= 0x20 && b <= 0x7F {
+                    write!(fmt, "{}", b as char)?;
+                } else {
+                    write!(fmt, ".")?;
+                }
+            }
+            write!(fmt, "\n")?;
         }
         Ok(())
     }

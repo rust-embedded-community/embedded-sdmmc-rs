@@ -12,8 +12,10 @@ pub mod sdmmc_proto;
 
 pub use crate::blockdevice::{Block, BlockDevice, BlockIdx};
 pub use crate::fat::Volume as FatVolume;
+pub use crate::fat::FatType;
 pub use crate::filesystem::{DirEntry, Directory, File};
-pub use crate::sdmmc::{SdMmcError, SdMmcSpi};
+pub use crate::sdmmc::Error as SdMmcError;
+pub use crate::sdmmc::SdMmcSpi;
 
 #[derive(Debug, Copy, Clone)]
 pub enum Error<E>
@@ -299,11 +301,6 @@ mod tests {
         ) -> Result<(), Self::Error> {
             unimplemented!();
         }
-
-        /// Complete a multi-block transaction and return the SD card to idle mode.
-        fn sync(&mut self) -> Result<(), Self::Error> {
-            Ok(())
-        }
     }
 
     #[test]
@@ -316,6 +313,7 @@ mod tests {
                 lba_start: BlockIdx(1),
                 num_blocks: BlockIdx(0x00112233),
                 name: *b"Pictures   ",
+                fat_type: FatType::Fat32
             })
         );
     }

@@ -30,6 +30,7 @@ impl BlockDevice for LinuxBlockDevice {
             .seek(SeekFrom::Start(start_block_idx.into_bytes()))?;
         for block in blocks.iter_mut() {
             self.file.read_exact(&mut block.contents)?;
+            println!("Read: {:?}", &block);
         }
         Ok(())
     }
@@ -39,12 +40,8 @@ impl BlockDevice for LinuxBlockDevice {
             .seek(SeekFrom::Start(start_block_idx.into_bytes()))?;
         for block in blocks.iter() {
             self.file.write_all(&block.contents)?;
+            println!("Wrote: {:?}", &block);
         }
-        Ok(())
-    }
-
-    fn sync(&mut self) -> Result<(), Self::Error> {
-        self.file.flush()?;
         Ok(())
     }
 }
