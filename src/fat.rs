@@ -28,7 +28,7 @@ pub fn parse_volume<D>(
     controller: &mut Controller<D>,
     lba_start: BlockIdx,
     num_blocks: BlockIdx,
-) -> Result<Volume, Error<D>>
+) -> Result<Volume, Error<D::Error>>
 where
     D: BlockDevice,
     D::Error: core::fmt::Debug,

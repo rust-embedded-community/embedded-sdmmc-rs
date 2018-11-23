@@ -1,6 +1,9 @@
 //! embedded-sdmmc-rs - SDMMC Protocol
 //!
 //! Implements the SD/MMC protocol on some generic SPI interface.
+//!
+//! This is currently optimised for readability and debugability, not
+//! performance.
 
 use super::sdmmc_proto::*;
 use super::{Block, BlockDevice, BlockIdx};
@@ -14,7 +17,7 @@ pub struct SdMmcSpi<SPI, CS>
 where
     SPI: embedded_hal::spi::FullDuplex<u8>,
     CS: embedded_hal::digital::OutputPin,
-    <SPI as embedded_hal::spi::FullDuplex<u8>>::Error: core::fmt::Debug
+    <SPI as embedded_hal::spi::FullDuplex<u8>>::Error: core::fmt::Debug,
 {
     spi: SPI,
     cs: CS,
@@ -23,14 +26,14 @@ where
     delay_count: u32,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub enum SdMmcError {
     Transport,
     CantEnableCRC,
     Timeout,
     Cmd58Error,
     RegisterReadError,
-    CrcError,
+    CrcError(u16, u16),
     ReadError,
     BadState,
 }
@@ -55,23 +58,26 @@ where
     CS: embedded_hal::digital::OutputPin,
     <SPI as embedded_hal::spi::FullDuplex<u8>>::Error: core::fmt::Debug,
 {
+    /// Create a new SD/MMC controller using a raw SPI interface.
     pub fn new(spi: SPI, cs: CS) -> SdMmcSpi<SPI, CS> {
         SdMmcSpi {
             spi,
             cs,
             card_type: CardType::SD1,
             state: State::NoInit,
-            delay_count: DEFAULT_DELAY_COUNT
+            delay_count: DEFAULT_DELAY_COUNT,
         }
     }
 
+    /// Get a temporary borrow on the underlying SPI device. Useful if you
+    /// need to re-clock the SPI after performing `init()`.
     pub fn spi(&mut self) -> &mut SPI {
         &mut self.spi
     }
 
     /// This routine must be performed with an SPI clock speed of around 100 - 400 kHz.
     /// Afterwards you may increase the SPI clock speed.
-    pub fn init(&mut self) -> Result<(), Error<SdMmcSpi<SPI, CS>>> {
+    pub fn init(&mut self) -> Result<(), Error<SdMmcError>> {
         let f = |s: &mut Self| {
             // Assume it hasn't worked
             s.state = State::Error;
@@ -133,7 +139,6 @@ where
             }
             s.state = State::Idle;
             Ok(())
-
         };
         let result = f(self);
         self.cs.set_high();
@@ -141,7 +146,8 @@ where
         result
     }
 
-    pub fn card_size_bytes(&mut self) -> Result<u32, Error<SdMmcSpi<SPI, CS>>> {
+    /// Return the usable size of this SD card in bytes.
+    pub fn card_size_bytes(&mut self) -> Result<u64, Error<SdMmcError>> {
         self.with_chip_select(|s| {
             if s.state != State::Idle {
                 return Err(Error::DeviceError(SdMmcError::BadState));
@@ -154,18 +160,34 @@ where
         })
     }
 
-    fn with_chip_select<F, T>(&mut self, func: F) -> T where F: FnOnce(&mut Self) -> T {
+    /// Erase some blocks on the card.
+    pub fn erase(
+        &mut self,
+        _first_block: BlockIdx,
+        _last_block: BlockIdx,
+    ) -> Result<(), Error<SdMmcError>> {
+        unimplemented!();
+    }
+
+    /// Perform a function that might error with the chipselect low.
+    /// Always releases the chipselect, even if the function errors.
+    fn with_chip_select<F, T>(&mut self, func: F) -> T
+    where
+        F: FnOnce(&mut Self) -> T,
+    {
         self.cs.set_low();
         let result = func(self);
         self.cs.set_low();
         result
     }
 
+    /// Call this at the start of a delay loop.
     fn delay_init(&mut self) {
         self.delay_count = DEFAULT_DELAY_COUNT;
     }
 
-    fn delay(&mut self) -> Result<(), Error<SdMmcSpi<SPI, CS>>> {
+    /// Call this in the delay loop.
+    fn delay(&mut self) -> Result<(), Error<SdMmcError>> {
         // Crude delay loop to avoid battering the card
         if self.delay_count == 0 {
             return Err(Error::DeviceError(SdMmcError::Timeout));
@@ -179,7 +201,8 @@ where
         Ok(())
     }
 
-    fn read_csd(&mut self) -> Result<Csd, Error<SdMmcSpi<SPI, CS>>> {
+    /// Read the 'card specific data' block.
+    fn read_csd(&mut self) -> Result<Csd, Error<SdMmcError>> {
         match self.card_type {
             CardType::SD1 => {
                 let mut csd = CsdV1::new();
@@ -200,13 +223,17 @@ where
         }
     }
 
-    fn read_data(&mut self, buffer: &mut [u8]) -> Result<(), Error<SdMmcSpi<SPI, CS>>> {
+    /// Read an arbitrary number of bytes from the card. Always fills the
+    /// given buffer, so make sure it's the right size.
+    fn read_data(&mut self, buffer: &mut [u8]) -> Result<(), Error<SdMmcError>> {
+        // Get first non-FF byte.
+        self.delay_init();
         let status = loop {
             let s = self.receive()?;
             if s != 0xFF {
                 break s;
             }
-            // TODO: Handle timeout here
+            self.delay()?;
         };
         if status != DATA_START_BLOCK {
             return Err(Error::DeviceError(SdMmcError::ReadError));
@@ -220,19 +247,22 @@ where
         crc <<= 8;
         crc |= self.receive()? as u16;
 
-        if crc != crc16_ccitt(buffer) {
-            return Err(Error::DeviceError(SdMmcError::CrcError));
+        let calc_crc = crc16(buffer);
+        if crc != calc_crc {
+            return Err(Error::DeviceError(SdMmcError::CrcError(crc, calc_crc)));
         }
 
         Ok(())
     }
 
-    fn card_acmd(&mut self, command: u8, arg: u32) -> Result<u8, Error<SdMmcSpi<SPI, CS>>> {
+    /// Perform an application-specific command.
+    fn card_acmd(&mut self, command: u8, arg: u32) -> Result<u8, Error<SdMmcError>> {
         self.card_command(CMD55, 0)?;
         self.card_command(command, arg)
     }
 
-    fn card_command(&mut self, command: u8, arg: u32) -> Result<u8, Error<SdMmcSpi<SPI, CS>>> {
+    /// Perform a command.
+    fn card_command(&mut self, command: u8, arg: u32) -> Result<u8, Error<SdMmcError>> {
         self.wait_not_busy()?;
         let mut buf = [
             0x40 | command,
@@ -264,23 +294,25 @@ where
     }
 
     /// Receive a byte from the SD card by clocking in an 0xFF byte.
-    fn receive(&mut self) -> Result<u8, Error<SdMmcSpi<SPI, CS>>> {
+    fn receive(&mut self) -> Result<u8, Error<SdMmcError>> {
         self.transfer(0xFF)
     }
 
     /// Send a byte from the SD card.
-    fn send(&mut self, out: u8) -> Result<(), Error<SdMmcSpi<SPI, CS>>> {
+    fn send(&mut self, out: u8) -> Result<(), Error<SdMmcError>> {
         let _ = self.transfer(out)?;
         Ok(())
     }
 
     /// Send one byte and receive one byte.
-    fn transfer(&mut self, out: u8) -> Result<u8, Error<SdMmcSpi<SPI, CS>>> {
+    fn transfer(&mut self, out: u8) -> Result<u8, Error<SdMmcError>> {
         block!(self.spi.send(out)).map_err(|_e| Error::DeviceError(SdMmcError::Transport))?;
         block!(self.spi.read()).map_err(|_e| Error::DeviceError(SdMmcError::Transport))
     }
 
-    fn wait_not_busy(&mut self) -> Result<(), Error<SdMmcSpi<SPI, CS>>> {
+    /// Spin until the card returns 0xFF, or we spin too many times and
+    /// timeout.
+    fn wait_not_busy(&mut self) -> Result<(), Error<SdMmcError>> {
         self.delay_init();
         loop {
             let s = self.receive()?;
@@ -290,17 +322,6 @@ where
             self.delay()?;
         }
         Ok(())
-    }
-
-    pub fn card_size(&mut self) -> Result<BlockIdx, Error<SdMmcSpi<SPI, CS>>> {
-        unimplemented!()
-    }
-    pub fn erase(
-        &mut self,
-        _first_block: BlockIdx,
-        _last_block: BlockIdx,
-    ) -> Result<(), Error<SdMmcSpi<SPI, CS>>> {
-        unimplemented!()
     }
 }
 

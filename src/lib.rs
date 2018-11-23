@@ -13,15 +13,14 @@ pub mod sdmmc_proto;
 pub use crate::blockdevice::{Block, BlockDevice, BlockIdx};
 pub use crate::fat::Volume as FatVolume;
 pub use crate::filesystem::{DirEntry, Directory, File};
-pub use crate::sdmmc::{SdMmcSpi, SdMmcError};
+pub use crate::sdmmc::{SdMmcError, SdMmcSpi};
 
 #[derive(Debug, Copy, Clone)]
-pub enum Error<D>
+pub enum Error<E>
 where
-    D: BlockDevice,
-    <D as BlockDevice>::Error: core::fmt::Debug
+    E: core::fmt::Debug,
 {
-    DeviceError(D::Error),
+    DeviceError(E),
     FormatError(&'static str),
     NoSuchVolume,
     Unknown,
@@ -31,7 +30,7 @@ where
 pub struct Controller<D>
 where
     D: BlockDevice,
-    <D as BlockDevice>::Error: core::fmt::Debug
+    <D as BlockDevice>::Error: core::fmt::Debug,
 {
     pub block_device: D,
 }
@@ -44,7 +43,7 @@ pub enum Volume {
 impl<D> Controller<D>
 where
     D: BlockDevice,
-    <D as BlockDevice>::Error: core::fmt::Debug
+    <D as BlockDevice>::Error: core::fmt::Debug,
 {
     /// Create a new Disk Controller using a generic `BlockDevice`.
     pub fn new(block_device: D) -> Controller<D> {
@@ -57,7 +56,7 @@ where
 
     /// Get a volume (or partition) based on entries in the Master Boot
     /// Record. We do not support GUID Partition Table disks.
-    pub fn get_volume(&mut self, volume_idx: usize) -> Result<Volume, Error<D>> {
+    pub fn get_volume(&mut self, volume_idx: usize) -> Result<Volume, Error<D::Error>> {
         const PARTITION1_START: usize = 446;
         const PARTITION2_START: usize = 462;
         const PARTITION3_START: usize = 478;
@@ -126,12 +125,6 @@ mod tests {
     #[derive(Debug)]
     enum Error {
         Unknown,
-    }
-
-    impl std::fmt::Debug for super::Error<DummyBlockDevice> {
-        fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-            write!(f, "Error")
-        }
     }
 
     impl BlockDevice for DummyBlockDevice {

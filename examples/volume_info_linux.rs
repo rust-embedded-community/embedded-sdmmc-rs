@@ -49,7 +49,7 @@ impl BlockDevice for LinuxBlockDevice {
     }
 }
 
-fn main() -> Result<(), Error<LinuxBlockDevice>> {
+fn main() -> Result<(), Error<std::io::Error>> {
     let lbd = LinuxBlockDevice::new("/dev/mmcblk0").map_err(|e| Error::DeviceError(e))?;
     println!("lbd: {:?}", lbd);
     let mut controller = Controller::new(lbd);
