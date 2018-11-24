@@ -198,26 +198,47 @@ impl<'a> Bpb<'a> {
 }
 
 struct OnDiskDirEntry<'a> {
-    contents: &'a [u8],
+    data: &'a [u8],
 }
 
 impl<'a> OnDiskDirEntry<'a> {
     const LEN: usize = 32;
 
-    fn new(contents: &[u8]) -> OnDiskDirEntry {
-        OnDiskDirEntry { contents }
+    define_field!(raw_attr, u8, 11);
+    define_field!(create_time, u16, 14);
+    define_field!(create_date, u16, 16);
+    define_field!(last_access_data, u16, 18);
+    define_field!(first_cluster_hi, u16, 20);
+    define_field!(write_time, u16, 22);
+    define_field!(write_date, u16, 24);
+    define_field!(first_cluster_lo, u16, 26);
+    define_field!(file_size, u32, 28);
+
+    fn new(data: &[u8]) -> OnDiskDirEntry {
+        OnDiskDirEntry { data }
     }
 
     fn is_end(&self) -> bool {
-        self.contents[0] == 0x00
+        self.data[0] == 0x00
     }
 
     fn is_valid(&self) -> bool {
-        !self.is_end() && (self.contents[0] != 0xE5)
+        !self.is_end() && (self.data[0] != 0xE5)
+    }
+
+    fn is_lfn(&self) -> bool {
+        let attributes = Attributes::create_from_fat(self.raw_attr());
+        attributes.is_lfn()
     }
 
     fn matches(&self, sfn: &ShortFileName) -> bool {
-        self.contents[0..11] == sfn.contents
+        self.data[0..11] == sfn.contents
+    }
+
+    fn first_cluster(&self) -> Inode {
+        let cluster_no =
+            ((self.first_cluster_hi() as u32) << 16) | (self.first_cluster_lo() as u32);
+        Inode(cluster_no)
     }
 
     fn get_entry(&self) -> DirEntry {
@@ -225,11 +246,13 @@ impl<'a> OnDiskDirEntry<'a> {
             name: ShortFileName {
                 contents: [0u8; 11],
             },
-            mtime: Timestamp(0),
-            ctime: Timestamp(0),
-            attributes: Attributes::create_from_fat(self.contents[11]),
+            mtime: Timestamp::from_fat(self.write_date(), self.write_time()),
+            ctime: Timestamp::from_fat(self.create_date(), self.create_time()),
+            attributes: Attributes::create_from_fat(self.raw_attr()),
+            inode: self.first_cluster(),
+            size: self.file_size(),
         };
-        result.name.contents.copy_from_slice(&self.contents[0..11]);
+        result.name.contents.copy_from_slice(&self.data[0..11]);
         result
     }
 }
@@ -510,8 +533,8 @@ where
                         if dir_entry.is_end() {
                             // Can quit early
                             return None;
-                        } else if dir_entry.is_valid() {
-                            // Found it
+                        } else if dir_entry.is_valid() && !dir_entry.is_lfn() {
+                            // Hide the LFN entries and deleted files
                             return Some(Ok(dir_entry.get_entry()));
                         }
                     }

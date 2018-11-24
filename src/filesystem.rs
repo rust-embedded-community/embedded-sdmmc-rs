@@ -25,11 +25,92 @@ pub struct Directory {
     pub(crate) inode: Inode,
 }
 
-#[derive(Debug, Copy, Clone, PartialOrd, Ord, PartialEq, Eq)]
-pub struct Timestamp(pub u32);
+/// Represents an instant in time, in the local time zone. TODO: Consider
+/// replacing this with POSIX time as a `u32`, which would save two bytes at
+/// the expense of some maths.
+#[derive(Copy, Clone, PartialOrd, Ord, PartialEq, Eq)]
+pub struct Timestamp {
+    pub year_since_1970: u8,
+    pub zero_indexed_month: u8,
+    pub zero_indexed_day: u8,
+    pub hours: u8,
+    pub minutes: u8,
+    pub seconds: u8,
+}
 
-#[derive(Debug, Copy, Clone, PartialOrd, Ord, PartialEq, Eq)]
+impl Timestamp {
+    const MONTH_LOOKUP: [u32; 12] = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334];
+
+    /// Create a `Timestamp` from the 16-bit FAT date and time fields.
+    pub fn from_fat(date: u16, time: u16) -> Timestamp {
+        let year = (1980 + (date >> 9)) as u16;
+        let month = ((date >> 5) & 0x000F) as u8;
+        let day = ((date >> 0) & 0x001F) as u8;
+        let hours = ((time >> 11) & 0x001F) as u8;
+        let minutes = ((time >> 5) & 0x0003F) as u8;
+        let seconds = ((time << 1) & 0x0003F) as u8;
+        Timestamp {
+            year_since_1970: (year - 1970) as u8,
+            zero_indexed_month: month - 1,
+            zero_indexed_day: day - 1,
+            hours,
+            minutes,
+            seconds,
+        }
+    }
+}
+
+impl core::fmt::Debug for Timestamp {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        write!(f, "{}", self)
+    }
+}
+
+impl core::fmt::Display for Timestamp {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        write!(
+            f,
+            "{}-{:02}-{:02}T{:02}:{:02}:{:02}",
+            self.year_since_1970 as u16 + 1970,
+            self.zero_indexed_month + 1,
+            self.zero_indexed_day + 1,
+            self.hours,
+            self.minutes,
+            self.seconds
+        )
+    }
+}
+
+#[derive(Copy, Clone, PartialOrd, Ord, PartialEq, Eq)]
 pub struct Attributes(u8);
+
+impl core::fmt::Debug for Attributes {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        if self.is_lfn() {
+            write!(f, "LFN")?;
+        } else {
+            if self.is_directory() {
+                write!(f, "D")?;
+            }
+            if self.is_read_only() {
+                write!(f, "R")?;
+            }
+            if self.is_hidden() {
+                write!(f, "H")?;
+            }
+            if self.is_system() {
+                write!(f, "S")?;
+            }
+            if self.is_volume() {
+                write!(f, "V")?;
+            }
+            if self.is_archive() {
+                write!(f, "A")?;
+            }
+        }
+        Ok(())
+    }
+}
 
 impl Attributes {
     pub const READ_ONLY: u8 = 0x01;
@@ -186,6 +267,8 @@ pub struct DirEntry {
     pub mtime: Timestamp,
     pub ctime: Timestamp,
     pub attributes: Attributes,
+    pub inode: Inode,
+    pub size: u32,
 }
 
 pub struct File {
