@@ -1,23 +1,29 @@
 //! embedded-sdmmc: A SD/MMC Library written in Embedded Rust
 
 #![cfg_attr(not(test), no_std)]
+#![allow(dead_code)]
 
 use byteorder::{ByteOrder, LittleEndian};
 
-pub mod blockdevice;
-pub mod fat;
-pub mod filesystem;
-pub mod sdmmc;
-pub mod sdmmc_proto;
+#[macro_use]
+mod structure;
+
+mod blockdevice;
+mod fat;
+mod filesystem;
+mod sdmmc;
+mod sdmmc_proto;
 
 pub use crate::blockdevice::{Block, BlockDevice, BlockIdx};
-pub use crate::fat::Volume as FatVolume;
-pub use crate::fat::FatType;
-pub use crate::filesystem::{DirEntry, Directory, File};
+pub use crate::fat::{Fat16Volume, Fat32Volume};
+pub use crate::filesystem::{
+    Attributes, DirEntry, Directory, File, FilenameError, Inode, ShortFileName, TimeSource,
+    Timestamp,
+};
 pub use crate::sdmmc::Error as SdMmcError;
 pub use crate::sdmmc::SdMmcSpi;
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Clone)]
 pub enum Error<E>
 where
     E: core::fmt::Debug,
@@ -25,44 +31,97 @@ where
     DeviceError(E),
     FormatError(&'static str),
     NoSuchVolume,
+    FilenameError(FilenameError),
+    TooManyOpenDirs,
+    TooManyOpenFiles,
+    FileNotFound,
     Unknown,
 }
 
+/// We have to track what directories are open to prevent users from modifying
+/// open directories (like creating a file when we have an open iterator).
+pub const MAX_OPEN_DIRS: usize = 4;
+
+/// We have to track what files and directories are open to prevent users from
+/// deleting open files (like Windows does).
+pub const MAX_OPEN_FILES: usize = 4;
+
 /// A `Controller` wraps a block device and gives access to the volumes within it.
-pub struct Controller<D>
+pub struct Controller<'a, D, T>
 where
     D: BlockDevice,
+    T: TimeSource + 'a,
     <D as BlockDevice>::Error: core::fmt::Debug,
 {
-    pub block_device: D,
+    block_device: D,
+    timesource: &'a T,
+    open_dirs: [(VolumeIdx, Inode); MAX_OPEN_DIRS],
+    open_files: [(VolumeIdx, Inode); MAX_OPEN_DIRS],
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub enum Volume {
-    Fat(FatVolume),
+pub struct Volume {
+    idx: VolumeIdx,
+    volume_type: VolumeType,
 }
 
-impl<D> Controller<D>
+#[derive(Debug, PartialEq, Eq)]
+pub enum VolumeType {
+    Fat16(Fat16Volume),
+    Fat32(Fat32Volume),
+}
+
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
+pub struct VolumeIdx(pub usize);
+
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
+pub enum Mode {
+    ReadOnly,
+    ReadWriteAppend,
+    ReadWriteTruncate,
+}
+
+/// Marker for a FAT32 partition. Sometimes also use for FAT16 formatted
+/// partitions.
+const PARTITION_ID_FAT32_LBA: u8 = 0x0C;
+/// Marker for a FAT16 partition with LBA. Seen on a Raspberry Pi SD card.
+const PARTITION_ID_FAT16_LBA: u8 = 0x0E;
+/// Marker for a FAT16 partition. Seen on a card formatted with the official
+/// SD-Card formatter.
+const PARTITION_ID_FAT16: u8 = 0x06;
+
+impl<'a, D, T> Controller<'a, D, T>
 where
     D: BlockDevice,
+    T: TimeSource + 'a,
     <D as BlockDevice>::Error: core::fmt::Debug,
 {
-    /// Create a new Disk Controller using a generic `BlockDevice`.
-    pub fn new(block_device: D) -> Controller<D> {
-        Controller { block_device }
+    /// Create a new Disk Controller using a generic `BlockDevice`. From this
+    /// controller we can open volumes (partitions) and with those we can open
+    /// files.
+    pub fn new(block_device: D, timesource: &'a T) -> Controller<'a, D, T> {
+        Controller {
+            block_device,
+            timesource,
+            open_dirs: [(VolumeIdx(0), Inode::INVALID); 4],
+            open_files: [(VolumeIdx(0), Inode::INVALID); 4],
+        }
     }
 
+    /// Temporarily get access to the underlying block device.
     pub fn device(&mut self) -> &mut D {
         &mut self.block_device
     }
 
     /// Get a volume (or partition) based on entries in the Master Boot
-    /// Record. We do not support GUID Partition Table disks.
-    pub fn get_volume(&mut self, volume_idx: usize) -> Result<Volume, Error<D::Error>> {
+    /// Record. We do not support GUID Partition Table disks. Nor do we
+    /// support any concept of drive letters - that is for a higher layer to
+    /// handle.
+    pub fn get_volume(&mut self, volume_idx: VolumeIdx) -> Result<Volume, Error<D::Error>> {
         const PARTITION1_START: usize = 446;
-        const PARTITION2_START: usize = 462;
-        const PARTITION3_START: usize = 478;
-        const PARTITION4_START: usize = 492;
+        const PARTITION2_START: usize = PARTITION1_START + PARTITION_INFO_LENGTH;
+        const PARTITION3_START: usize = PARTITION2_START + PARTITION_INFO_LENGTH;
+        const PARTITION4_START: usize = PARTITION3_START + PARTITION_INFO_LENGTH;
         const FOOTER_START: usize = 510;
         const FOOTER_VALUE: u16 = 0xAA55;
         const PARTITION_INFO_LENGTH: usize = 16;
@@ -80,20 +139,28 @@ where
             // We only support Master Boot Record (MBR) partitioned cards, not
             // GUID Partition Table (GPT)
             if LittleEndian::read_u16(&block[FOOTER_START..FOOTER_START + 2]) != FOOTER_VALUE {
-                return Err(Error::FormatError("Invalid MBR signature."));
+                return Err(Error::FormatError("Invalid MBR signature"));
             }
             let partition = match volume_idx {
-                0 => &block[PARTITION1_START..(PARTITION1_START + PARTITION_INFO_LENGTH)],
-                1 => &block[PARTITION2_START..(PARTITION2_START + PARTITION_INFO_LENGTH)],
-                2 => &block[PARTITION3_START..(PARTITION3_START + PARTITION_INFO_LENGTH)],
-                3 => &block[PARTITION4_START..(PARTITION4_START + PARTITION_INFO_LENGTH)],
+                VolumeIdx(0) => {
+                    &block[PARTITION1_START..(PARTITION1_START + PARTITION_INFO_LENGTH)]
+                }
+                VolumeIdx(1) => {
+                    &block[PARTITION2_START..(PARTITION2_START + PARTITION_INFO_LENGTH)]
+                }
+                VolumeIdx(2) => {
+                    &block[PARTITION3_START..(PARTITION3_START + PARTITION_INFO_LENGTH)]
+                }
+                VolumeIdx(3) => {
+                    &block[PARTITION4_START..(PARTITION4_START + PARTITION_INFO_LENGTH)]
+                }
                 _ => {
                     return Err(Error::NoSuchVolume);
                 }
             };
             // Only 0x80 and 0x00 are valid (bootable, and non-bootable)
             if (partition[PARTITION_INFO_STATUS_INDEX] & 0x7F) != 0x00 {
-                return Err(Error::FormatError("Invalid partition status."));
+                return Err(Error::FormatError("Invalid partition status"));
             }
             let lba_start = LittleEndian::read_u32(
                 &partition[PARTITION_INFO_LBA_START_INDEX..(PARTITION_INFO_LBA_START_INDEX + 4)],
@@ -107,13 +174,153 @@ where
                 BlockIdx(num_blocks),
             )
         };
-        // We only handle FAT32 LBA for now
         match part_type {
-            fat::PARTITION_ID_FAT32_LBA => {
+            PARTITION_ID_FAT32_LBA | PARTITION_ID_FAT16_LBA | PARTITION_ID_FAT16 => {
                 let volume = fat::parse_volume(self, lba_start, num_blocks)?;
-                Ok(Volume::Fat(volume))
+                Ok(Volume {
+                    idx: volume_idx,
+                    volume_type: volume,
+                })
             }
-            _ => Err(Error::FormatError("Partition is not of type FAT32 LBA.")),
+            _ => Err(Error::FormatError("Partition type not supported")),
+        }
+    }
+
+    /// Open a directory. You can then read the directory entries in a random
+    /// order using `get_directory_entry`.
+    ///
+    /// TODO: Work out how to prevent damage occuring to the file system while
+    /// this directory handle is open. In particular, stop this directory
+    /// being unlinked.
+    pub fn open_root_dir(&mut self, volume: &Volume) -> Result<Directory, Error<D::Error>> {
+        // Find a free directory entry
+        let mut space = None;
+        for (i, d) in self.open_dirs.iter().enumerate() {
+            if d.1 == Inode::INVALID {
+                space = Some(i);
+                break;
+            }
+        }
+        match space {
+            Some(idx) => {
+                let result: Result<Directory, Error<D::Error>> = match &volume.volume_type {
+                    VolumeType::Fat16(fat) => fat.get_root_directory(self),
+                    VolumeType::Fat32(_fat) => Err(Error::Unknown),
+                };
+                if let Ok(ref d) = result {
+                    // Remember this open directory
+                    self.open_dirs[idx] = (volume.idx, d.inode);
+                }
+                result
+            }
+            None => Err(Error::TooManyOpenDirs),
+        }
+    }
+
+    /// Open a directory. You can then read the directory entries in a random
+    /// order using `get_directory_entry`.
+    ///
+    /// TODO: Work out how to prevent damage occuring to the file system while
+    /// this directory handle is open. In particular, stop this directory
+    /// being unlinked.
+    pub fn open_dir(
+        &mut self,
+        volume: &Volume,
+        _root: &Directory,
+        _name: &str,
+    ) -> Result<Directory, Error<D::Error>> {
+        // Find a free directory entry
+        let mut space = None;
+        for (i, d) in self.open_dirs.iter().enumerate() {
+            if d.1 == Inode::INVALID {
+                space = Some(i);
+                break;
+            }
+        }
+        match space {
+            Some(idx) => {
+                let result: Result<Directory, Error<D::Error>> = match &volume.volume_type {
+                    VolumeType::Fat16(_fat) => Err(Error::Unknown),
+                    VolumeType::Fat32(_fat) => Err(Error::Unknown),
+                };
+                if let Ok(ref d) = result {
+                    // Remember this open directory
+                    self.open_dirs[idx] = (volume.idx, d.inode);
+                }
+                result
+            }
+            None => Err(Error::TooManyOpenDirs),
+        }
+    }
+
+    pub fn close_dir(&mut self, volume: &Volume, dir: Directory) -> Result<(), Error<D::Error>> {
+        let target = (volume.idx, dir.inode);
+        for d in self.open_dirs.iter_mut() {
+            if *d == target {
+                d.1 = Inode::INVALID;
+                break;
+            }
+        }
+        Ok(())
+    }
+
+    pub fn find_directory_entry(
+        &mut self,
+        volume: &Volume,
+        dir: &Directory,
+        name: &str,
+    ) -> Result<DirEntry, Error<D::Error>> {
+        match &volume.volume_type {
+            VolumeType::Fat16(fat) => fat.find_dir_entry(self, dir, name),
+            VolumeType::Fat32(_fat) => Err(Error::Unknown),
+        }
+    }
+
+    pub fn iterate_dir(
+        &'a mut self,
+        volume: &'a Volume,
+        dir: &'a Directory,
+    ) -> Result<DirIterator<'a, D, T>, Error<D::Error>> {
+        match &volume.volume_type {
+            VolumeType::Fat16(fat) => Ok(DirIterator::Fat(fat.iterate_dir(self, dir)?)),
+            _ => unimplemented!(),
+        }
+    }
+
+    pub fn open_file(
+        &mut self,
+        _volume: &Volume,
+        _path: &str,
+        _mode: Mode,
+    ) -> Result<File, Error<D::Error>> {
+        unimplemented!();
+    }
+
+    pub fn close_file(&mut self, _file: File) -> Result<(), Error<D::Error>> {
+        unimplemented!();
+    }
+}
+
+pub enum DirIterator<'a, D: 'a, T: 'a>
+where
+    D: BlockDevice,
+    T: TimeSource,
+    D::Error: core::fmt::Debug,
+{
+    Fat(fat::DirIterator<'a, D, T>),
+}
+
+impl<'a, D, T> Iterator for DirIterator<'a, D, T>
+where
+    D: BlockDevice,
+    T: TimeSource,
+    D::Error: core::fmt::Debug,
+{
+    type Item = Result<DirEntry, Error<D::Error>>;
+
+    fn next(&mut self) -> Option<Result<DirEntry, Error<D::Error>>> {
+        match self {
+            DirIterator::Fat(f) => f.next(),
         }
     }
 }
@@ -124,20 +331,24 @@ mod tests {
 
     struct DummyBlockDevice;
 
+    struct Clock;
+
     #[derive(Debug)]
     enum Error {
         Unknown,
+    }
+
+    impl TimeSource for Clock {
+        fn get_timestamp(&self) -> Timestamp {
+            Timestamp(0)
+        }
     }
 
     impl BlockDevice for DummyBlockDevice {
         type Error = Error;
 
         /// Read one or more blocks, starting at the given block index.
-        fn read(
-            &mut self,
-            blocks: &mut [Block],
-            start_block_idx: BlockIdx,
-        ) -> Result<(), Self::Error> {
+        fn read(&self, blocks: &mut [Block], start_block_idx: BlockIdx) -> Result<(), Self::Error> {
             // Actual blocks taken from an SD card, except I've changed the start and length of partition 0.
             static BLOCKS: [Block; 2] = [
                 Block {
@@ -301,20 +512,27 @@ mod tests {
         ) -> Result<(), Self::Error> {
             unimplemented!();
         }
+
+        /// Determine how many blocks this device can hold.
+        fn num_blocks(&self) -> Result<BlockIdx, Self::Error> {
+            Ok(BlockIdx(2))
+        }
     }
 
     #[test]
     fn partition0() {
-        let mut c = Controller::new(DummyBlockDevice);
-        let v = c.get_volume(0).unwrap();
+        let mut c = Controller::new(DummyBlockDevice, &Clock);
+        let v = c.get_volume(VolumeIdx(0)).unwrap();
         assert_eq!(
             v,
-            Volume::Fat(FatVolume {
-                lba_start: BlockIdx(1),
-                num_blocks: BlockIdx(0x00112233),
-                name: *b"Pictures   ",
-                fat_type: FatType::Fat32
-            })
+            Volume {
+                idx: VolumeIdx(0),
+                volume_type: VolumeType::Fat32(Fat32Volume {
+                    lba_start: BlockIdx(1),
+                    num_blocks: BlockIdx(0x00112233),
+                    name: *b"Pictures   ",
+                })
+            }
         );
     }
 }

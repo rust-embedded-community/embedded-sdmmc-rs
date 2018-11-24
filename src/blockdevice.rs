@@ -16,19 +16,35 @@ pub struct Block {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct BlockIdx(pub u32);
 
+impl core::ops::Add<BlockIdx> for BlockIdx {
+    type Output = BlockIdx;
+    fn add(self, rhs: BlockIdx) -> BlockIdx {
+        BlockIdx(self.0 + rhs.0)
+    }
+}
+
 /// Represents a block device which is <= 2 TiB in size.
 pub trait BlockDevice {
     type Error: core::fmt::Debug;
     /// Read one or more blocks, starting at the given block index.
-    fn read(&mut self, blocks: &mut [Block], start_block_idx: BlockIdx) -> Result<(), Self::Error>;
+    fn read(&self, blocks: &mut [Block], start_block_idx: BlockIdx) -> Result<(), Self::Error>;
     /// Write one or more blocks, starting at the given block index.
     fn write(&mut self, blocks: &[Block], start_block_idx: BlockIdx) -> Result<(), Self::Error>;
+    /// Determine how many blocks this device can hold.
+    fn num_blocks(&self) -> Result<BlockIdx, Self::Error>;
 }
 
 impl core::ops::Deref for Block {
-    type Target = [u8];
-    fn deref(&self) -> &[u8] {
+    type Target = [u8; 512];
+    fn deref(&self) -> &[u8; 512] {
         &self.contents
+    }
+}
+
+impl core::ops::DerefMut for Block {
+    type Target = [u8; 512];
+    fn deref_mut(&mut self) -> &mut [u8; 512] {
+        &mut self.contents
     }
 }
 
