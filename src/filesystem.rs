@@ -49,10 +49,11 @@ impl Timestamp {
         let hours = ((time >> 11) & 0x001F) as u8;
         let minutes = ((time >> 5) & 0x0003F) as u8;
         let seconds = ((time << 1) & 0x0003F) as u8;
+        // Volume labels have a zero for month/day, so tolerate that...
         Timestamp {
             year_since_1970: (year - 1970) as u8,
-            zero_indexed_month: month - 1,
-            zero_indexed_day: day - 1,
+            zero_indexed_month: if month == 0 { 0 } else { month - 1 },
+            zero_indexed_day: if day == 0 { 0 } else { day - 1 },
             hours,
             minutes,
             seconds,
