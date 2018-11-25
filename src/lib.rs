@@ -307,30 +307,6 @@ where
     }
 }
 
-pub enum DirIterator<'a, D: 'a, T: 'a>
-where
-    D: BlockDevice,
-    T: TimeSource,
-    D::Error: core::fmt::Debug,
-{
-    Fat(fat::DirIterator<'a, D, T>),
-}
-
-impl<'a, D, T> Iterator for DirIterator<'a, D, T>
-where
-    D: BlockDevice,
-    T: TimeSource,
-    D::Error: core::fmt::Debug,
-{
-    type Item = Result<DirEntry, Error<D::Error>>;
-
-    fn next(&mut self) -> Option<Result<DirEntry, Error<D::Error>>> {
-        match self {
-            DirIterator::Fat(f) => f.next(),
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
