@@ -86,10 +86,15 @@ fn main() -> Result<(), Error<std::io::Error>> {
         controller.find_directory_entry(&volume, &dir, "TEST.TXT")
     );
     println!("Listing root directory:");
-    {
-        for dir_entry in controller.iterate_dir(&volume, &dir)? {
-            println!("Found: {:?}", &dir_entry);
-        }
-    }
+    controller.iterate_dir(&volume, &dir, |x| {
+        println!("Found: {:?}", x);
+    })?;
+    println!(
+        "Finding rand_1MB.DAT: {:?}",
+        controller.find_directory_entry(&volume, &dir, "rand_1MB.DAT")
+    );
+    assert!(controller.open_root_dir(&volume).is_err());
+    controller.close_dir(&volume, dir);
+    assert!(controller.open_root_dir(&volume).is_ok());
     Ok(())
 }

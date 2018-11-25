@@ -35,6 +35,7 @@ where
     TooManyOpenDirs,
     TooManyOpenFiles,
     FileNotFound,
+    FileAlreadyOpen,
     Unknown,
 }
 
@@ -196,6 +197,9 @@ where
         // Find a free directory entry
         let mut space = None;
         for (i, d) in self.open_dirs.iter().enumerate() {
+            if *d == (volume.idx, Inode::ROOT_DIR) {
+                return Err(Error::FileAlreadyOpen);
+            }
             if d.1 == Inode::INVALID {
                 space = Some(i);
                 break;
@@ -234,7 +238,6 @@ where
         for (i, d) in self.open_dirs.iter().enumerate() {
             if d.1 == Inode::INVALID {
                 space = Some(i);
-                break;
             }
         }
         match space {
@@ -253,7 +256,7 @@ where
         }
     }
 
-    pub fn close_dir(&mut self, volume: &Volume, dir: Directory) -> Result<(), Error<D::Error>> {
+    pub fn close_dir(&mut self, volume: &Volume, dir: Directory) {
         let target = (volume.idx, dir.inode);
         for d in self.open_dirs.iter_mut() {
             if *d == target {
@@ -261,7 +264,6 @@ where
                 break;
             }
         }
-        Ok(())
     }
 
     pub fn find_directory_entry(
@@ -272,17 +274,21 @@ where
     ) -> Result<DirEntry, Error<D::Error>> {
         match &volume.volume_type {
             VolumeType::Fat16(fat) => fat.find_dir_entry(self, dir, name),
-            VolumeType::Fat32(_fat) => Err(Error::Unknown),
+            _ => unimplemented!(),
         }
     }
 
-    pub fn iterate_dir(
-        &'a mut self,
-        volume: &'a Volume,
-        dir: &'a Directory,
-    ) -> Result<DirIterator<'a, D, T>, Error<D::Error>> {
+    pub fn iterate_dir<F>(
+        &mut self,
+        volume: &Volume,
+        dir: &Directory,
+        func: F,
+    ) -> Result<(), Error<D::Error>>
+    where
+        F: Fn(&DirEntry),
+    {
         match &volume.volume_type {
-            VolumeType::Fat16(fat) => Ok(DirIterator::Fat(fat.iterate_dir(self, dir)?)),
+            VolumeType::Fat16(fat) => fat.iterate_dir(self, dir, func),
             _ => unimplemented!(),
         }
     }

@@ -396,7 +396,6 @@ impl Fat16Volume {
         D: BlockDevice,
         T: TimeSource,
     {
-        const DIR_ENTRY_SIZE: usize = 32;
         let match_name = ShortFileName::new(name).map_err(|e| Error::FilenameError(e))?;
         match dir.inode {
             Inode::ROOT_DIR => {
@@ -419,9 +418,9 @@ impl Fat16Volume {
                         .block_device
                         .read(&mut blocks, self.lba_start + BlockIdx(sector))
                         .map_err(|e| Error::DeviceError(e))?;
-                    for entry in 0..Block::LEN / DIR_ENTRY_SIZE {
-                        let start = entry * DIR_ENTRY_SIZE;
-                        let end = (entry + 1) * DIR_ENTRY_SIZE;
+                    for entry in 0..Block::LEN / OnDiskDirEntry::LEN {
+                        let start = entry * OnDiskDirEntry::LEN;
+                        let end = (entry + 1) * OnDiskDirEntry::LEN;
                         let dir_entry = OnDiskDirEntry::new(&blocks[0][start..end]);
                         if dir_entry.is_end() {
                             // Can quit early
@@ -440,15 +439,16 @@ impl Fat16Volume {
         }
     }
 
-    const DIR_ENTRY_SIZE: usize = 32;
-
-    /// Get an entry from the given directory
-    pub(crate) fn iterate_dir<'a, D, T>(
-        &'a self,
-        controller: &'a mut Controller<'a, D, T>,
+    /// Calls callback `func` with every valid entry in the given directory.
+    /// Useful for performing directory listings.
+    pub(crate) fn iterate_dir<D, T, F>(
+        &self,
+        controller: &Controller<D, T>,
         dir: &Directory,
-    ) -> Result<DirIterator<'a, D, T>, Error<D::Error>>
+        func: F,
+    ) -> Result<(), Error<D::Error>>
     where
+        F: Fn(&DirEntry),
         D: BlockDevice,
         T: TimeSource,
     {
@@ -466,79 +466,30 @@ impl Fat16Volume {
                     let first_root_dir_sector_num = bpb.reserved_sector_count() as u32
                         + (bpb.num_fats() as u32 * bpb.fat_size() as u32);
                     let root_entries = bpb.root_entries_count();
-                    (BlockIdx(first_root_dir_sector_num), root_entries as usize)
+                    (first_root_dir_sector_num as u32, root_entries as u32)
                 };
-                Ok(DirIterator::Root16 {
-                    fat: self,
-                    controller,
-                    start_sector: self.lba_start + first_root_dir_sector_num,
-                    num_dir_entries: root_entries,
-                    next_entry: 0,
-                })
-            }
-            _ => {
-                unimplemented!();
-            }
-        }
-    }
-}
-
-pub enum DirIterator<'a, D, T>
-where
-    D: BlockDevice + 'a,
-    T: TimeSource + 'a,
-{
-    Root16 {
-        fat: &'a Fat16Volume,
-        controller: &'a mut Controller<'a, D, T>,
-        start_sector: BlockIdx,
-        num_dir_entries: usize,
-        next_entry: usize,
-    },
-}
-
-impl<'a, D, T> Iterator for DirIterator<'a, D, T>
-where
-    D: BlockDevice,
-    T: TimeSource,
-{
-    type Item = Result<DirEntry, Error<D::Error>>;
-
-    fn next(&mut self) -> Option<Result<DirEntry, Error<D::Error>>> {
-        match self {
-            DirIterator::Root16 {
-                fat,
-                controller,
-                start_sector,
-                num_dir_entries,
-                next_entry,
-            } => {
-                loop {
-                    if next_entry >= num_dir_entries {
-                        // We're done here
-                        return None;
-                    } else {
-                        let sector = start_sector.0 as usize
-                            + ((*next_entry * OnDiskDirEntry::LEN) / Block::LEN);
-                        let entry = *next_entry % (Block::LEN / OnDiskDirEntry::LEN);
-                        *next_entry += 1;
-                        let mut blocks = [Block::new()];
-                        controller
-                            .block_device
-                            .read(&mut blocks, BlockIdx(sector as u32))
-                            .map_err(|e| Error::DeviceError(e));
-                        let start = entry * Fat16Volume::DIR_ENTRY_SIZE;
-                        let end = (entry + 1) * Fat16Volume::DIR_ENTRY_SIZE;
+                for sector in first_root_dir_sector_num..first_root_dir_sector_num + root_entries {
+                    controller
+                        .block_device
+                        .read(&mut blocks, self.lba_start + BlockIdx(sector))
+                        .map_err(|e| Error::DeviceError(e))?;
+                    for entry in 0..Block::LEN / OnDiskDirEntry::LEN {
+                        let start = entry * OnDiskDirEntry::LEN;
+                        let end = (entry + 1) * OnDiskDirEntry::LEN;
                         let dir_entry = OnDiskDirEntry::new(&blocks[0][start..end]);
                         if dir_entry.is_end() {
                             // Can quit early
-                            return None;
+                            return Ok(());
                         } else if dir_entry.is_valid() && !dir_entry.is_lfn() {
-                            // Hide the LFN entries and deleted files
-                            return Some(Ok(dir_entry.get_entry()));
+                            let entry = dir_entry.get_entry();
+                            func(&entry);
                         }
                     }
                 }
+                Ok(())
+            }
+            _ => {
+                unimplemented!();
             }
         }
     }
