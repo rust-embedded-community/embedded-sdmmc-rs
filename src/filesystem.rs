@@ -1,6 +1,21 @@
 //! embedded-sdmmc-rs - Generic File System
 //!
-//! Implements generic file system components
+//! Implements generic file system components. These should be applicable to
+//! most (if not all) supported filesystems.
+
+// ****************************************************************************
+//
+// Imports
+//
+// ****************************************************************************
+
+// None
+
+// ****************************************************************************
+//
+// Public Types
+//
+// ****************************************************************************
 
 /// Things that impl this can tell you the current time.
 pub trait TimeSource {
@@ -10,19 +25,31 @@ pub trait TimeSource {
 
 /// Represents a cluster on disk.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub struct Inode(pub(crate) u32);
+pub struct Cluster(pub(crate) u32);
 
-impl Inode {
-    pub const INVALID: Inode = Inode(0xFFFFFFFF);
-    pub const BAD: Inode = Inode(0xFFFFFFFE);
-    pub const EMPTY: Inode = Inode(0xFFFFFFFD);
-    pub const ROOT_DIR: Inode = Inode(0xFFFFFFFC);
+/// Represents a directory entry, which tells you about
+/// other files and directories.
+#[derive(Debug)]
+pub struct DirEntry {
+    /// The name of the file
+    pub name: ShortFileName,
+    /// When the file was last modified
+    pub mtime: Timestamp,
+    /// When the file was first created
+    pub ctime: Timestamp,
+    /// The file attributes (Read Only, Archive, etc)
+    pub attributes: Attributes,
+    /// The starting cluster of the file. The FAT tells us the following Clusters.
+    pub cluster: Cluster,
+    /// The size of the file in bytes.
+    pub size: u32,
 }
 
-/// Represents a directory on disk.
-pub struct Directory {
-    /// If None, this is the root directory (which is special)
-    pub(crate) inode: Inode,
+/// An MS-DOS 8.3 filename. 7-bit ASCII only. All lower-case is converted to
+/// upper-case.
+#[derive(PartialEq, Eq)]
+pub struct ShortFileName {
+    pub(crate) contents: [u8; 11],
 }
 
 /// Represents an instant in time, in the local time zone. TODO: Consider
@@ -30,12 +57,206 @@ pub struct Directory {
 /// the expense of some maths.
 #[derive(Copy, Clone, PartialOrd, Ord, PartialEq, Eq)]
 pub struct Timestamp {
+    /// Add 1970 to this file to get the calendar year
     pub year_since_1970: u8,
+    /// Add one to this value to get the calendar month
     pub zero_indexed_month: u8,
+    /// Add one to this value to get the calendar day
     pub zero_indexed_day: u8,
+    /// The number of hours past midnight
     pub hours: u8,
+    /// The number of minutes past the hour
     pub minutes: u8,
+    /// The number of seconds past the minute
     pub seconds: u8,
+}
+
+/// Indicates whether a directory entry is read-only, a directory, a volume
+/// label, etc.
+#[derive(Copy, Clone, PartialOrd, Ord, PartialEq, Eq)]
+pub struct Attributes(u8);
+
+/// Represents an open file on disk.
+pub struct File {
+    pub(crate) cluster: Cluster,
+    /// We only support files up to 4 GiB(!)
+    pub(crate) current_offset: u32,
+    pub(crate) current_length: u32,
+}
+
+/// Represents an open directory on disk.
+pub struct Directory {
+    pub(crate) cluster: Cluster,
+}
+
+/// The different ways we can open a file.
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
+pub enum Mode {
+    /// Open a file for reading, if it exists.
+    ReadOnly,
+    /// Open a file for appending (writing to the end of the existing file), if it exists.
+    ReadWriteAppend,
+    /// Open a file and remove all contents, before writing to the start of the existing file, if it exists.
+    ReadWriteTruncate,
+    /// Create a new empty file. Fail if it exists.
+    ReadWriteCreate,
+    /// Create a new empty file, or truncate an existing file.
+    ReadWriteCreateOrTruncate,
+    /// Create a new empty file, or append to an existing file.
+    ReadWriteCreateOrAppend,
+}
+
+/// Various filename related errors that can occur.
+#[derive(Debug, Clone)]
+pub enum FilenameError {
+    InvalidCharacter,
+    FilenameEmpty,
+    NameTooLong,
+    MisplacedPeriod,
+}
+
+// ****************************************************************************
+//
+// Public Data
+//
+// ****************************************************************************
+
+// None
+
+// ****************************************************************************
+//
+// Private Types
+//
+// ****************************************************************************
+
+// None
+
+// ****************************************************************************
+//
+// Private Data
+//
+// ****************************************************************************
+
+// None
+
+// ****************************************************************************
+//
+// Public Functions / Impl for Public Types
+//
+// ****************************************************************************
+
+impl Cluster {
+    pub const INVALID: Cluster = Cluster(0xFFFFFFFF);
+    pub const BAD: Cluster = Cluster(0xFFFFFFFE);
+    pub const EMPTY: Cluster = Cluster(0xFFFFFFFD);
+    pub const ROOT_DIR: Cluster = Cluster(0xFFFFFFFC);
+}
+
+// impl DirEntry
+
+impl ShortFileName {
+    const FILENAME_BASE_MAX_LEN: usize = 8;
+    const FILENAME_EXT_MAX_LEN: usize = 3;
+    const FILENAME_MAX_LEN: usize = 11;
+
+    /// Create a new MS-DOS 8.3 space-padded file name as stored in the directory entry.
+    pub fn new(name: &str) -> Result<ShortFileName, FilenameError> {
+        let mut sfn = ShortFileName {
+            contents: [b' '; Self::FILENAME_MAX_LEN],
+        };
+        let mut idx = 0;
+        let mut seen_dot = false;
+        for ch in name.bytes() {
+            match ch {
+                // Microsoft say these are the invalid characters
+                0x00...0x1F
+                | 0x20
+                | 0x22
+                | 0x2A
+                | 0x2B
+                | 0x2C
+                | 0x2F
+                | 0x3A
+                | 0x3B
+                | 0x3C
+                | 0x3D
+                | 0x3E
+                | 0x3F
+                | 0x5B
+                | 0x5C
+                | 0x5D
+                | 0x7C => {
+                    return Err(FilenameError::InvalidCharacter);
+                }
+                // Denotes the start of the file extension
+                b'.' => {
+                    if idx >= 1 && idx <= Self::FILENAME_BASE_MAX_LEN {
+                        idx = Self::FILENAME_BASE_MAX_LEN;
+                        seen_dot = true;
+                    } else {
+                        return Err(FilenameError::MisplacedPeriod);
+                    }
+                }
+                _ => {
+                    let ch = if ch >= b'a' && ch <= b'z' {
+                        // Uppercase characters only
+                        ch - 32
+                    } else {
+                        ch
+                    };
+                    if seen_dot {
+                        if idx >= Self::FILENAME_BASE_MAX_LEN && idx < Self::FILENAME_MAX_LEN {
+                            sfn.contents[idx] = ch;
+                        } else {
+                            return Err(FilenameError::NameTooLong);
+                        }
+                    } else {
+                        if idx < Self::FILENAME_BASE_MAX_LEN {
+                            sfn.contents[idx] = ch;
+                        } else {
+                            return Err(FilenameError::NameTooLong);
+                        }
+                    }
+                    idx += 1;
+                }
+            }
+        }
+        if idx == 0 {
+            return Err(FilenameError::FilenameEmpty);
+        }
+        Ok(sfn)
+    }
+}
+
+impl core::fmt::Display for ShortFileName {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        let mut printed = 0;
+        for (i, &c) in self.contents.iter().enumerate() {
+            if c != b' ' {
+                if i == Self::FILENAME_BASE_MAX_LEN {
+                    write!(f, ".")?;
+                    printed += 1;
+                }
+                write!(f, "{}", c as char)?;
+                printed += 1;
+            }
+        }
+        if let Some(mut width) = f.width() {
+            if width > printed {
+                width -= printed;
+                for _ in 0..width {
+                    write!(f, "{}", f.fill())?;
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+impl core::fmt::Debug for ShortFileName {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        write!(f, "ShortFileName(\"{}\")", self)
+    }
 }
 
 impl Timestamp {
@@ -82,37 +303,6 @@ impl core::fmt::Display for Timestamp {
     }
 }
 
-#[derive(Copy, Clone, PartialOrd, Ord, PartialEq, Eq)]
-pub struct Attributes(u8);
-
-impl core::fmt::Debug for Attributes {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-        if self.is_lfn() {
-            write!(f, "LFN")?;
-        } else {
-            if self.is_directory() {
-                write!(f, "D")?;
-            }
-            if self.is_read_only() {
-                write!(f, "R")?;
-            }
-            if self.is_hidden() {
-                write!(f, "H")?;
-            }
-            if self.is_system() {
-                write!(f, "S")?;
-            }
-            if self.is_volume() {
-                write!(f, "V")?;
-            }
-            if self.is_archive() {
-                write!(f, "A")?;
-            }
-        }
-        Ok(())
-    }
-}
-
 impl Attributes {
     pub const READ_ONLY: u8 = 0x01;
     pub const HIDDEN: u8 = 0x02;
@@ -155,129 +345,53 @@ impl Attributes {
     }
 }
 
-/// An MS-DOS 8.3 filename. 7-bit ASCII only. All lower-case is converted to
-/// upper-case.
-#[derive(PartialEq, Eq)]
-pub struct ShortFileName {
-    pub(crate) contents: [u8; 11],
-}
-
-const FILENAME_LEN: usize = 8;
-
-impl core::fmt::Display for ShortFileName {
+impl core::fmt::Debug for Attributes {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-        for (i, &c) in self.contents.iter().enumerate() {
-            if c != b' ' {
-                if i == FILENAME_LEN {
-                    write!(f, ".")?;
-                }
-                write!(f, "{}", c as char)?;
+        if self.is_lfn() {
+            write!(f, "LFN")?;
+        } else {
+            if self.is_directory() {
+                write!(f, "D")?;
+            }
+            if self.is_read_only() {
+                write!(f, "R")?;
+            }
+            if self.is_hidden() {
+                write!(f, "H")?;
+            }
+            if self.is_system() {
+                write!(f, "S")?;
+            }
+            if self.is_volume() {
+                write!(f, "V")?;
+            }
+            if self.is_archive() {
+                write!(f, "A")?;
             }
         }
         Ok(())
     }
 }
 
-impl core::fmt::Debug for ShortFileName {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-        write!(f, "ShortFileName(\"{}\")", self)
-    }
-}
+impl File {}
 
-#[derive(Debug, Clone)]
-pub enum FilenameError {
-    InvalidCharacter,
-    FilenameEmpty,
-    NameTooLong,
-    MisplacedPeriod,
-}
+impl Directory {}
 
-impl ShortFileName {
-    /// Create a new MS-DOS 8.3 space-padded file name as stored in the directory entry.
-    pub fn new(name: &str) -> Result<ShortFileName, FilenameError> {
-        let mut sfn = ShortFileName {
-            contents: [b' '; 11],
-        };
-        let mut idx = 0;
-        let mut seen_dot = false;
-        for ch in name.bytes() {
-            match ch {
-                // Microsoft say these are the invalid characters
-                0x00...0x1F
-                | 0x20
-                | 0x22
-                | 0x2A
-                | 0x2B
-                | 0x2C
-                | 0x2F
-                | 0x3A
-                | 0x3B
-                | 0x3C
-                | 0x3D
-                | 0x3E
-                | 0x3F
-                | 0x5B
-                | 0x5C
-                | 0x5D
-                | 0x7C => {
-                    return Err(FilenameError::InvalidCharacter);
-                }
-                // Denotes the start of the file extension
-                b'.' => {
-                    if idx >= 1 && idx <= 8 {
-                        idx = 8;
-                        seen_dot = true;
-                    } else {
-                        return Err(FilenameError::MisplacedPeriod);
-                    }
-                }
-                _ => {
-                    let ch = if ch >= b'a' && ch <= b'z' {
-                        // Uppercase characters only
-                        ch - 32
-                    } else {
-                        ch
-                    };
-                    if seen_dot {
-                        if idx >= 8 && idx <= 10 {
-                            sfn.contents[idx] = ch;
-                        } else {
-                            return Err(FilenameError::NameTooLong);
-                        }
-                    } else {
-                        if idx <= 7 {
-                            sfn.contents[idx] = ch;
-                        } else {
-                            return Err(FilenameError::NameTooLong);
-                        }
-                    }
-                    idx += 1;
-                }
-            }
-        }
-        if idx == 0 {
-            return Err(FilenameError::FilenameEmpty);
-        }
-        Ok(sfn)
-    }
-}
+impl FilenameError {}
 
-#[derive(Debug)]
-pub struct DirEntry {
-    pub name: ShortFileName,
-    pub mtime: Timestamp,
-    pub ctime: Timestamp,
-    pub attributes: Attributes,
-    pub inode: Inode,
-    pub size: u32,
-}
+// ****************************************************************************
+//
+// Private Functions / Impl for Priate Types
+//
+// ****************************************************************************
 
-pub struct File {
-    pub(crate) inode: Inode,
-    /// We only support files up to 4 GiB(!)
-    pub(crate) current_offset: u32,
-    pub(crate) current_length: u32,
-}
+// None
+
+// ****************************************************************************
+//
+// Unit Tests
+//
+// ****************************************************************************
 
 #[cfg(test)]
 mod test {
@@ -340,3 +454,9 @@ mod test {
     }
 
 }
+
+// ****************************************************************************
+//
+// End Of File
+//
+// ****************************************************************************

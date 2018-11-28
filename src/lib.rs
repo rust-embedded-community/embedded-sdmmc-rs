@@ -2,6 +2,13 @@
 
 #![cfg_attr(not(test), no_std)]
 #![allow(dead_code)]
+#![warn(missing_docs)]
+
+// ****************************************************************************
+//
+// Imports
+//
+// ****************************************************************************
 
 use byteorder::{ByteOrder, LittleEndian};
 
@@ -17,26 +24,42 @@ mod sdmmc_proto;
 pub use crate::blockdevice::{Block, BlockDevice, BlockIdx};
 pub use crate::fat::{Fat16Volume, Fat32Volume};
 pub use crate::filesystem::{
-    Attributes, DirEntry, Directory, File, FilenameError, Inode, ShortFileName, TimeSource,
+    Attributes, Cluster, DirEntry, Directory, File, FilenameError, Mode, ShortFileName, TimeSource,
     Timestamp,
 };
 pub use crate::sdmmc::Error as SdMmcError;
 pub use crate::sdmmc::SdMmcSpi;
 
+// ****************************************************************************
+//
+// Public Types
+//
+// ****************************************************************************
+
+/// Represents all the ways the functions in this crate can fail.
 #[derive(Debug, Clone)]
 pub enum Error<E>
 where
     E: core::fmt::Debug,
 {
+    /// The underlying block device threw an error.
     DeviceError(E),
+    /// The filesystem is badly formatted (or this code is buggy).
     FormatError(&'static str),
+    /// The given `VolumeIdx` was bad,
     NoSuchVolume,
+    /// The given filename was bad
     FilenameError(FilenameError),
+    /// Out of memory opening directories
     TooManyOpenDirs,
+    /// Out of memory opening files
     TooManyOpenFiles,
+    /// That file doesn't exist
     FileNotFound,
+    /// You can't open a file twice
     FileAlreadyOpen,
-    Unknown,
+    /// We can't do that yet
+    Unsupported,
 }
 
 /// We have to track what directories are open to prevent users from modifying
@@ -48,39 +71,54 @@ pub const MAX_OPEN_DIRS: usize = 4;
 pub const MAX_OPEN_FILES: usize = 4;
 
 /// A `Controller` wraps a block device and gives access to the volumes within it.
-pub struct Controller<'a, D, T>
+pub struct Controller<D, T>
 where
     D: BlockDevice,
-    T: TimeSource + 'a,
+    T: TimeSource,
     <D as BlockDevice>::Error: core::fmt::Debug,
 {
     block_device: D,
-    timesource: &'a T,
-    open_dirs: [(VolumeIdx, Inode); MAX_OPEN_DIRS],
-    open_files: [(VolumeIdx, Inode); MAX_OPEN_DIRS],
+    timesource: T,
+    open_dirs: [(VolumeIdx, Cluster); MAX_OPEN_DIRS],
+    open_files: [(VolumeIdx, Cluster); MAX_OPEN_DIRS],
 }
 
+/// Represents a partition with a filesystem within it.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Volume {
     idx: VolumeIdx,
     volume_type: VolumeType,
 }
 
+/// This enum holds the data for the various different types of filesystems we
+/// support.
 #[derive(Debug, PartialEq, Eq)]
 pub enum VolumeType {
+    /// FAT16 formatted volumes (usually HDD and SD card partitions under 2 GiB)
     Fat16(Fat16Volume),
+    /// FAT32 formatted volumes (usually HDD and SD card partitions over 2 GiB)
     Fat32(Fat32Volume),
 }
 
+/// A `VolumeIdx` is a number which identifies a volume (or partition) on a
+/// disk. `VolumeIdx(0)` is the first primary partition on an MBR partitioned
+/// disk.
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub struct VolumeIdx(pub usize);
 
-#[derive(Debug, PartialEq, Eq, Copy, Clone)]
-pub enum Mode {
-    ReadOnly,
-    ReadWriteAppend,
-    ReadWriteTruncate,
-}
+// ****************************************************************************
+//
+// Public Data
+//
+// ****************************************************************************
+
+// None
+
+// ****************************************************************************
+//
+// Private Types
+//
+// ****************************************************************************
 
 /// Marker for a FAT32 partition. Sometimes also use for FAT16 formatted
 /// partitions.
@@ -91,21 +129,35 @@ const PARTITION_ID_FAT16_LBA: u8 = 0x0E;
 /// SD-Card formatter.
 const PARTITION_ID_FAT16: u8 = 0x06;
 
-impl<'a, D, T> Controller<'a, D, T>
+// ****************************************************************************
+//
+// Private Data
+//
+// ****************************************************************************
+
+// None
+
+// ****************************************************************************
+//
+// Public Functions / Impl for Public Types
+//
+// ****************************************************************************
+
+impl<D, T> Controller<D, T>
 where
     D: BlockDevice,
-    T: TimeSource + 'a,
+    T: TimeSource,
     <D as BlockDevice>::Error: core::fmt::Debug,
 {
     /// Create a new Disk Controller using a generic `BlockDevice`. From this
     /// controller we can open volumes (partitions) and with those we can open
     /// files.
-    pub fn new(block_device: D, timesource: &'a T) -> Controller<'a, D, T> {
+    pub fn new(block_device: D, timesource: T) -> Controller<D, T> {
         Controller {
             block_device,
             timesource,
-            open_dirs: [(VolumeIdx(0), Inode::INVALID); 4],
-            open_files: [(VolumeIdx(0), Inode::INVALID); 4],
+            open_dirs: [(VolumeIdx(0), Cluster::INVALID); 4],
+            open_files: [(VolumeIdx(0), Cluster::INVALID); 4],
         }
     }
 
@@ -197,10 +249,10 @@ where
         // Find a free directory entry
         let mut space = None;
         for (i, d) in self.open_dirs.iter().enumerate() {
-            if *d == (volume.idx, Inode::ROOT_DIR) {
+            if *d == (volume.idx, Cluster::ROOT_DIR) {
                 return Err(Error::FileAlreadyOpen);
             }
-            if d.1 == Inode::INVALID {
+            if d.1 == Cluster::INVALID {
                 space = Some(i);
                 break;
             }
@@ -209,11 +261,11 @@ where
             Some(idx) => {
                 let result: Result<Directory, Error<D::Error>> = match &volume.volume_type {
                     VolumeType::Fat16(fat) => fat.get_root_directory(self),
-                    VolumeType::Fat32(_fat) => Err(Error::Unknown),
+                    VolumeType::Fat32(_fat) => Err(Error::Unsupported),
                 };
                 if let Ok(ref d) = result {
                     // Remember this open directory
-                    self.open_dirs[idx] = (volume.idx, d.inode);
+                    self.open_dirs[idx] = (volume.idx, d.cluster);
                 }
                 result
             }
@@ -236,19 +288,19 @@ where
         // Find a free directory entry
         let mut space = None;
         for (i, d) in self.open_dirs.iter().enumerate() {
-            if d.1 == Inode::INVALID {
+            if d.1 == Cluster::INVALID {
                 space = Some(i);
             }
         }
         match space {
             Some(idx) => {
                 let result: Result<Directory, Error<D::Error>> = match &volume.volume_type {
-                    VolumeType::Fat16(_fat) => Err(Error::Unknown),
-                    VolumeType::Fat32(_fat) => Err(Error::Unknown),
+                    VolumeType::Fat16(_fat) => Err(Error::Unsupported),
+                    VolumeType::Fat32(_fat) => Err(Error::Unsupported),
                 };
                 if let Ok(ref d) = result {
                     // Remember this open directory
-                    self.open_dirs[idx] = (volume.idx, d.inode);
+                    self.open_dirs[idx] = (volume.idx, d.cluster);
                 }
                 result
             }
@@ -256,16 +308,19 @@ where
         }
     }
 
+    /// Close a directory. You cannot perform operations on an open directory
+    /// and so must close it if you want to do something with it.
     pub fn close_dir(&mut self, volume: &Volume, dir: Directory) {
-        let target = (volume.idx, dir.inode);
+        let target = (volume.idx, dir.cluster);
         for d in self.open_dirs.iter_mut() {
             if *d == target {
-                d.1 = Inode::INVALID;
+                d.1 = Cluster::INVALID;
                 break;
             }
         }
     }
 
+    /// Look in a directory for a named file.
     pub fn find_directory_entry(
         &mut self,
         volume: &Volume,
@@ -278,6 +333,7 @@ where
         }
     }
 
+    /// Call a callback function for each directory entry in a directory.
     pub fn iterate_dir<F>(
         &mut self,
         volume: &Volume,
@@ -285,7 +341,7 @@ where
         func: F,
     ) -> Result<(), Error<D::Error>>
     where
-        F: Fn(&DirEntry),
+        F: FnMut(&DirEntry),
     {
         match &volume.volume_type {
             VolumeType::Fat16(fat) => fat.iterate_dir(self, dir, func),
@@ -293,6 +349,7 @@ where
         }
     }
 
+    /// Open a file with the given full path. A file can only be opened once.
     pub fn open_file(
         &mut self,
         _volume: &Volume,
@@ -302,10 +359,25 @@ where
         unimplemented!();
     }
 
+    /// Close a file with the given full path.
     pub fn close_file(&mut self, _file: File) -> Result<(), Error<D::Error>> {
         unimplemented!();
     }
 }
+
+// ****************************************************************************
+//
+// Private Functions / Impl for Private Types
+//
+// ****************************************************************************
+
+// None
+
+// ****************************************************************************
+//
+// Unit Tests
+//
+// ****************************************************************************
 
 #[cfg(test)]
 mod tests {
@@ -511,7 +583,7 @@ mod tests {
 
     #[test]
     fn partition0() {
-        let mut c = Controller::new(DummyBlockDevice, &Clock);
+        let mut c = Controller::new(DummyBlockDevice, Clock);
         let v = c.get_volume(VolumeIdx(0)).unwrap();
         assert_eq!(
             v,
@@ -526,3 +598,9 @@ mod tests {
         );
     }
 }
+
+// ****************************************************************************
+//
+// End Of File
+//
+// ****************************************************************************

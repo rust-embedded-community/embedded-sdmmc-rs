@@ -3,11 +3,11 @@
 //! Implements the File Allocation Table file system. Supports FAT16 and FAT32 volumes.
 #![allow(unused)]
 
-use byteorder::{ByteOrder, LittleEndian};
 use crate::{
-    Attributes, Block, BlockDevice, BlockIdx, Controller, DirEntry, Directory, Error, Inode,
+    Attributes, Block, BlockDevice, BlockIdx, Cluster, Controller, DirEntry, Directory, Error,
     ShortFileName, TimeSource, Timestamp, VolumeType,
 };
+use byteorder::{ByteOrder, LittleEndian};
 
 /// Identifies a FAT16 Volume on the disk.
 #[derive(PartialEq, Eq)]
@@ -172,8 +172,8 @@ impl<'a> Bpb<'a> {
         (self.data[40] & 0x80) != 0x00
     }
 
-    pub fn root_cluster(&self) -> Inode {
-        Inode(LittleEndian::read_u32(&self.data[44..=47]))
+    pub fn root_cluster(&self) -> Cluster {
+        Cluster(LittleEndian::read_u32(&self.data[44..=47]))
     }
 
     // Magic functions that get the right FAT16/FAT32 result
@@ -235,10 +235,10 @@ impl<'a> OnDiskDirEntry<'a> {
         self.data[0..11] == sfn.contents
     }
 
-    fn first_cluster(&self) -> Inode {
+    fn first_cluster(&self) -> Cluster {
         let cluster_no =
             ((self.first_cluster_hi() as u32) << 16) | (self.first_cluster_lo() as u32);
-        Inode(cluster_no)
+        Cluster(cluster_no)
     }
 
     fn get_entry(&self) -> DirEntry {
@@ -249,7 +249,7 @@ impl<'a> OnDiskDirEntry<'a> {
             mtime: Timestamp::from_fat(self.write_date(), self.write_time()),
             ctime: Timestamp::from_fat(self.create_date(), self.create_time()),
             attributes: Attributes::create_from_fat(self.raw_attr()),
-            inode: self.first_cluster(),
+            cluster: self.first_cluster(),
             size: self.file_size(),
         };
         result.name.contents.copy_from_slice(&self.data[0..11]);
@@ -262,8 +262,8 @@ impl Fat16Volume {
     fn get_fat<D, T>(
         &self,
         controller: &mut Controller<D, T>,
-        inode: Inode,
-    ) -> Result<Inode, Error<D::Error>>
+        cluster: Cluster,
+    ) -> Result<Cluster, Error<D::Error>>
     where
         D: BlockDevice,
         T: TimeSource,
@@ -276,8 +276,8 @@ impl Fat16Volume {
         let bpb = Bpb::new(&blocks[0]).map_err(|e| Error::FormatError(e))?;
         let fat_size = bpb.fat_size();
         // FAT16 => 2 bytes per entry
-        let fat_offset = inode.0 * 2;
-        // This is the sector in the FAT that contains this Inode.
+        let fat_offset = cluster.0 * 2;
+        // This is the sector in the FAT that contains this Cluster.
         let this_fat_sector_num =
             bpb.reserved_sector_count() as u32 + (fat_offset / Block::LEN as u32);
         let this_fat_ent_offset = fat_offset as usize % Block::LEN;
@@ -286,18 +286,19 @@ impl Fat16Volume {
             .read(
                 &mut blocks,
                 BlockIdx(self.lba_start.0 + this_fat_sector_num),
-            ).map_err(|e| Error::DeviceError(e))?;
+            )
+            .map_err(|e| Error::DeviceError(e))?;
         let entry =
             LittleEndian::read_u16(&blocks[0][this_fat_ent_offset..=this_fat_ent_offset + 1]);
-        Ok(Inode(entry as u32))
+        Ok(Cluster(entry as u32))
     }
 
     /// Write a new entry in the FAT
     fn update_fat<D, T>(
         &mut self,
         controller: &mut Controller<D, T>,
-        inode: Inode,
-        new_value: Inode,
+        cluster: Cluster,
+        new_value: Cluster,
     ) -> Result<(), Error<D::Error>>
     where
         D: BlockDevice,
@@ -312,8 +313,8 @@ impl Fat16Volume {
             let bpb = Bpb::new(&blocks[0]).map_err(|e| Error::FormatError(e))?;
             let fat_size = bpb.fat_size();
             // FAT16 => 2 bytes per entry
-            let fat_offset = inode.0 * 2;
-            // This is the sector in the FAT that contains this Inode.
+            let fat_offset = cluster.0 * 2;
+            // This is the sector in the FAT that contains this Cluster.
             let this_fat_sector_num =
                 bpb.reserved_sector_count() as u32 + (fat_offset / Block::LEN as u32);
             let this_fat_ent_offset = fat_offset as usize % Block::LEN;
@@ -324,9 +325,9 @@ impl Fat16Volume {
             .read(&mut blocks, self.lba_start + this_fat_sector_num)
             .map_err(|e| Error::DeviceError(e))?;
         let entry = match new_value {
-            Inode::INVALID => 0xFFFF,
-            Inode::BAD => 0xFFF7,
-            Inode::EMPTY => 0x0000,
+            Cluster::INVALID => 0xFFFF,
+            Cluster::BAD => 0xFFF7,
+            Cluster::EMPTY => 0x0000,
             _ => new_value.0 as u16,
         };
         LittleEndian::write_u16(
@@ -340,13 +341,13 @@ impl Fat16Volume {
         Ok(())
     }
 
-    /// Converts a cluster number (or `Inode`) to a sector number (or
+    /// Converts a cluster number (or `Cluster`) to a sector number (or
     /// `BlockIdx`). Gives an absolute `BlockIdx` you can pass to the
     /// controller.
-    fn inode_to_block<D, T>(
+    fn cluster_to_block<D, T>(
         &self,
         controller: &mut Controller<D, T>,
-        inode: Inode,
+        cluster: Cluster,
     ) -> Result<BlockIdx, Error<D::Error>>
     where
         D: BlockDevice,
@@ -368,7 +369,7 @@ impl Fat16Volume {
             + root_dir_sectors;
         // FirstSectorofCluster = ((N – 2) * BPB_SecPerClus) + FirstDataSector;
         let first_sector_of_cluster =
-            ((inode.0 - 2) * bpb.sectors_per_cluster() as u32) + first_data_sector;
+            ((cluster.0 - 2) * bpb.sectors_per_cluster() as u32) + first_data_sector;
         Ok(BlockIdx(first_sector_of_cluster + self.lba_start.0))
     }
 
@@ -381,7 +382,7 @@ impl Fat16Volume {
         T: TimeSource,
     {
         Ok(Directory {
-            inode: Inode::ROOT_DIR,
+            cluster: Cluster::ROOT_DIR,
         })
     }
 
@@ -397,8 +398,8 @@ impl Fat16Volume {
         T: TimeSource,
     {
         let match_name = ShortFileName::new(name).map_err(|e| Error::FilenameError(e))?;
-        match dir.inode {
-            Inode::ROOT_DIR => {
+        match dir.cluster {
+            Cluster::ROOT_DIR => {
                 // Root
                 let mut blocks = [Block::new()];
                 controller
@@ -445,15 +446,15 @@ impl Fat16Volume {
         &self,
         controller: &Controller<D, T>,
         dir: &Directory,
-        func: F,
+        mut func: F,
     ) -> Result<(), Error<D::Error>>
     where
-        F: Fn(&DirEntry),
+        F: FnMut(&DirEntry),
         D: BlockDevice,
         T: TimeSource,
     {
-        match dir.inode {
-            Inode::ROOT_DIR => {
+        match dir.cluster {
+            Cluster::ROOT_DIR => {
                 // Root
                 let mut blocks = [Block::new()];
                 controller
@@ -500,8 +501,8 @@ impl Fat32Volume {
     fn get_fat<D, T>(
         &self,
         controller: &mut Controller<D, T>,
-        inode: Inode,
-    ) -> Result<Inode, Error<D::Error>>
+        cluster: Cluster,
+    ) -> Result<Cluster, Error<D::Error>>
     where
         D: BlockDevice,
         T: TimeSource,
@@ -514,8 +515,8 @@ impl Fat32Volume {
         let bpb = Bpb::new(&blocks[0]).map_err(|e| Error::FormatError(e))?;
         let fat_size = bpb.fat_size();
         // FAT32 => 4 bytes per entry
-        let fat_offset = inode.0 * 4;
-        // This is the sector in the FAT that contains this Inode.
+        let fat_offset = cluster.0 * 4;
+        // This is the sector in the FAT that contains this Cluster.
         let this_fat_sector_num =
             bpb.reserved_sector_count() as u32 + (fat_offset / Block::LEN as u32);
         let this_fat_ent_offset = fat_offset as usize % Block::LEN;
@@ -524,19 +525,20 @@ impl Fat32Volume {
             .read(
                 &mut blocks,
                 BlockIdx(self.lba_start.0 + this_fat_sector_num),
-            ).map_err(|e| Error::DeviceError(e))?;
+            )
+            .map_err(|e| Error::DeviceError(e))?;
         let mut entry =
             LittleEndian::read_u32(&blocks[0][this_fat_ent_offset..=this_fat_ent_offset + 3]);
         entry &= 0x0FFFFFFF;
-        Ok(Inode(entry))
+        Ok(Cluster(entry))
     }
 
     /// Write a new entry in the FAT
     fn update_fat<D, T>(
         &mut self,
         controller: &mut Controller<D, T>,
-        inode: Inode,
-        new_value: Inode,
+        cluster: Cluster,
+        new_value: Cluster,
     ) -> Result<(), Error<D::Error>>
     where
         D: BlockDevice,
@@ -551,8 +553,8 @@ impl Fat32Volume {
             let bpb = Bpb::new(&blocks[0]).map_err(|e| Error::FormatError(e))?;
             let fat_size = bpb.fat_size();
             // FAT32 => 2 bytes per entry
-            let fat_offset = inode.0 * 4;
-            // This is the sector in the FAT that contains this Inode.
+            let fat_offset = cluster.0 * 4;
+            // This is the sector in the FAT that contains this Cluster.
             let this_fat_sector_num =
                 bpb.reserved_sector_count() as u32 + (fat_offset / Block::LEN as u32);
             let this_fat_ent_offset = fat_offset as usize % Block::LEN;
@@ -563,9 +565,9 @@ impl Fat32Volume {
             .read(&mut blocks, self.lba_start + this_fat_sector_num)
             .map_err(|e| Error::DeviceError(e))?;
         let entry = match new_value {
-            Inode::INVALID => 0x0FFFFFFF,
-            Inode::BAD => 0x0FFFFFF7,
-            Inode::EMPTY => 0x0000,
+            Cluster::INVALID => 0x0FFFFFFF,
+            Cluster::BAD => 0x0FFFFFF7,
+            Cluster::EMPTY => 0x0000,
             _ => new_value.0,
         };
         let existing =
@@ -582,13 +584,13 @@ impl Fat32Volume {
         Ok(())
     }
 
-    /// Converts a cluster number (or `Inode`) to a sector number (or
+    /// Converts a cluster number (or `Cluster`) to a sector number (or
     /// `BlockIdx`). Gives an absolute `BlockIdx` you can pass to the
     /// controller.
-    fn inode_to_block<D, T>(
+    fn cluster_to_block<D, T>(
         &mut self,
         controller: &mut Controller<D, T>,
-        inode: Inode,
+        cluster: Cluster,
     ) -> Result<BlockIdx, Error<D::Error>>
     where
         D: BlockDevice,
@@ -610,7 +612,7 @@ impl Fat32Volume {
             + root_dir_sectors;
         // FirstSectorofCluster = ((N – 2) * BPB_SecPerClus) + FirstDataSector;
         let first_sector_of_cluster =
-            ((inode.0 - 2) * bpb.sectors_per_cluster() as u32) + first_data_sector;
+            ((cluster.0 - 2) * bpb.sectors_per_cluster() as u32) + first_data_sector;
         Ok(BlockIdx(first_sector_of_cluster + self.lba_start.0))
     }
 
