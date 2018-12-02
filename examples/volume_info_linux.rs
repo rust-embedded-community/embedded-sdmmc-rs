@@ -74,7 +74,7 @@ impl TimeSource for Clock {
 fn main() -> Result<(), Error<std::io::Error>> {
     let lbd = LinuxBlockDevice::new("/dev/mmcblk0").map_err(|e| Error::DeviceError(e))?;
     println!("lbd: {:?}", lbd);
-    let mut controller = Controller::new(lbd, &Clock);
+    let mut controller = Controller::new(lbd, Clock);
     println!("volume 0: {:?}", controller.get_volume(VolumeIdx(0)));
     println!("volume 1: {:?}", controller.get_volume(VolumeIdx(1)));
     println!("volume 2: {:?}", controller.get_volume(VolumeIdx(2)));
