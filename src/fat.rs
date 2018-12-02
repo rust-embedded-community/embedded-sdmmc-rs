@@ -9,6 +9,12 @@ use crate::{
 };
 use byteorder::{ByteOrder, LittleEndian};
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+enum FatType {
+    Fat16,
+    Fat32,
+}
+
 /// Identifies a FAT16 Volume on the disk.
 #[derive(PartialEq, Eq)]
 pub struct Fat16Volume {
@@ -55,14 +61,17 @@ impl core::fmt::Debug for Fat32Volume {
 
 struct Bpb<'a> {
     data: &'a [u8; 512],
-    fat16: bool,
+    fat_type: FatType,
 }
 
 impl<'a> Bpb<'a> {
     const FOOTER_VALUE: u16 = 0xAA55;
 
     pub fn new(data: &[u8; 512]) -> Result<Bpb, &'static str> {
-        let mut bpb = Bpb { data, fat16: false };
+        let mut bpb = Bpb {
+            data,
+            fat_type: FatType::Fat16,
+        };
         if bpb.footer() != Self::FOOTER_VALUE {
             return Err("Bad BPB footer");
         }
@@ -79,19 +88,18 @@ impl<'a> Bpb<'a> {
         if cluster_count < 4085 {
             return Err("FAT12 is unsupported");
         } else if cluster_count < 65525 {
-            bpb.fat16 = true;
+            bpb.fat_type = FatType::Fat16;
         } else {
-            bpb.fat16 = false;
+            bpb.fat_type = FatType::Fat32;
         }
 
-        if bpb.fat16 {
-            // FAT16 has no version
-            Ok(bpb)
-        } else if bpb.fs_ver() == 0 {
-            // Only support FAT32 version 0.0
-            Ok(bpb)
-        } else {
-            Err("Invalid FAT format")
+        match bpb.fat_type {
+            FatType::Fat16 => Ok(bpb),
+            FatType::Fat32 if bpb.fs_ver() == 0 => {
+                // Only support FAT32 version 0.0
+                Ok(bpb)
+            }
+            _ => Err("Invalid FAT format"),
         }
     }
 
@@ -123,7 +131,7 @@ impl<'a> Bpb<'a> {
     // FAT16/FAT32 functions
 
     pub fn drive_number(&self) -> u8 {
-        if self.fat16 {
+        if self.fat_type != FatType::Fat32 {
             self.data[36]
         } else {
             self.data[64]
@@ -131,7 +139,7 @@ impl<'a> Bpb<'a> {
     }
 
     pub fn boot_signature(&self) -> u8 {
-        if self.fat16 {
+        if self.fat_type != FatType::Fat32 {
             self.data[38]
         } else {
             self.data[66]
@@ -139,7 +147,7 @@ impl<'a> Bpb<'a> {
     }
 
     pub fn volume_id(&self) -> u32 {
-        if self.fat16 {
+        if self.fat_type != FatType::Fat32 {
             LittleEndian::read_u32(&self.data[39..=42])
         } else {
             LittleEndian::read_u32(&self.data[67..=70])
@@ -147,7 +155,7 @@ impl<'a> Bpb<'a> {
     }
 
     pub fn volume_label(&self) -> &[u8] {
-        if self.fat16 {
+        if self.fat_type != FatType::Fat32 {
             &self.data[43..=53]
         } else {
             &self.data[71..=81]
@@ -155,7 +163,7 @@ impl<'a> Bpb<'a> {
     }
 
     pub fn fs_type(&self) -> &[u8] {
-        if self.fat16 {
+        if self.fat_type != FatType::Fat32 {
             &self.data[54..=61]
         } else {
             &self.data[82..=89]
@@ -201,6 +209,8 @@ struct OnDiskDirEntry<'a> {
     data: &'a [u8],
 }
 
+/// Represents the 32 byte directory entry. This is the same for FAT16 and
+/// FAT32 (except FAT16 doesn't use first_cluster_hi).
 impl<'a> OnDiskDirEntry<'a> {
     const LEN: usize = 32;
 
@@ -235,13 +245,18 @@ impl<'a> OnDiskDirEntry<'a> {
         self.data[0..11] == sfn.contents
     }
 
-    fn first_cluster(&self) -> Cluster {
+    fn first_cluster_fat32(&self) -> Cluster {
         let cluster_no =
             ((self.first_cluster_hi() as u32) << 16) | (self.first_cluster_lo() as u32);
         Cluster(cluster_no)
     }
 
-    fn get_entry(&self) -> DirEntry {
+    fn first_cluster_fat16(&self) -> Cluster {
+        let cluster_no = self.first_cluster_lo() as u32;
+        Cluster(cluster_no)
+    }
+
+    fn get_entry(&self, fat_type: FatType) -> DirEntry {
         let mut result = DirEntry {
             name: ShortFileName {
                 contents: [0u8; 11],
@@ -249,7 +264,11 @@ impl<'a> OnDiskDirEntry<'a> {
             mtime: Timestamp::from_fat(self.write_date(), self.write_time()),
             ctime: Timestamp::from_fat(self.create_date(), self.create_time()),
             attributes: Attributes::create_from_fat(self.raw_attr()),
-            cluster: self.first_cluster(),
+            cluster: if fat_type == FatType::Fat32 {
+                self.first_cluster_fat32()
+            } else {
+                self.first_cluster_fat16()
+            },
             size: self.file_size(),
         };
         result.name.contents.copy_from_slice(&self.data[0..11]);
@@ -428,7 +447,7 @@ impl Fat16Volume {
                             return Err(Error::FileNotFound);
                         } else if dir_entry.matches(&match_name) {
                             // Found it
-                            return Ok(dir_entry.get_entry());
+                            return Ok(dir_entry.get_entry(FatType::Fat16));
                         }
                     }
                 }
@@ -482,7 +501,7 @@ impl Fat16Volume {
                             // Can quit early
                             return Ok(());
                         } else if dir_entry.is_valid() && !dir_entry.is_lfn() {
-                            let entry = dir_entry.get_entry();
+                            let entry = dir_entry.get_entry(FatType::Fat16);
                             func(&entry);
                         }
                     }
@@ -661,22 +680,25 @@ where
         .map_err(|e| Error::DeviceError(e))?;
     let block = &blocks[0];
     let bpb = Bpb::new(&block).map_err(|e| Error::FormatError(e))?;
-    if bpb.fat16 {
-        let mut volume = Fat16Volume {
-            lba_start,
-            num_blocks,
-            name: [0u8; 11],
-        };
-        volume.name[..].copy_from_slice(bpb.volume_label());
-        Ok(VolumeType::Fat16(volume))
-    } else {
-        let mut volume = Fat32Volume {
-            lba_start,
-            num_blocks,
-            name: [0u8; 11],
-        };
-        volume.name[..].copy_from_slice(bpb.volume_label());
-        Ok(VolumeType::Fat32(volume))
+    match bpb.fat_type {
+        FatType::Fat16 => {
+            let mut volume = Fat16Volume {
+                lba_start,
+                num_blocks,
+                name: [0u8; 11],
+            };
+            volume.name[..].copy_from_slice(bpb.volume_label());
+            Ok(VolumeType::Fat16(volume))
+        }
+        FatType::Fat32 => {
+            let mut volume = Fat32Volume {
+                lba_start,
+                num_blocks,
+                name: [0u8; 11],
+            };
+            volume.name[..].copy_from_slice(bpb.volume_label());
+            Ok(VolumeType::Fat32(volume))
+        }
     }
 }
 
@@ -749,6 +771,6 @@ mod test {
         assert_eq!(bpb.fs_type(), b"FAT16   ");
         assert_eq!(bpb.fat_size(), 32);
         assert_eq!(bpb.total_sectors(), 122880);
-        assert_eq!(bpb.fat16, true);
+        assert_eq!(bpb.fat_type, FatType::Fat16);
     }
 }
