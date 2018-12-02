@@ -29,7 +29,7 @@ pub struct Cluster(pub(crate) u32);
 
 /// Represents a directory entry, which tells you about
 /// other files and directories.
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct DirEntry {
     /// The name of the file
     pub name: ShortFileName,
@@ -46,8 +46,8 @@ pub struct DirEntry {
 }
 
 /// An MS-DOS 8.3 filename. 7-bit ASCII only. All lower-case is converted to
-/// upper-case.
-#[derive(PartialEq, Eq)]
+/// upper-case by default.
+#[derive(PartialEq, Eq, Clone)]
 pub struct ShortFileName {
     pub(crate) contents: [u8; 11],
 }
@@ -78,14 +78,17 @@ pub struct Attributes(u8);
 
 /// Represents an open file on disk.
 pub struct File {
+    /// The starting point of the file.
     pub(crate) cluster: Cluster,
-    /// We only support files up to 4 GiB(!)
+    /// How far through the file we've read (in bytes).
     pub(crate) current_offset: u32,
+    /// The length of the file, in bytes.
     pub(crate) current_length: u32,
 }
 
 /// Represents an open directory on disk.
 pub struct Directory {
+    /// The starting point of the directory listing.
     pub(crate) cluster: Cluster,
 }
 
@@ -109,9 +112,13 @@ pub enum Mode {
 /// Various filename related errors that can occur.
 #[derive(Debug, Clone)]
 pub enum FilenameError {
+    /// Tried to create a file with an invalid character.
     InvalidCharacter,
+    /// Tried to create a file with no file name.
     FilenameEmpty,
+    /// Given name was too long (we are limited to 8.3).
     NameTooLong,
+    /// Can't start a file with a period, or after 8 characters.
     MisplacedPeriod,
 }
 
@@ -146,9 +153,14 @@ pub enum FilenameError {
 // ****************************************************************************
 
 impl Cluster {
+    /// Magic value indicating an invalid cluster value.
     pub const INVALID: Cluster = Cluster(0xFFFFFFFF);
+    /// Magic value indicating a bad cluster.
     pub const BAD: Cluster = Cluster(0xFFFFFFFE);
+    /// Magic value indicating a empty cluster.
     pub const EMPTY: Cluster = Cluster(0xFFFFFFFD);
+    /// Magic value indicating the cluster holding the root directory (which
+    /// doesn't have a number in FAT16 as there's a reserved region).
     pub const ROOT_DIR: Cluster = Cluster(0xFFFFFFFC);
 }
 
@@ -226,6 +238,69 @@ impl ShortFileName {
         }
         Ok(sfn)
     }
+
+    /// Create a new MS-DOS 8.3 space-padded file name as stored in the directory entry.
+    /// Use this for volume labels with mixed case.
+    pub fn new_mixed_case(name: &str) -> Result<ShortFileName, FilenameError> {
+        let mut sfn = ShortFileName {
+            contents: [b' '; Self::FILENAME_MAX_LEN],
+        };
+        let mut idx = 0;
+        let mut seen_dot = false;
+        for ch in name.bytes() {
+            match ch {
+                // Microsoft say these are the invalid characters
+                0x00...0x1F
+                | 0x20
+                | 0x22
+                | 0x2A
+                | 0x2B
+                | 0x2C
+                | 0x2F
+                | 0x3A
+                | 0x3B
+                | 0x3C
+                | 0x3D
+                | 0x3E
+                | 0x3F
+                | 0x5B
+                | 0x5C
+                | 0x5D
+                | 0x7C => {
+                    return Err(FilenameError::InvalidCharacter);
+                }
+                // Denotes the start of the file extension
+                b'.' => {
+                    if idx >= 1 && idx <= Self::FILENAME_BASE_MAX_LEN {
+                        idx = Self::FILENAME_BASE_MAX_LEN;
+                        seen_dot = true;
+                    } else {
+                        return Err(FilenameError::MisplacedPeriod);
+                    }
+                }
+                _ => {
+                    if seen_dot {
+                        if idx >= Self::FILENAME_BASE_MAX_LEN && idx < Self::FILENAME_MAX_LEN {
+                            sfn.contents[idx] = ch;
+                        } else {
+                            return Err(FilenameError::NameTooLong);
+                        }
+                    } else {
+                        if idx < Self::FILENAME_BASE_MAX_LEN {
+                            sfn.contents[idx] = ch;
+                        } else {
+                            return Err(FilenameError::NameTooLong);
+                        }
+                    }
+                    idx += 1;
+                }
+            }
+        }
+        if idx == 0 {
+            return Err(FilenameError::FilenameEmpty);
+        }
+        Ok(sfn)
+    }
 }
 
 impl core::fmt::Display for ShortFileName {
@@ -280,6 +355,52 @@ impl Timestamp {
             seconds,
         }
     }
+
+    /// Create a `Timestamp` from year/month/day/hour/minute/second.
+    ///
+    /// Values should be given as you'd write then (i.e. 1980, 01, 01, 13, 30,
+    /// 05) is 1980-Jan-01, 1:30:05pm.
+    pub fn from_calendar(
+        year: u16,
+        month: u8,
+        day: u8,
+        hours: u8,
+        minutes: u8,
+        seconds: u8,
+    ) -> Result<Timestamp, &'static str> {
+        Ok(Timestamp {
+            year_since_1970: if year >= 1970 && year <= (1970 + 255) {
+                (year - 1970) as u8
+            } else {
+                return Err("Bad year");
+            },
+            zero_indexed_month: if month >= 1 && month <= 12 {
+                month - 1
+            } else {
+                return Err("Bad month");
+            },
+            zero_indexed_day: if day >= 1 && day <= 31 {
+                day - 1
+            } else {
+                return Err("Bad day");
+            },
+            hours: if hours <= 23 {
+                hours
+            } else {
+                return Err("Bad hours");
+            },
+            minutes: if minutes <= 59 {
+                minutes
+            } else {
+                return Err("Bad minutes");
+            },
+            seconds: if seconds <= 59 {
+                seconds
+            } else {
+                return Err("Bad seconds");
+            },
+        })
+    }
 }
 
 impl core::fmt::Debug for Timestamp {
@@ -304,42 +425,60 @@ impl core::fmt::Display for Timestamp {
 }
 
 impl Attributes {
+    /// Indicates this file cannot be written.
     pub const READ_ONLY: u8 = 0x01;
+    /// Indicates the file is hidden.
     pub const HIDDEN: u8 = 0x02;
+    /// Indicates this is a system file.
     pub const SYSTEM: u8 = 0x04;
+    /// Indicates this is a volume label.
     pub const VOLUME: u8 = 0x08;
+    /// Indicates this is a directory.
     pub const DIRECTORY: u8 = 0x10;
+    /// Indicates this file needs archiving (i.e. has been modified since last
+    /// archived).
     pub const ARCHIVE: u8 = 0x20;
+    /// This set of flags indicates the file is actually a long file name
+    /// fragment.
     pub const LFN: u8 = Self::READ_ONLY | Self::HIDDEN | Self::SYSTEM | Self::VOLUME;
 
+    /// Create a `Attributes` value from the `u8` stored in a FAT16/FAT32
+    /// Directory Entry.
     pub(crate) fn create_from_fat(value: u8) -> Attributes {
         Attributes(value)
     }
 
+    /// Does this file has the read-only attribute set?
     pub fn is_read_only(&self) -> bool {
         (self.0 & Self::READ_ONLY) == Self::READ_ONLY
     }
 
+    /// Does this file has the hidden attribute set?
     pub fn is_hidden(&self) -> bool {
         (self.0 & Self::HIDDEN) == Self::HIDDEN
     }
 
+    /// Does this file has the system attribute set?
     pub fn is_system(&self) -> bool {
         (self.0 & Self::SYSTEM) == Self::SYSTEM
     }
 
+    /// Does this file has the volume attribute set?
     pub fn is_volume(&self) -> bool {
         (self.0 & Self::VOLUME) == Self::VOLUME
     }
 
+    /// Does this entry point at a directory?
     pub fn is_directory(&self) -> bool {
         (self.0 & Self::DIRECTORY) == Self::DIRECTORY
     }
 
+    /// Does this need archiving?
     pub fn is_archive(&self) -> bool {
         (self.0 & Self::ARCHIVE) == Self::ARCHIVE
     }
 
+    /// Is this a long file name fragment?
     pub fn is_lfn(&self) -> bool {
         (self.0 & Self::LFN) == Self::LFN
     }
@@ -352,6 +491,8 @@ impl core::fmt::Debug for Attributes {
         } else {
             if self.is_directory() {
                 write!(f, "D")?;
+            } else {
+                write!(f, "F")?;
             }
             if self.is_read_only() {
                 write!(f, "R")?;

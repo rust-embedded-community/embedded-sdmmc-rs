@@ -34,7 +34,7 @@ impl BlockDevice for LinuxBlockDevice {
             .seek(SeekFrom::Start(start_block_idx.into_bytes()))?;
         for block in blocks.iter_mut() {
             self.file.borrow_mut().read_exact(&mut block.contents)?;
-            // println!("Read: {:?}", &block);
+            println!("Read: {:?}", &block);
         }
         Ok(())
     }
