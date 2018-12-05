@@ -12,6 +12,9 @@ use nb::block;
 
 const DEFAULT_DELAY_COUNT: u32 = 32;
 
+/// Represents an SD Card interface built from an SPI peripheral and a Chip
+/// Select pin. We need Chip Select to be separate so we can clock out some
+/// bytes without Chip Select asserted (which puts the card into SPI mode).
 pub struct SdMmcSpi<SPI, CS>
 where
     SPI: embedded_hal::spi::FullDuplex<u8>,
@@ -24,19 +27,30 @@ where
     state: State,
 }
 
+/// The possible errors `SdMmcSpi` can generate.
 #[derive(Debug, Copy, Clone)]
 pub enum Error {
+    /// We got an error from the SPI peripheral
     Transport,
+    /// We failed to enable CRC checking on the SD card
     CantEnableCRC,
+    /// We didn't get a response from the card
     Timeout,
+    /// We got a bad response from Command 58
     Cmd58Error,
+    /// We failed to read the Card Specific Data register
     RegisterReadError,
+    /// We got a CRC mismatch (card gave us, we calculated)
     CrcError(u16, u16),
+    /// Error reading from the card
     ReadError,
+    /// Error writing to the card
     WriteError,
+    /// Can't perform this operation with the card in this state
     BadState,
 }
 
+/// The possible states `SdMmcSpi` can be in.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum State {
     NoInit,
@@ -44,6 +58,7 @@ pub enum State {
     Idle,
 }
 
+/// The different types of card we support.
 #[derive(Debug, Copy, Clone, PartialEq)]
 enum CardType {
     SD1,
@@ -51,6 +66,10 @@ enum CardType {
     SDHC,
 }
 
+/// A terrible hack for busy-waiting the CPU while we wait for the card to
+/// sort itself out.
+///
+/// @TODO replace this!
 struct Delay(u32);
 
 impl Delay {

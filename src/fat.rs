@@ -3,11 +3,11 @@
 //! Implements the File Allocation Table file system. Supports FAT16 and FAT32 volumes.
 #![allow(unused)]
 
+use crate::filesystem::FilenameError;
 use crate::{
     Attributes, Block, BlockDevice, BlockIdx, Cluster, Controller, DirEntry, Directory, Error,
     ShortFileName, TimeSource, Timestamp, VolumeType,
 };
-use crate::filesystem::FilenameError;
 use byteorder::{ByteOrder, LittleEndian};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -273,24 +273,37 @@ impl<'a> OnDiskDirEntry<'a> {
         attributes.is_lfn()
     }
 
-    fn lfn_contents(&self) -> Option<(bool, u8, [char; Self::LFN_FRAGMENT_LEN])> {
+    fn lfn_contents(&self) -> Option<(bool, u8, [char; 13])> {
         if self.is_lfn() {
-            let mut buffer = [' '; Self::LFN_FRAGMENT_LEN];
+            let mut buffer = [' '; 13];
             let is_start = (self.data[0] & 0x40) != 0;
             let sequence = self.data[0] & 0x1F;
-            buffer[0] = char::from_u32(LittleEndian::read_u16(self.data[0..=1]) as u32).unwrap();
-            buffer[1] = char::from_u32(LittleEndian::read_u16(self.data[2..=3]) as u32).unwrap();
-            buffer[2] = char::from_u32(LittleEndian::read_u16(self.data[4..=5]) as u32).unwrap();
-            buffer[3] = char::from_u32(LittleEndian::read_u16(self.data[6..=7]) as u32).unwrap();
-            buffer[4] = char::from_u32(LittleEndian::read_u16(self.data[8..=9]) as u32).unwrap();
-            buffer[5] = char::from_u32(LittleEndian::read_u16(self.data[14..=15]) as u32).unwrap();
-            buffer[6] = char::from_u32(LittleEndian::read_u16(self.data[16..=17]) as u32).unwrap();
-            buffer[7] = char::from_u32(LittleEndian::read_u16(self.data[18..=19]) as u32).unwrap();
-            buffer[8] = char::from_u32(LittleEndian::read_u16(self.data[20..=21]) as u32).unwrap();
-            buffer[9] = char::from_u32(LittleEndian::read_u16(self.data[22..=23]) as u32).unwrap();
-            buffer[10] = char::from_u32(LittleEndian::read_u16(self.data[24..=25]) as u32).unwrap();
-            buffer[11] = char::from_u32(LittleEndian::read_u16(self.data[28..=29]) as u32).unwrap();
-            buffer[12] = char::from_u32(LittleEndian::read_u16(self.data[30..=31]) as u32).unwrap();
+            buffer[0] =
+                core::char::from_u32(LittleEndian::read_u16(&self.data[1..=2]) as u32).unwrap();
+            buffer[1] =
+                core::char::from_u32(LittleEndian::read_u16(&self.data[3..=4]) as u32).unwrap();
+            buffer[2] =
+                core::char::from_u32(LittleEndian::read_u16(&self.data[5..=6]) as u32).unwrap();
+            buffer[3] =
+                core::char::from_u32(LittleEndian::read_u16(&self.data[7..=8]) as u32).unwrap();
+            buffer[4] =
+                core::char::from_u32(LittleEndian::read_u16(&self.data[9..=10]) as u32).unwrap();
+            buffer[5] =
+                core::char::from_u32(LittleEndian::read_u16(&self.data[14..=15]) as u32).unwrap();
+            buffer[6] =
+                core::char::from_u32(LittleEndian::read_u16(&self.data[16..=17]) as u32).unwrap();
+            buffer[7] =
+                core::char::from_u32(LittleEndian::read_u16(&self.data[18..=19]) as u32).unwrap();
+            buffer[8] =
+                core::char::from_u32(LittleEndian::read_u16(&self.data[20..=21]) as u32).unwrap();
+            buffer[9] =
+                core::char::from_u32(LittleEndian::read_u16(&self.data[22..=23]) as u32).unwrap();
+            buffer[10] =
+                core::char::from_u32(LittleEndian::read_u16(&self.data[24..=25]) as u32).unwrap();
+            buffer[11] =
+                core::char::from_u32(LittleEndian::read_u16(&self.data[28..=29]) as u32).unwrap();
+            buffer[12] =
+                core::char::from_u32(LittleEndian::read_u16(&self.data[30..=31]) as u32).unwrap();
             Some((is_start, sequence, buffer))
         } else {
             None
@@ -808,9 +821,10 @@ mod test {
     /// drwxr-xr-x 2 jonathan jonathan    8192 2015-12-05 21:55:06.000000000 +0000 'System Volume Information'
     #[test]
     fn test_dir_entries() {
+        #[derive(Debug)]
         enum Expected {
             Lfn(bool, u8, [char; 13]),
-            Short(DirEntry)
+            Short(DirEntry),
         }
         let raw_data = r#"
         626f6f7420202020202020080000699c754775470000699c7547000000000000 boot       ...i.uGuG..i.uG......
@@ -839,6 +853,13 @@ mod test {
                 cluster: Cluster(0),
                 size: 0,
             }),
+            Expected::Lfn(
+                true,
+                1,
+                [
+                    'o', 'v', 'e', 'r', 'l', 'a', 'y', 's', '\u{0000}', '\u{ffff}', '\u{ffff}', '\u{ffff}', '\u{ffff}',
+                ],
+            ),
             Expected::Short(DirEntry {
                 name: ShortFileName::new("OVERLAYS").unwrap(),
                 mtime: Timestamp::from_calendar(2016, 03, 01, 19, 56, 54).unwrap(),
@@ -847,6 +868,20 @@ mod test {
                 cluster: Cluster(3),
                 size: 0,
             }),
+            Expected::Lfn(
+                true,
+                2,
+                [
+                    '-', 'p', 'l', 'u', 's', '.', 'd', 't', 'b', '\u{0000}', '\u{ffff}', '\u{ffff}', '\u{ffff}',
+                ],
+            ),
+            Expected::Lfn(
+                false,
+                1,
+                [
+                    'b', 'c', 'm', '2', '7', '0', '8', '-', 'r', 'p', 'i', '-', 'b',
+                ],
+            ),
             Expected::Short(DirEntry {
                 name: ShortFileName::new("BCM270~1.DTB").unwrap(),
                 mtime: Timestamp::from_calendar(2016, 03, 01, 19, 56, 34).unwrap(),
@@ -855,6 +890,13 @@ mod test {
                 cluster: Cluster(9),
                 size: 11120,
             }),
+            Expected::Lfn(
+                true,
+                1,
+                [
+                    'C', 'O', 'P', 'Y', 'I', 'N', 'G', '.', 'l', 'i', 'n', 'u', 'x',
+                ],
+            ),
             Expected::Short(DirEntry {
                 name: ShortFileName::new("COPYIN~1.LIN").unwrap(),
                 mtime: Timestamp::from_calendar(2016, 03, 01, 19, 56, 30).unwrap(),
@@ -863,6 +905,20 @@ mod test {
                 cluster: Cluster(5),
                 size: 18693,
             }),
+            Expected::Lfn(
+                true,
+                2,
+                [
+                    'c', 'o', 'm', '\u{0}', '\u{ffff}', '\u{ffff}', '\u{ffff}', '\u{ffff}', '\u{ffff}', '\u{ffff}', '\u{ffff}', '\u{ffff}', '\u{ffff}',
+                ],
+            ),
+            Expected::Lfn(
+                false,
+                1,
+                [
+                    'L', 'I', 'C', 'E', 'N', 'C', 'E', '.', 'b', 'r', 'o', 'a', 'd',
+                ],
+            ),
             Expected::Short(DirEntry {
                 name: ShortFileName::new("LICENC~1.BRO").unwrap(),
                 mtime: Timestamp::from_calendar(2016, 03, 01, 19, 56, 34).unwrap(),
@@ -871,6 +927,20 @@ mod test {
                 cluster: Cluster(8),
                 size: 1494,
             }),
+            Expected::Lfn(
+                true,
+                2,
+                [
+                    '-', 'b', '.', 'd', 't', 'b', '\u{0000}', '\u{ffff}', '\u{ffff}', '\u{ffff}', '\u{ffff}', '\u{ffff}', '\u{ffff}',
+                ],
+            ),
+            Expected::Lfn(
+                false,
+                1,
+                [
+                    'b', 'c', 'm', '2', '7', '0', '9', '-', 'r', 'p', 'i', '-', '2',
+                ],
+            ),
             Expected::Short(DirEntry {
                 name: ShortFileName::new("BCM270~4.DTB").unwrap(),
                 mtime: Timestamp::from_calendar(2016, 03, 01, 19, 56, 36).unwrap(),
@@ -879,21 +949,42 @@ mod test {
                 cluster: Cluster(15),
                 size: 12108,
             }),
+            Expected::Lfn(
+                true,
+                2,
+                [
+                    '.', 'd', 't', 'b', '\u{0000}', '\u{ffff}', '\u{ffff}', '\u{ffff}', '\u{ffff}', '\u{ffff}', '\u{ffff}', '\u{ffff}', '\u{ffff}',
+                ],
+            ),
+            Expected::Lfn(
+                false,
+                1,
+                [
+                    'b', 'c', 'm', '2', '7', '0', '8', '-', 'r', 'p', 'i', '-', 'b',
+                ],
+            ),
         ];
 
         let data = parse(raw_data);
         for (part, expected) in data.chunks(OnDiskDirEntry::LEN).zip(results.iter()) {
             let on_disk_entry = OnDiskDirEntry::new(part);
             match expected {
-                Expected::Lfn(expected_entry) if on_disk_entry.is_lfn() => {
-                    assert_eq!(expected_entry, on_disk_entry.lfn_contents().unwrap());
+                Expected::Lfn(start, index, contents) if on_disk_entry.is_lfn() => {
+                    let (calc_start, calc_index, calc_contents) =
+                        on_disk_entry.lfn_contents().unwrap();
+                    assert_eq!(*start, calc_start);
+                    assert_eq!(*index, calc_index);
+                    assert_eq!(*contents, calc_contents);
                 }
                 Expected::Short(expected_entry) if !on_disk_entry.is_lfn() => {
                     let parsed_entry = on_disk_entry.get_entry(FatType::Fat32);
-                    assert_eq!(parsed_entry, expected_entry);
+                    assert_eq!(*expected_entry, parsed_entry);
                 }
                 _ => {
-                    panic!("Bad dir entry, expected {:?} had {:?}", expected, on_disk_entry);
+                    panic!(
+                        "Bad dir entry, expected:\n{:#?}\nhad\n{:#?}",
+                        expected, on_disk_entry
+                    );
                 }
             }
         }
