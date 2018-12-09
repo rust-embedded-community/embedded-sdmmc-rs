@@ -34,7 +34,7 @@ impl BlockDevice for LinuxBlockDevice {
             .seek(SeekFrom::Start(start_block_idx.into_bytes()))?;
         for block in blocks.iter_mut() {
             self.file.borrow_mut().read_exact(&mut block.contents)?;
-            println!("Read: {:?}", &block);
+            println!("Read blocks {:?}: {:?}", start_block_idx, &block);
         }
         Ok(())
     }
@@ -81,17 +81,19 @@ fn main() -> Result<(), Error<std::io::Error>> {
     println!("volume 3: {:?}", controller.get_volume(VolumeIdx(3)));
     let volume = controller.get_volume(VolumeIdx(0)).unwrap();
     let dir = controller.open_root_dir(&volume)?;
+    println!("Finding KERNEL.IMG in {:?}...", dir);
     println!(
-        "Finding TEST.TXT: {:?}",
-        controller.find_directory_entry(&volume, &dir, "TEST.TXT")
+        "Found KERNEL.IMG?: {:?}",
+        controller.find_directory_entry(&volume, &dir, "KERNEL.IMG")
     );
     println!("Listing root directory:");
     controller.iterate_dir(&volume, &dir, |x| {
         println!("Found: {:?}", x);
     })?;
+    println!("Finding README.TXT...");
     println!(
-        "Finding rand_1MB.DAT: {:?}",
-        controller.find_directory_entry(&volume, &dir, "rand_1MB.DAT")
+        "Found README.TXT?: {:?}",
+        controller.find_directory_entry(&volume, &dir, "README.TXT")
     );
     assert!(controller.open_root_dir(&volume).is_err());
     controller.close_dir(&volume, dir);

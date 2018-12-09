@@ -87,6 +87,7 @@ pub struct File {
 }
 
 /// Represents an open directory on disk.
+#[derive(Debug)]
 pub struct Directory {
     /// The starting point of the directory listing.
     pub(crate) cluster: Cluster,

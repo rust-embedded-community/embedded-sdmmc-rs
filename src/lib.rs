@@ -259,15 +259,9 @@ where
         }
         match space {
             Some(idx) => {
-                let result: Result<Directory, Error<D::Error>> = match &volume.volume_type {
-                    VolumeType::Fat16(fat) => fat.get_root_directory(self),
-                    VolumeType::Fat32(_fat) => Err(Error::Unsupported),
-                };
-                if let Ok(ref d) = result {
-                    // Remember this open directory
-                    self.open_dirs[idx] = (volume.idx, d.cluster);
-                }
-                result
+                // Remember this open directory
+                self.open_dirs[idx] = (volume.idx, Cluster::ROOT_DIR);
+                Ok(Directory { cluster: Cluster::ROOT_DIR })
             }
             None => Err(Error::TooManyOpenDirs),
         }
@@ -328,8 +322,8 @@ where
         name: &str,
     ) -> Result<DirEntry, Error<D::Error>> {
         match &volume.volume_type {
-            VolumeType::Fat16(fat) => fat.find_dir_entry(self, dir, name),
-            _ => unimplemented!(),
+            VolumeType::Fat16(fat) => fat.find_directory_entry(self, dir, name),
+            VolumeType::Fat32(fat) => fat.find_directory_entry(self, dir, name),
         }
     }
 
@@ -345,7 +339,7 @@ where
     {
         match &volume.volume_type {
             VolumeType::Fat16(fat) => fat.iterate_dir(self, dir, func),
-            _ => unimplemented!(),
+            VolumeType::Fat32(fat) => fat.iterate_dir(self, dir, func),
         }
     }
 
@@ -592,7 +586,10 @@ mod tests {
                 volume_type: VolumeType::Fat32(Fat32Volume {
                     lba_start: BlockIdx(1),
                     num_blocks: BlockIdx(0x00112233),
-                    name: *b"Pictures   ",
+                    sectors_per_cluster: 8,
+                    first_data_sector: BlockIdx(15136),
+                    first_root_dir_cluster: Cluster(2),
+                    name: fat::VolumeName { data: *b"Pictures   " },
                 })
             }
         );
