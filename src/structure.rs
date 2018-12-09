@@ -1,4 +1,3 @@
-#[macro_export]
 macro_rules! access_field {
     ($self:expr, $offset:expr, $start_bit:expr, 1) => {
         ($self.data[$offset] & (1 << $start_bit)) != 0
@@ -8,7 +7,6 @@ macro_rules! access_field {
     };
 }
 
-#[macro_export]
 macro_rules! define_field {
     ($name:ident, bool, $offset:expr, $bit:expr) => {
         pub fn $name(&self) -> bool {
