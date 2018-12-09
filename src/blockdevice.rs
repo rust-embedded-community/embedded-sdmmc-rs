@@ -20,10 +20,57 @@ pub struct Block {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct BlockIdx(pub u32);
 
-impl core::ops::Add<BlockIdx> for BlockIdx {
+/// Represents the a number of blocks (or sectors). Add this to a `BlockIdx`
+/// to get an actual address on disk.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct BlockCount(pub u32);
+
+impl core::ops::Add<BlockCount> for BlockIdx {
     type Output = BlockIdx;
-    fn add(self, rhs: BlockIdx) -> BlockIdx {
+    fn add(self, rhs: BlockCount) -> BlockIdx {
         BlockIdx(self.0 + rhs.0)
+    }
+}
+
+impl core::ops::Add<BlockCount> for BlockCount {
+    type Output = BlockCount;
+    fn add(self, rhs: BlockCount) -> BlockCount {
+        BlockCount(self.0 + rhs.0)
+    }
+}
+
+impl BlockIdx {
+    /// Create an iterator from the current `BlockIdx` through the given
+    /// number of blocks.
+    pub fn range(&self, num: BlockCount) -> BlockIter {
+        BlockIter::new(*self, *self + num)
+    }
+}
+
+pub struct BlockIter {
+    inclusive_end: BlockIdx,
+    current: BlockIdx
+}
+
+impl BlockIter {
+    pub fn new(start: BlockIdx, inclusive_end: BlockIdx) -> BlockIter {
+        BlockIter {
+            inclusive_end,
+            current: start,
+        }
+    }
+}
+
+impl core::iter::Iterator for BlockIter {
+    type Item = BlockIdx;
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.current.0 >= self.inclusive_end.0 {
+            None
+        } else {
+            let this = self.current;
+            self.current = self.current + BlockCount(1);
+            Some(this)
+        }
     }
 }
 
@@ -33,7 +80,7 @@ pub trait BlockDevice {
     /// The errors that the `BlockDevice` can return. Must be debug formattable.
     type Error: core::fmt::Debug;
     /// Read one or more blocks, starting at the given block index.
-    fn read(&self, blocks: &mut [Block], start_block_idx: BlockIdx) -> Result<(), Self::Error>;
+    fn read(&self, blocks: &mut [Block], start_block_idx: BlockIdx, reason: &str) -> Result<(), Self::Error>;
     /// Write one or more blocks, starting at the given block index.
     fn write(&mut self, blocks: &[Block], start_block_idx: BlockIdx) -> Result<(), Self::Error>;
     /// Determine how many blocks this device can hold.
