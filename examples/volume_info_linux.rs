@@ -1,7 +1,7 @@
 extern crate embedded_sdmmc;
 
 use embedded_sdmmc::{
-    Block, BlockDevice, BlockIdx, Controller, Error, TimeSource, Timestamp, VolumeIdx,
+    Block, BlockCount, BlockDevice, BlockIdx, Controller, Error, TimeSource, Timestamp, VolumeIdx,
 };
 use std::cell::RefCell;
 use std::fs::File;
@@ -64,9 +64,9 @@ impl BlockDevice for LinuxBlockDevice {
         Ok(())
     }
 
-    fn num_blocks(&self) -> Result<BlockIdx, Self::Error> {
+    fn num_blocks(&self) -> Result<BlockCount, Self::Error> {
         let num_blocks = self.file.borrow().metadata().unwrap().len() / 512;
-        Ok(BlockIdx(num_blocks as u32))
+        Ok(BlockCount(num_blocks as u32))
     }
 }
 
@@ -89,7 +89,7 @@ fn main() -> Result<(), Error<std::io::Error>> {
     let mut args = std::env::args().skip(1);
     let filename = args.next().unwrap_or("/dev/mmcblk0".into());
     let print_blocks = args.find(|x| x == "-v").map(|_| true).unwrap_or(false);
-    let lbd = LinuxBlockDevice::new(filename, print_blocks).map_err(|e| Error::DeviceError(e))?;
+    let lbd = LinuxBlockDevice::new(filename, print_blocks).map_err(Error::DeviceError)?;
     println!("lbd: {:?}", lbd);
     let mut controller = Controller::new(lbd, Clock);
     for i in 0..3 {

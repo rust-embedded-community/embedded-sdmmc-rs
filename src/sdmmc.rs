@@ -6,7 +6,7 @@
 //! performance.
 
 use super::sdmmc_proto::*;
-use super::{Block, BlockDevice, BlockIdx};
+use super::{Block, BlockCount, BlockDevice, BlockIdx};
 use core::cell::UnsafeCell;
 use nb::block;
 
@@ -81,9 +81,9 @@ impl Delay {
         if self.0 == 0 {
             Err(Error::Timeout)
         } else {
-            let foo: u32 = 0;
+            let dummy_var: u32 = 0;
             for _ in 0..100_000 {
-                unsafe { core::ptr::read_volatile(&foo) };
+                unsafe { core::ptr::read_volatile(&dummy_var) };
             }
             self.0 -= 1;
             Ok(())
@@ -165,7 +165,7 @@ where
 
             let arg = match s.card_type {
                 CardType::SD1 => 0,
-                CardType::SD2 | CardType::SDHC => 0x40000000,
+                CardType::SD2 | CardType::SDHC => 0x4000_0000,
             };
 
             let mut delay = Delay::new();
@@ -300,9 +300,9 @@ where
             *b = self.receive()?;
         }
 
-        let mut crc: u16 = self.receive()? as u16;
+        let mut crc = u16::from(self.receive()?);
         crc <<= 8;
-        crc |= self.receive()? as u16;
+        crc |= u16::from(self.receive()?);
 
         let calc_crc = crc16(buffer);
         if crc != calc_crc {
@@ -320,7 +320,7 @@ where
             self.send(b)?;
         }
         self.send((calc_crc >> 16) as u8)?;
-        self.send((calc_crc >> 0) as u8)?;
+        self.send(calc_crc as u8)?;
         let status = self.receive()?;
         if (status & DATA_RES_MASK) != DATA_RES_ACCEPTED {
             Err(Error::WriteError)
@@ -473,9 +473,9 @@ where
     }
 
     /// Determine how many blocks this device can hold.
-    fn num_blocks(&self) -> Result<BlockIdx, Self::Error> {
+    fn num_blocks(&self) -> Result<BlockCount, Self::Error> {
         let num_bytes = self.card_size_bytes()?;
         let num_blocks = (num_bytes / 512) as u32;
-        Ok(BlockIdx(num_blocks))
+        Ok(BlockCount(num_blocks))
     }
 }

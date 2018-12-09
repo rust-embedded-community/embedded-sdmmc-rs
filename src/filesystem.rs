@@ -155,14 +155,14 @@ pub enum FilenameError {
 
 impl Cluster {
     /// Magic value indicating an invalid cluster value.
-    pub const INVALID: Cluster = Cluster(0xFFFFFFFF);
+    pub const INVALID: Cluster = Cluster(0xFFFF_FFFF);
     /// Magic value indicating a bad cluster.
-    pub const BAD: Cluster = Cluster(0xFFFFFFFE);
+    pub const BAD: Cluster = Cluster(0xFFFF_FFFE);
     /// Magic value indicating a empty cluster.
-    pub const EMPTY: Cluster = Cluster(0xFFFFFFFD);
+    pub const EMPTY: Cluster = Cluster(0xFFFF_FFFD);
     /// Magic value indicating the cluster holding the root directory (which
     /// doesn't have a number in FAT16 as there's a reserved region).
-    pub const ROOT_DIR: Cluster = Cluster(0xFFFFFFFC);
+    pub const ROOT_DIR: Cluster = Cluster(0xFFFF_FFFC);
 }
 
 // impl DirEntry
@@ -173,7 +173,7 @@ impl ShortFileName {
     const FILENAME_MAX_LEN: usize = 11;
 
     /// Create a new MS-DOS 8.3 space-padded file name as stored in the directory entry.
-    pub fn new(name: &str) -> Result<ShortFileName, FilenameError> {
+    pub fn create_from_str(name: &str) -> Result<ShortFileName, FilenameError> {
         let mut sfn = ShortFileName {
             contents: [b' '; Self::FILENAME_MAX_LEN],
         };
@@ -223,12 +223,10 @@ impl ShortFileName {
                         } else {
                             return Err(FilenameError::NameTooLong);
                         }
+                    } else if idx < Self::FILENAME_BASE_MAX_LEN {
+                        sfn.contents[idx] = ch;
                     } else {
-                        if idx < Self::FILENAME_BASE_MAX_LEN {
-                            sfn.contents[idx] = ch;
-                        } else {
-                            return Err(FilenameError::NameTooLong);
-                        }
+                        return Err(FilenameError::NameTooLong);
                     }
                     idx += 1;
                 }
@@ -242,7 +240,7 @@ impl ShortFileName {
 
     /// Create a new MS-DOS 8.3 space-padded file name as stored in the directory entry.
     /// Use this for volume labels with mixed case.
-    pub fn new_mixed_case(name: &str) -> Result<ShortFileName, FilenameError> {
+    pub fn create_from_str_mixed_case(name: &str) -> Result<ShortFileName, FilenameError> {
         let mut sfn = ShortFileName {
             contents: [b' '; Self::FILENAME_MAX_LEN],
         };
@@ -286,12 +284,10 @@ impl ShortFileName {
                         } else {
                             return Err(FilenameError::NameTooLong);
                         }
+                    } else if idx < Self::FILENAME_BASE_MAX_LEN {
+                        sfn.contents[idx] = ch;
                     } else {
-                        if idx < Self::FILENAME_BASE_MAX_LEN {
-                            sfn.contents[idx] = ch;
-                        } else {
-                            return Err(FilenameError::NameTooLong);
-                        }
+                        return Err(FilenameError::NameTooLong);
                     }
                     idx += 1;
                 }
@@ -342,7 +338,7 @@ impl Timestamp {
     pub fn from_fat(date: u16, time: u16) -> Timestamp {
         let year = (1980 + (date >> 9)) as u16;
         let month = ((date >> 5) & 0x000F) as u8;
-        let day = ((date >> 0) & 0x001F) as u8;
+        let day = (date & 0x001F) as u8;
         let hours = ((time >> 11) & 0x001F) as u8;
         let minutes = ((time >> 5) & 0x0003F) as u8;
         let seconds = ((time << 1) & 0x0003F) as u8;
@@ -415,7 +411,7 @@ impl core::fmt::Display for Timestamp {
         write!(
             f,
             "{}-{:02}-{:02}T{:02}:{:02}:{:02}",
-            self.year_since_1970 as u16 + 1970,
+            u16::from(self.year_since_1970) + 1970,
             self.zero_indexed_month + 1,
             self.zero_indexed_day + 1,
             self.hours,
@@ -450,37 +446,37 @@ impl Attributes {
     }
 
     /// Does this file has the read-only attribute set?
-    pub fn is_read_only(&self) -> bool {
+    pub fn is_read_only(self) -> bool {
         (self.0 & Self::READ_ONLY) == Self::READ_ONLY
     }
 
     /// Does this file has the hidden attribute set?
-    pub fn is_hidden(&self) -> bool {
+    pub fn is_hidden(self) -> bool {
         (self.0 & Self::HIDDEN) == Self::HIDDEN
     }
 
     /// Does this file has the system attribute set?
-    pub fn is_system(&self) -> bool {
+    pub fn is_system(self) -> bool {
         (self.0 & Self::SYSTEM) == Self::SYSTEM
     }
 
     /// Does this file has the volume attribute set?
-    pub fn is_volume(&self) -> bool {
+    pub fn is_volume(self) -> bool {
         (self.0 & Self::VOLUME) == Self::VOLUME
     }
 
     /// Does this entry point at a directory?
-    pub fn is_directory(&self) -> bool {
+    pub fn is_directory(self) -> bool {
         (self.0 & Self::DIRECTORY) == Self::DIRECTORY
     }
 
     /// Does this need archiving?
-    pub fn is_archive(&self) -> bool {
+    pub fn is_archive(self) -> bool {
         (self.0 & Self::ARCHIVE) == Self::ARCHIVE
     }
 
     /// Is this a long file name fragment?
-    pub fn is_lfn(&self) -> bool {
+    pub fn is_lfn(self) -> bool {
         (self.0 & Self::LFN) == Self::LFN
     }
 }
@@ -545,10 +541,10 @@ mod test {
             contents: *b"HELLO      ",
         };
         assert_eq!(format!("{}", &sfn), "HELLO");
-        assert_eq!(sfn, ShortFileName::new("HELLO").unwrap());
-        assert_eq!(sfn, ShortFileName::new("hello").unwrap());
-        assert_eq!(sfn, ShortFileName::new("HeLlO").unwrap());
-        assert_eq!(sfn, ShortFileName::new("HELLO.").unwrap());
+        assert_eq!(sfn, ShortFileName::create_from_str("HELLO").unwrap());
+        assert_eq!(sfn, ShortFileName::create_from_str("hello").unwrap());
+        assert_eq!(sfn, ShortFileName::create_from_str("HeLlO").unwrap());
+        assert_eq!(sfn, ShortFileName::create_from_str("HELLO.").unwrap());
     }
 
     #[test]
@@ -557,7 +553,7 @@ mod test {
             contents: *b"HELLO   TXT",
         };
         assert_eq!(format!("{}", &sfn), "HELLO.TXT");
-        assert_eq!(sfn, ShortFileName::new("HELLO.TXT").unwrap());
+        assert_eq!(sfn, ShortFileName::create_from_str("HELLO.TXT").unwrap());
     }
 
     #[test]
@@ -566,7 +562,7 @@ mod test {
             contents: *b"12345678TXT",
         };
         assert_eq!(format!("{}", &sfn), "12345678.TXT");
-        assert_eq!(sfn, ShortFileName::new("12345678.TXT").unwrap());
+        assert_eq!(sfn, ShortFileName::create_from_str("12345678.TXT").unwrap());
     }
 
     #[test]
@@ -575,7 +571,7 @@ mod test {
             contents: *b"12345678C  ",
         };
         assert_eq!(format!("{}", &sfn), "12345678.C");
-        assert_eq!(sfn, ShortFileName::new("12345678.C").unwrap());
+        assert_eq!(sfn, ShortFileName::create_from_str("12345678.C").unwrap());
     }
 
     #[test]
@@ -584,15 +580,15 @@ mod test {
             contents: *b"1       C  ",
         };
         assert_eq!(format!("{}", &sfn), "1.C");
-        assert_eq!(sfn, ShortFileName::new("1.C").unwrap());
+        assert_eq!(sfn, ShortFileName::create_from_str("1.C").unwrap());
     }
 
     #[test]
     fn filename_bad() {
-        assert!(ShortFileName::new("").is_err());
-        assert!(ShortFileName::new(" ").is_err());
-        assert!(ShortFileName::new("123456789").is_err());
-        assert!(ShortFileName::new("12345678.ABCD").is_err());
+        assert!(ShortFileName::create_from_str("").is_err());
+        assert!(ShortFileName::create_from_str(" ").is_err());
+        assert!(ShortFileName::create_from_str("123456789").is_err());
+        assert!(ShortFileName::create_from_str("12345678.ABCD").is_err());
     }
 
 }

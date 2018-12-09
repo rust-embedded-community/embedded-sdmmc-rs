@@ -337,7 +337,7 @@ impl CsdV1 {
     /// Returns the card capacity in bytes
     pub fn card_capacity_bytes(&self) -> u64 {
         let multiplier = self.device_size_multiplier() + self.read_block_length() + 2;
-        (self.device_size() as u64 + 1) << multiplier
+        (u64::from(self.device_size()) + 1) << multiplier
     }
 
     /// Returns the card capacity in 512-byte blocks
@@ -379,7 +379,7 @@ impl CsdV2 {
 
     /// Returns the card capacity in bytes
     pub fn card_capacity_bytes(&self) -> u64 {
-        (self.device_size() as u64 + 1) * 512 * 1024
+        (u64::from(self.device_size()) + 1) * 512 * 1024
     }
 
     /// Returns the card capacity in 512-byte blocks
@@ -408,7 +408,7 @@ pub fn crc16(data: &[u8]) -> u16 {
     let mut crc = 0u16;
     for &byte in data {
         crc = ((crc >> 8) & 0xFF) | (crc << 8);
-        crc ^= byte as u16;
+        crc ^= u16::from(byte);
         crc ^= (crc & 0xFF) >> 4;
         crc ^= crc << 12;
         crc ^= (crc & 0xFF) << 5;

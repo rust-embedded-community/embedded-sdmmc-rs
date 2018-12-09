@@ -187,7 +187,7 @@ where
             let mut blocks = [Block::new()];
             self.block_device
                 .read(&mut blocks, BlockIdx(0), "read_mbr")
-                .map_err(|e| Error::DeviceError(e))?;
+                .map_err(Error::DeviceError)?;
             let block = &blocks[0];
             // We only support Master Boot Record (MBR) partitioned cards, not
             // GUID Partition Table (GPT)
@@ -314,6 +314,7 @@ where
                 break;
             }
         }
+        drop(dir);
     }
 
     /// Look in a directory for a named file.
@@ -356,7 +357,8 @@ where
     }
 
     /// Close a file with the given full path.
-    pub fn close_file(&mut self, _file: File) -> Result<(), Error<D::Error>> {
+    pub fn close_file(&mut self, file: File) -> Result<(), Error<D::Error>> {
+        drop(file);
         unimplemented!();
     }
 }
@@ -577,8 +579,8 @@ mod tests {
         }
 
         /// Determine how many blocks this device can hold.
-        fn num_blocks(&self) -> Result<BlockIdx, Self::Error> {
-            Ok(BlockIdx(2))
+        fn num_blocks(&self) -> Result<BlockCount, Self::Error> {
+            Ok(BlockCount(2))
         }
     }
 

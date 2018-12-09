@@ -78,7 +78,7 @@ struct Bpb<'a> {
 impl<'a> Bpb<'a> {
     const FOOTER_VALUE: u16 = 0xAA55;
 
-    pub fn new(data: &[u8; 512]) -> Result<Bpb, &'static str> {
+    pub fn create_from_bytes(data: &[u8; 512]) -> Result<Bpb, &'static str> {
         let mut bpb = Bpb {
             data,
             fat_type: FatType::Fat16,
@@ -87,15 +87,14 @@ impl<'a> Bpb<'a> {
             return Err("Bad BPB footer");
         }
 
-        let root_dir_blocks =
-            ((bpb.root_entries_count() as u32 * 32) + (Block::LEN as u32 - 1)) / Block::LEN as u32;
-        let fat_size = bpb.fat_size();
-        let tot_sec = bpb.total_blocks();
-        let data_blocks = tot_sec
-            - (bpb.reserved_block_count() as u32
-                + (bpb.num_fats() as u32 * fat_size)
+        let root_dir_blocks = ((u32::from(bpb.root_entries_count()) * OnDiskDirEntry::LEN_U32)
+            + (Block::LEN_U32 - 1))
+            / Block::LEN_U32;
+        let data_blocks = bpb.total_blocks()
+            - (u32::from(bpb.reserved_block_count())
+                + (u32::from(bpb.num_fats()) * bpb.fat_size())
                 + root_dir_blocks);
-        let cluster_count = data_blocks / bpb.blocks_per_cluster() as u32;
+        let cluster_count = data_blocks / u32::from(bpb.blocks_per_cluster());
         if cluster_count < 4085 {
             return Err("FAT12 is unsupported");
         } else if cluster_count < 65525 {
@@ -255,6 +254,7 @@ impl<'a> core::fmt::Debug for OnDiskDirEntry<'a> {
 /// FAT32 (except FAT16 doesn't use first_cluster_hi).
 impl<'a> OnDiskDirEntry<'a> {
     const LEN: usize = 32;
+    const LEN_U32: u32 = 32;
     const LFN_FRAGMENT_LEN: usize = 13;
 
     define_field!(raw_attr, u8, 11);
@@ -368,24 +368,16 @@ impl Fat16Volume {
         T: TimeSource,
     {
         let mut blocks = [Block::new()];
-        controller
-            .block_device
-            .read(&mut blocks, self.lba_start, "read_bpb")
-            .map_err(|e| Error::DeviceError(e))?;
-        let bpb = Bpb::new(&blocks[0]).map_err(|e| Error::FormatError(e))?;
-        // FAT16 => 2 bytes per entry
         let fat_offset = cluster.0 * 2;
-        // This is the block in the FAT that contains this Cluster.
-        let this_fat_block_num =
-            BlockCount(bpb.reserved_block_count() as u32 + (fat_offset / Block::LEN as u32));
-        let this_fat_ent_offset = fat_offset as usize % Block::LEN;
+        let this_fat_block_num = self.lba_start + self.fat_start.offset_bytes(fat_offset);
+        let this_fat_ent_offset = (fat_offset % Block::LEN_U32) as usize;
         controller
             .block_device
-            .read(&mut blocks, self.lba_start + this_fat_block_num, "read_fat")
-            .map_err(|e| Error::DeviceError(e))?;
+            .read(&mut blocks, this_fat_block_num, "read_fat")
+            .map_err(Error::DeviceError)?;
         let entry =
             LittleEndian::read_u16(&blocks[0][this_fat_ent_offset..=this_fat_ent_offset + 1]);
-        Ok(Cluster(entry as u32))
+        Ok(Cluster(u32::from(entry)))
     }
 
     /// Write a new entry in the FAT
@@ -400,24 +392,13 @@ impl Fat16Volume {
         T: TimeSource,
     {
         let mut blocks = [Block::new()];
+        let fat_offset = cluster.0 * 2;
+        let this_fat_block_num = self.lba_start + self.fat_start.offset_bytes(fat_offset);
+        let this_fat_ent_offset = (fat_offset % Block::LEN_U32) as usize;
         controller
             .block_device
-            .read(&mut blocks, self.lba_start, "read_bpb")
-            .map_err(|e| Error::DeviceError(e))?;
-        let (this_fat_block_num, this_fat_ent_offset) = {
-            let bpb = Bpb::new(&blocks[0]).map_err(|e| Error::FormatError(e))?;
-            // FAT16 => 2 bytes per entry
-            let fat_offset = cluster.0 * 2;
-            // This is the block in the FAT that contains this Cluster.
-            let this_fat_block_num =
-                bpb.reserved_block_count() as u32 + (fat_offset / Block::LEN as u32);
-            let this_fat_ent_offset = fat_offset as usize % Block::LEN;
-            (BlockCount(this_fat_block_num), this_fat_ent_offset)
-        };
-        controller
-            .block_device
-            .read(&mut blocks, self.lba_start + this_fat_block_num, "read_fat")
-            .map_err(|e| Error::DeviceError(e))?;
+            .read(&mut blocks, this_fat_block_num, "read_fat")
+            .map_err(Error::DeviceError)?;
         let entry = match new_value {
             Cluster::INVALID => 0xFFFF,
             Cluster::BAD => 0xFFF7,
@@ -430,8 +411,8 @@ impl Fat16Volume {
         );
         controller
             .block_device
-            .write(&blocks, self.lba_start + this_fat_block_num)
-            .map_err(|e| Error::DeviceError(e))?;
+            .write(&blocks, this_fat_block_num)
+            .map_err(Error::DeviceError)?;
         Ok(())
     }
 
@@ -439,15 +420,16 @@ impl Fat16Volume {
     /// `BlockIdx`). Gives an absolute `BlockIdx` you can pass to the
     /// controller.
     fn cluster_to_block(&self, cluster: Cluster) -> BlockIdx {
-        let res = match cluster {
-            Cluster::ROOT_DIR => self.lba_start + self.first_root_dir_block,
-            Cluster(c) => {
-                // FirstSectorofCluster = ((N – 2) * BPB_SecPerClus) + FirstDataSector;
-                let first_block_of_cluster = BlockCount((c - 2) * self.blocks_per_cluster as u32);
-                self.lba_start + self.first_data_block + first_block_of_cluster
+        self.lba_start
+            + match cluster {
+                Cluster::ROOT_DIR => self.first_root_dir_block,
+                Cluster(c) => {
+                    // FirstSectorofCluster = ((N – 2) * BPB_SecPerClus) + FirstDataSector;
+                    let first_block_of_cluster =
+                        BlockCount((c - 2) * u32::from(self.blocks_per_cluster));
+                    self.first_data_block + first_block_of_cluster
+                }
             }
-        };
-        res
     }
 
     /// Get an entry from the given directory
@@ -461,7 +443,7 @@ impl Fat16Volume {
         D: BlockDevice,
         T: TimeSource,
     {
-        let match_name = ShortFileName::new(name).map_err(|e| Error::FilenameError(e))?;
+        let match_name = ShortFileName::create_from_str(name).map_err(Error::FilenameError)?;
         let first_dir_block_num = self.cluster_to_block(dir.cluster);
         let mut blocks = [Block::new()];
         // TODO track actual directory size
@@ -470,13 +452,13 @@ impl Fat16Volume {
                 ((self.root_entries_count as u32 * 32) + (Block::LEN as u32 - 1))
                     / Block::LEN as u32,
             ),
-            _ => BlockCount(self.blocks_per_cluster as u32),
+            _ => BlockCount(u32::from(self.blocks_per_cluster)),
         };
         for block in first_dir_block_num.range(dir_size) {
             controller
                 .block_device
                 .read(&mut blocks, block, "read_dir")
-                .map_err(|e| Error::DeviceError(e))?;
+                .map_err(Error::DeviceError)?;
             for entry in 0..Block::LEN / OnDiskDirEntry::LEN {
                 let start = entry * OnDiskDirEntry::LEN;
                 let end = (entry + 1) * OnDiskDirEntry::LEN;
@@ -513,14 +495,14 @@ impl Fat16Volume {
                 ((self.root_entries_count as u32 * 32) + (Block::LEN as u32 - 1))
                     / Block::LEN as u32,
             ),
-            _ => BlockCount(self.blocks_per_cluster as u32),
+            _ => BlockCount(u32::from(self.blocks_per_cluster)),
         };
         let mut blocks = [Block::new()];
         for block in first_dir_block_num.range(dir_size) {
             controller
                 .block_device
                 .read(&mut blocks, block, "read_dir")
-                .map_err(|e| Error::DeviceError(e))?;
+                .map_err(Error::DeviceError)?;
             for entry in 0..Block::LEN / OnDiskDirEntry::LEN {
                 let start = entry * OnDiskDirEntry::LEN;
                 let end = (entry + 1) * OnDiskDirEntry::LEN;
@@ -550,28 +532,17 @@ impl Fat32Volume {
         T: TimeSource,
     {
         let mut blocks = [Block::new()];
-        controller
-            .block_device
-            .read(&mut blocks, self.lba_start, "read_bpb")
-            .map_err(|e| Error::DeviceError(e))?;
-        let bpb = Bpb::new(&blocks[0]).map_err(|e| Error::FormatError(e))?;
         // FAT32 => 4 bytes per entry
-        let fat_offset = cluster.0 * 4;
-        // This is the block in the FAT that contains this Cluster.
-        let this_fat_block_num =
-            bpb.reserved_block_count() as u32 + (fat_offset / Block::LEN as u32);
-        let this_fat_ent_offset = fat_offset as usize % Block::LEN;
+        let fat_offset = cluster.0 as u32 * 4;
+        let this_fat_block_num = self.lba_start + self.fat_start.offset_bytes(fat_offset);
+        let this_fat_ent_offset = (fat_offset % Block::LEN_U32) as usize;
         controller
             .block_device
-            .read(
-                &mut blocks,
-                BlockIdx(self.lba_start.0 + this_fat_block_num),
-                "read_fat",
-            )
-            .map_err(|e| Error::DeviceError(e))?;
+            .read(&mut blocks, this_fat_block_num, "read_fat")
+            .map_err(Error::DeviceError)?;
         let mut entry =
             LittleEndian::read_u32(&blocks[0][this_fat_ent_offset..=this_fat_ent_offset + 3]);
-        entry &= 0x0FFFFFFF;
+        entry &= 0x0FFF_FFFF;
         Ok(Cluster(entry))
     }
 
@@ -587,24 +558,22 @@ impl Fat32Volume {
         T: TimeSource,
     {
         let mut blocks = [Block::new()];
-        // FAT32 => 2 bytes per entry
-        let fat_offset = cluster.0 * 4;
-        // This is the block in the FAT that contains this Cluster.
-        let this_fat_block_num =
-            self.lba_start + self.fat_start + BlockCount(fat_offset / Block::LEN as u32);
-        let this_fat_ent_offset = fat_offset as usize % Block::LEN;
+        // FAT32 => 4 bytes per entry
+        let fat_offset = cluster.0 as u32 * 4;
+        let this_fat_block_num = self.lba_start + self.fat_start.offset_bytes(fat_offset);
+        let this_fat_ent_offset = (fat_offset % Block::LEN_U32) as usize;
         controller
             .block_device
-            .read(&mut blocks, this_fat_block_num, "update_fat")
-            .map_err(|e| Error::DeviceError(e))?;
+            .read(&mut blocks, this_fat_block_num, "read_fat")
+            .map_err(Error::DeviceError)?;
         let entry = match new_value {
-            Cluster::INVALID => 0x0FFFFFFF,
-            Cluster::BAD => 0x0FFFFFF7,
-            Cluster::EMPTY => 0x0000,
+            Cluster::INVALID => 0x0FFF_FFFF,
+            Cluster::BAD => 0x0FFF_FFF7,
+            Cluster::EMPTY => 0x0000_0000,
             _ => new_value.0,
         };
         let existing =
-            LittleEndian::read_u32(&mut blocks[0][this_fat_ent_offset..=this_fat_ent_offset + 3]);
+            LittleEndian::read_u32(&blocks[0][this_fat_ent_offset..=this_fat_ent_offset + 3]);
         let new = (existing & 0xF000_0000) | (entry & 0x0FFF_FFFF);
         LittleEndian::write_u32(
             &mut blocks[0][this_fat_ent_offset..=this_fat_ent_offset + 3],
@@ -613,7 +582,7 @@ impl Fat32Volume {
         controller
             .block_device
             .write(&blocks, this_fat_block_num)
-            .map_err(|e| Error::DeviceError(e))?;
+            .map_err(Error::DeviceError)?;
         Ok(())
     }
 
@@ -626,9 +595,9 @@ impl Fat32Volume {
             c => c.0,
         };
         // FirstSectorofCluster = ((N – 2) * BPB_SecPerClus) + FirstDataSector;
-        let first_block_of_cluster = BlockCount((cluster_num - 2) * self.blocks_per_cluster as u32);
-        let res = self.lba_start + self.first_data_block + first_block_of_cluster;
-        res
+        let first_block_of_cluster =
+            BlockCount((cluster_num - 2) * u32::from(self.blocks_per_cluster));
+        self.lba_start + self.first_data_block + first_block_of_cluster
     }
 
     /// Get an entry from the given directory
@@ -642,15 +611,15 @@ impl Fat32Volume {
         D: BlockDevice,
         T: TimeSource,
     {
-        let match_name = ShortFileName::new(name).map_err(|e| Error::FilenameError(e))?;
+        let match_name = ShortFileName::create_from_str(name).map_err(Error::FilenameError)?;
         let first_dir_block_num = self.cluster_to_block(dir.cluster);
         let mut blocks = [Block::new()];
         // TODO walk FAT to find directory size
-        for block in first_dir_block_num.range(BlockCount(self.blocks_per_cluster as u32)) {
+        for block in first_dir_block_num.range(BlockCount(u32::from(self.blocks_per_cluster))) {
             controller
                 .block_device
                 .read(&mut blocks, block, "read_dir")
-                .map_err(|e| Error::DeviceError(e))?;
+                .map_err(Error::DeviceError)?;
             for entry in 0..Block::LEN / OnDiskDirEntry::LEN {
                 let start = entry * OnDiskDirEntry::LEN;
                 let end = (entry + 1) * OnDiskDirEntry::LEN;
@@ -683,11 +652,11 @@ impl Fat32Volume {
         let first_dir_block_num = self.cluster_to_block(dir.cluster);
         let mut blocks = [Block::new()];
         // TODO track actual directory size
-        for block in first_dir_block_num.range(BlockCount(self.blocks_per_cluster as u32)) {
+        for block in first_dir_block_num.range(BlockCount(u32::from(self.blocks_per_cluster))) {
             controller
                 .block_device
                 .read(&mut blocks, block, "read_dir")
-                .map_err(|e| Error::DeviceError(e))?;
+                .map_err(Error::DeviceError)?;
             for entry in 0..Block::LEN / OnDiskDirEntry::LEN {
                 let start = entry * OnDiskDirEntry::LEN;
                 let end = (entry + 1) * OnDiskDirEntry::LEN;
@@ -721,18 +690,18 @@ where
     controller
         .block_device
         .read(&mut blocks, lba_start, "read_bpb")
-        .map_err(|e| Error::DeviceError(e))?;
+        .map_err(Error::DeviceError)?;
     let block = &blocks[0];
-    let bpb = Bpb::new(&block).map_err(|e| Error::FormatError(e))?;
+    let bpb = Bpb::create_from_bytes(&block).map_err(Error::FormatError)?;
     match bpb.fat_type {
         FatType::Fat16 => {
             // FirstDataSector = BPB_ResvdSecCnt + (BPB_NumFATs * FATSz) + RootDirSectors;
-            let root_dir_blocks = ((bpb.root_entries_count() as u32 * 32)
-                + (Block::LEN as u32 - 1))
-                / Block::LEN as u32;
-            let fat_start = BlockCount(bpb.reserved_block_count() as u32);
+            let root_dir_blocks = ((u32::from(bpb.root_entries_count()) * OnDiskDirEntry::LEN_U32)
+                + (Block::LEN_U32 - 1))
+                / Block::LEN_U32;
+            let fat_start = BlockCount(u32::from(bpb.reserved_block_count()));
             let first_root_dir_block =
-                fat_start + BlockCount(bpb.num_fats() as u32 * bpb.fat_size() as u32);
+                fat_start + BlockCount(u32::from(bpb.num_fats()) * bpb.fat_size());
             let first_data_block = first_root_dir_block + BlockCount(root_dir_blocks);
             let mut volume = Fat16Volume {
                 lba_start,
@@ -742,22 +711,22 @@ where
                 blocks_per_cluster: bpb.blocks_per_cluster(),
                 first_root_dir_block: (first_root_dir_block),
                 first_data_block: (first_data_block),
-                fat_start: BlockCount(bpb.reserved_block_count() as u32),
+                fat_start: BlockCount(u32::from(bpb.reserved_block_count())),
             };
             volume.name.data[..].copy_from_slice(bpb.volume_label());
             Ok(VolumeType::Fat16(volume))
         }
         FatType::Fat32 => {
             // FirstDataSector = BPB_ResvdSecCnt + (BPB_NumFATs * FATSz);
-            let first_data_block =
-                bpb.reserved_block_count() as u32 + (bpb.num_fats() as u32 * bpb.fat_size() as u32);
+            let first_data_block = u32::from(bpb.reserved_block_count())
+                + (u32::from(bpb.num_fats()) * bpb.fat_size());
             let mut volume = Fat32Volume {
                 lba_start,
                 num_blocks,
                 name: VolumeName { data: [0u8; 11] },
                 blocks_per_cluster: bpb.blocks_per_cluster(),
                 first_data_block: BlockCount(first_data_block),
-                fat_start: BlockCount(bpb.reserved_block_count() as u32),
+                fat_start: BlockCount(u32::from(bpb.reserved_block_count())),
                 first_root_dir_cluster: Cluster(bpb.first_root_dir_cluster()),
             };
             volume.name.data[..].copy_from_slice(bpb.volume_label());
@@ -841,7 +810,7 @@ mod test {
         "#;
         let results = [
             Expected::Short(DirEntry {
-                name: ShortFileName::new_mixed_case("boot").unwrap(),
+                name: ShortFileName::create_from_str_mixed_case("boot").unwrap(),
                 mtime: Timestamp::from_calendar(2015, 11, 21, 19, 35, 18).unwrap(),
                 ctime: Timestamp::from_calendar(2015, 11, 21, 19, 35, 18).unwrap(),
                 attributes: Attributes::create_from_fat(Attributes::VOLUME),
@@ -857,7 +826,7 @@ mod test {
                 ],
             ),
             Expected::Short(DirEntry {
-                name: ShortFileName::new("OVERLAYS").unwrap(),
+                name: ShortFileName::create_from_str("OVERLAYS").unwrap(),
                 mtime: Timestamp::from_calendar(2016, 03, 01, 19, 56, 54).unwrap(),
                 ctime: Timestamp::from_calendar(2016, 03, 01, 19, 56, 54).unwrap(),
                 attributes: Attributes::create_from_fat(Attributes::DIRECTORY),
@@ -880,7 +849,7 @@ mod test {
                 ],
             ),
             Expected::Short(DirEntry {
-                name: ShortFileName::new("BCM270~1.DTB").unwrap(),
+                name: ShortFileName::create_from_str("BCM270~1.DTB").unwrap(),
                 mtime: Timestamp::from_calendar(2016, 03, 01, 19, 56, 34).unwrap(),
                 ctime: Timestamp::from_calendar(2016, 03, 01, 19, 56, 34).unwrap(),
                 attributes: Attributes::create_from_fat(Attributes::ARCHIVE),
@@ -895,7 +864,7 @@ mod test {
                 ],
             ),
             Expected::Short(DirEntry {
-                name: ShortFileName::new("COPYIN~1.LIN").unwrap(),
+                name: ShortFileName::create_from_str("COPYIN~1.LIN").unwrap(),
                 mtime: Timestamp::from_calendar(2016, 03, 01, 19, 56, 30).unwrap(),
                 ctime: Timestamp::from_calendar(2016, 03, 01, 19, 56, 30).unwrap(),
                 attributes: Attributes::create_from_fat(Attributes::ARCHIVE),
@@ -918,7 +887,7 @@ mod test {
                 ],
             ),
             Expected::Short(DirEntry {
-                name: ShortFileName::new("LICENC~1.BRO").unwrap(),
+                name: ShortFileName::create_from_str("LICENC~1.BRO").unwrap(),
                 mtime: Timestamp::from_calendar(2016, 03, 01, 19, 56, 34).unwrap(),
                 ctime: Timestamp::from_calendar(2016, 03, 01, 19, 56, 34).unwrap(),
                 attributes: Attributes::create_from_fat(Attributes::ARCHIVE),
@@ -941,7 +910,7 @@ mod test {
                 ],
             ),
             Expected::Short(DirEntry {
-                name: ShortFileName::new("BCM270~4.DTB").unwrap(),
+                name: ShortFileName::create_from_str("BCM270~4.DTB").unwrap(),
                 mtime: Timestamp::from_calendar(2016, 03, 01, 19, 56, 36).unwrap(),
                 ctime: Timestamp::from_calendar(2016, 03, 01, 19, 56, 36).unwrap(),
                 attributes: Attributes::create_from_fat(Attributes::ARCHIVE),
@@ -1032,7 +1001,7 @@ mod test {
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x55, 0xaa,
         ];
-        let bpb = Bpb::new(&BPB_EXAMPLE).unwrap();
+        let bpb = Bpb::create_from_bytes(&BPB_EXAMPLE).unwrap();
         assert_eq!(bpb.footer(), Bpb::FOOTER_VALUE);
         assert_eq!(bpb.oem_name(), b"mkfs.fat");
         assert_eq!(bpb.bytes_per_block(), 512);
