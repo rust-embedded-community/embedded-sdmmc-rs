@@ -21,7 +21,7 @@ mod filesystem;
 mod sdmmc;
 mod sdmmc_proto;
 
-pub use crate::blockdevice::{Block, BlockDevice, BlockIdx};
+pub use crate::blockdevice::{Block, BlockCount, BlockDevice, BlockIdx};
 pub use crate::fat::{Fat16Volume, Fat32Volume};
 pub use crate::filesystem::{
     Attributes, Cluster, DirEntry, Directory, File, FilenameError, Mode, ShortFileName, TimeSource,
@@ -186,7 +186,7 @@ where
         let (part_type, lba_start, num_blocks) = {
             let mut blocks = [Block::new()];
             self.block_device
-                .read(&mut blocks, BlockIdx(0))
+                .read(&mut blocks, BlockIdx(0), "read_mbr")
                 .map_err(|e| Error::DeviceError(e))?;
             let block = &blocks[0];
             // We only support Master Boot Record (MBR) partitioned cards, not
@@ -224,7 +224,7 @@ where
             (
                 partition[PARTITION_INFO_TYPE_INDEX],
                 BlockIdx(lba_start),
-                BlockIdx(num_blocks),
+                BlockCount(num_blocks),
             )
         };
         match part_type {
@@ -261,7 +261,9 @@ where
             Some(idx) => {
                 // Remember this open directory
                 self.open_dirs[idx] = (volume.idx, Cluster::ROOT_DIR);
-                Ok(Directory { cluster: Cluster::ROOT_DIR })
+                Ok(Directory {
+                    cluster: Cluster::ROOT_DIR,
+                })
             }
             None => Err(Error::TooManyOpenDirs),
         }
@@ -404,7 +406,12 @@ mod tests {
         type Error = Error;
 
         /// Read one or more blocks, starting at the given block index.
-        fn read(&self, blocks: &mut [Block], start_block_idx: BlockIdx) -> Result<(), Self::Error> {
+        fn read(
+            &self,
+            blocks: &mut [Block],
+            start_block_idx: BlockIdx,
+            _reason: &str,
+        ) -> Result<(), Self::Error> {
             // Actual blocks taken from an SD card, except I've changed the start and length of partition 0.
             static BLOCKS: [Block; 2] = [
                 Block {
@@ -585,11 +592,14 @@ mod tests {
                 idx: VolumeIdx(0),
                 volume_type: VolumeType::Fat32(Fat32Volume {
                     lba_start: BlockIdx(1),
-                    num_blocks: BlockIdx(0x00112233),
-                    sectors_per_cluster: 8,
-                    first_data_sector: BlockIdx(15136),
+                    num_blocks: BlockCount(0x00112233),
+                    blocks_per_cluster: 8,
+                    first_data_block: BlockCount(15136),
                     first_root_dir_cluster: Cluster(2),
-                    name: fat::VolumeName { data: *b"Pictures   " },
+                    fat_start: BlockCount(32),
+                    name: fat::VolumeName {
+                        data: *b"Pictures   "
+                    },
                 })
             }
         );

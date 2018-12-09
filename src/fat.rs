@@ -1,9 +1,8 @@
 //! embedded-sdmmc-rs - FAT file system
 //!
 //! Implements the File Allocation Table file system. Supports FAT16 and FAT32 volumes.
-#![allow(unused)]
 
-use crate::filesystem::FilenameError;
+use crate::blockdevice::BlockCount;
 use crate::{
     Attributes, Block, BlockDevice, BlockIdx, Cluster, Controller, DirEntry, Directory, Error,
     ShortFileName, TimeSource, Timestamp, VolumeType,
@@ -18,29 +17,47 @@ enum FatType {
 
 #[derive(PartialEq, Eq)]
 pub(crate) struct VolumeName {
-    pub(crate) data: [u8; 11]
+    pub(crate) data: [u8; 11],
 }
 
 /// Identifies a FAT16 Volume on the disk.
 #[derive(PartialEq, Eq, Debug)]
 pub struct Fat16Volume {
+    /// The block number of the start of the partition. All other BlockIdx values are relative to this.
     pub(crate) lba_start: BlockIdx,
-    pub(crate) num_blocks: BlockIdx,
+    /// The number of blocks in this volume
+    pub(crate) num_blocks: BlockCount,
+    /// The name of this volume
     pub(crate) name: VolumeName,
-    pub(crate) sectors_per_cluster: u8,
-    pub(crate) first_root_dir_sector: BlockIdx,
+    /// Number of 512 byte blocks (or Blocks) in a cluster
+    pub(crate) blocks_per_cluster: u8,
+    /// The block the data starts in. Relative to start of partition (so add `self.lba_offset` before passing to controller)
+    pub(crate) first_data_block: BlockCount,
+    /// The block the FAT starts in. Relative to start of partition (so add `self.lba_offset` before passing to controller)
+    pub(crate) fat_start: BlockCount,
+    /// The block the root directory starts in. Relative to start of partition (so add `self.lba_offset` before passing to controller)
+    pub(crate) first_root_dir_block: BlockCount,
+    /// Number of entries in root directory (it's reserved and not in the FAT)
     pub(crate) root_entries_count: u16,
-    pub(crate) first_data_sector: BlockIdx,
 }
 
 /// Identifies a FAT32 Volume on the disk.
 #[derive(PartialEq, Eq, Debug)]
 pub struct Fat32Volume {
+    /// The block number of the start of the partition. All other BlockIdx values are relative to this.
     pub(crate) lba_start: BlockIdx,
-    pub(crate) num_blocks: BlockIdx,
+    /// The number of blocks in this volume
+    pub(crate) num_blocks: BlockCount,
+    /// The name of this volume
     pub(crate) name: VolumeName,
-    pub(crate) sectors_per_cluster: u8,
-    pub(crate) first_data_sector: BlockIdx,
+    /// Number of 512 byte blocks (or Blocks) in a cluster
+    pub(crate) blocks_per_cluster: u8,
+    /// Relative to start of partition (so add `self.lba_offset` before passing to controller)
+    pub(crate) first_data_block: BlockCount,
+    /// The block the FAT starts in. Relative to start of partition (so add `self.lba_offset` before passing to controller)
+    pub(crate) fat_start: BlockCount,
+    /// The root directory does not have a reserved area in FAT32. This is the
+    /// cluster it starts in (nominally 2).
     pub(crate) first_root_dir_cluster: Cluster,
 }
 
@@ -70,15 +87,15 @@ impl<'a> Bpb<'a> {
             return Err("Bad BPB footer");
         }
 
-        let root_dir_sectors =
+        let root_dir_blocks =
             ((bpb.root_entries_count() as u32 * 32) + (Block::LEN as u32 - 1)) / Block::LEN as u32;
         let fat_size = bpb.fat_size();
-        let tot_sec = bpb.total_sectors();
-        let data_sectors = tot_sec
-            - (bpb.reserved_sector_count() as u32
+        let tot_sec = bpb.total_blocks();
+        let data_blocks = tot_sec
+            - (bpb.reserved_block_count() as u32
                 + (bpb.num_fats() as u32 * fat_size)
-                + root_dir_sectors);
-        let cluster_count = data_sectors / bpb.sectors_per_cluster() as u32;
+                + root_dir_blocks);
+        let cluster_count = data_blocks / bpb.blocks_per_cluster() as u32;
         if cluster_count < 4085 {
             return Err("FAT12 is unsupported");
         } else if cluster_count < 65525 {
@@ -98,18 +115,18 @@ impl<'a> Bpb<'a> {
     }
 
     // FAT16/FAT32
-    define_field!(bytes_per_sector, u16, 11);
-    define_field!(sectors_per_cluster, u8, 13);
-    define_field!(reserved_sector_count, u16, 14);
+    define_field!(bytes_per_block, u16, 11);
+    define_field!(blocks_per_cluster, u8, 13);
+    define_field!(reserved_block_count, u16, 14);
     define_field!(num_fats, u8, 16);
     define_field!(root_entries_count, u16, 17);
-    define_field!(total_sectors16, u16, 19);
+    define_field!(total_blocks16, u16, 19);
     define_field!(media, u8, 21);
     define_field!(fat_size16, u16, 22);
-    define_field!(sectors_per_track, u16, 24);
+    define_field!(blocks_per_track, u16, 24);
     define_field!(num_heads, u16, 26);
-    define_field!(hidden_sectors, u32, 28);
-    define_field!(total_sectors32, u32, 32);
+    define_field!(hidden_blocks, u32, 28);
+    define_field!(total_blocks32, u32, 32);
     define_field!(footer, u16, 510);
 
     // FAT32 only
@@ -117,7 +134,7 @@ impl<'a> Bpb<'a> {
     define_field!(fs_ver, u16, 42);
     define_field!(first_root_dir_cluster, u32, 44);
     define_field!(fs_info, u16, 48);
-    define_field!(backup_boot_sector, u16, 50);
+    define_field!(backup_boot_block, u16, 50);
 
     pub fn oem_name(&self) -> &[u8] {
         &self.data[3..11]
@@ -190,12 +207,12 @@ impl<'a> Bpb<'a> {
         }
     }
 
-    pub fn total_sectors(&self) -> u32 {
-        let result = self.total_sectors16() as u32;
+    pub fn total_blocks(&self) -> u32 {
+        let result = self.total_blocks16() as u32;
         if result != 0 {
             result
         } else {
-            self.total_sectors32()
+            self.total_blocks32()
         }
     }
 }
@@ -353,22 +370,18 @@ impl Fat16Volume {
         let mut blocks = [Block::new()];
         controller
             .block_device
-            .read(&mut blocks, self.lba_start)
+            .read(&mut blocks, self.lba_start, "read_bpb")
             .map_err(|e| Error::DeviceError(e))?;
         let bpb = Bpb::new(&blocks[0]).map_err(|e| Error::FormatError(e))?;
-        let fat_size = bpb.fat_size();
         // FAT16 => 2 bytes per entry
         let fat_offset = cluster.0 * 2;
-        // This is the sector in the FAT that contains this Cluster.
-        let this_fat_sector_num =
-            bpb.reserved_sector_count() as u32 + (fat_offset / Block::LEN as u32);
+        // This is the block in the FAT that contains this Cluster.
+        let this_fat_block_num =
+            BlockCount(bpb.reserved_block_count() as u32 + (fat_offset / Block::LEN as u32));
         let this_fat_ent_offset = fat_offset as usize % Block::LEN;
         controller
             .block_device
-            .read(
-                &mut blocks,
-                BlockIdx(self.lba_start.0 + this_fat_sector_num),
-            )
+            .read(&mut blocks, self.lba_start + this_fat_block_num, "read_fat")
             .map_err(|e| Error::DeviceError(e))?;
         let entry =
             LittleEndian::read_u16(&blocks[0][this_fat_ent_offset..=this_fat_ent_offset + 1]);
@@ -389,22 +402,21 @@ impl Fat16Volume {
         let mut blocks = [Block::new()];
         controller
             .block_device
-            .read(&mut blocks, self.lba_start)
+            .read(&mut blocks, self.lba_start, "read_bpb")
             .map_err(|e| Error::DeviceError(e))?;
-        let (this_fat_sector_num, this_fat_ent_offset) = {
+        let (this_fat_block_num, this_fat_ent_offset) = {
             let bpb = Bpb::new(&blocks[0]).map_err(|e| Error::FormatError(e))?;
-            let fat_size = bpb.fat_size();
             // FAT16 => 2 bytes per entry
             let fat_offset = cluster.0 * 2;
-            // This is the sector in the FAT that contains this Cluster.
-            let this_fat_sector_num =
-                bpb.reserved_sector_count() as u32 + (fat_offset / Block::LEN as u32);
+            // This is the block in the FAT that contains this Cluster.
+            let this_fat_block_num =
+                bpb.reserved_block_count() as u32 + (fat_offset / Block::LEN as u32);
             let this_fat_ent_offset = fat_offset as usize % Block::LEN;
-            (BlockIdx(this_fat_sector_num), this_fat_ent_offset)
+            (BlockCount(this_fat_block_num), this_fat_ent_offset)
         };
         controller
             .block_device
-            .read(&mut blocks, self.lba_start + this_fat_sector_num)
+            .read(&mut blocks, self.lba_start + this_fat_block_num, "read_fat")
             .map_err(|e| Error::DeviceError(e))?;
         let entry = match new_value {
             Cluster::INVALID => 0xFFFF,
@@ -418,24 +430,21 @@ impl Fat16Volume {
         );
         controller
             .block_device
-            .write(&blocks, self.lba_start + this_fat_sector_num)
+            .write(&blocks, self.lba_start + this_fat_block_num)
             .map_err(|e| Error::DeviceError(e))?;
         Ok(())
     }
 
-    /// Converts a cluster number (or `Cluster`) to a sector number (or
+    /// Converts a cluster number (or `Cluster`) to a block number (or
     /// `BlockIdx`). Gives an absolute `BlockIdx` you can pass to the
     /// controller.
     fn cluster_to_block(&self, cluster: Cluster) -> BlockIdx {
         let res = match cluster {
-            Cluster::ROOT_DIR => {
-                self.first_root_dir_sector
-            }
+            Cluster::ROOT_DIR => self.lba_start + self.first_root_dir_block,
             Cluster(c) => {
                 // FirstSectorofCluster = ((N – 2) * BPB_SecPerClus) + FirstDataSector;
-                let first_sector_of_cluster =
-                    ((c - 2) * self.sectors_per_cluster as u32);
-                BlockIdx(first_sector_of_cluster) + self.first_data_sector
+                let first_block_of_cluster = BlockCount((c - 2) * self.blocks_per_cluster as u32);
+                self.lba_start + self.first_data_block + first_block_of_cluster
             }
         };
         res
@@ -453,17 +462,20 @@ impl Fat16Volume {
         T: TimeSource,
     {
         let match_name = ShortFileName::new(name).map_err(|e| Error::FilenameError(e))?;
-        let first_dir_sector_num = self.cluster_to_block(dir.cluster).0;
+        let first_dir_block_num = self.cluster_to_block(dir.cluster);
         let mut blocks = [Block::new()];
         // TODO track actual directory size
         let dir_size = match dir.cluster {
-            Cluster::ROOT_DIR => ((self.root_entries_count as u32 * 32) + (Block::LEN as u32 - 1)) / Block::LEN as u32,
-            _ => self.sectors_per_cluster as u32
+            Cluster::ROOT_DIR => BlockCount(
+                ((self.root_entries_count as u32 * 32) + (Block::LEN as u32 - 1))
+                    / Block::LEN as u32,
+            ),
+            _ => BlockCount(self.blocks_per_cluster as u32),
         };
-        for sector in first_dir_sector_num..first_dir_sector_num + dir_size as u32 {
+        for block in first_dir_block_num.range(dir_size) {
             controller
                 .block_device
-                .read(&mut blocks, self.lba_start + BlockIdx(sector))
+                .read(&mut blocks, block, "read_dir")
                 .map_err(|e| Error::DeviceError(e))?;
             for entry in 0..Block::LEN / OnDiskDirEntry::LEN {
                 let start = entry * OnDiskDirEntry::LEN;
@@ -494,17 +506,20 @@ impl Fat16Volume {
         D: BlockDevice,
         T: TimeSource,
     {
-        let first_dir_sector_num = self.cluster_to_block(dir.cluster).0;
+        let first_dir_block_num = self.cluster_to_block(dir.cluster);
         // TODO track actual directory size
         let dir_size = match dir.cluster {
-            Cluster::ROOT_DIR => ((self.root_entries_count as u32 * 32) + (Block::LEN as u32 - 1)) / Block::LEN as u32,
-            _ => self.sectors_per_cluster as u32
+            Cluster::ROOT_DIR => BlockCount(
+                ((self.root_entries_count as u32 * 32) + (Block::LEN as u32 - 1))
+                    / Block::LEN as u32,
+            ),
+            _ => BlockCount(self.blocks_per_cluster as u32),
         };
         let mut blocks = [Block::new()];
-        for sector in first_dir_sector_num..first_dir_sector_num + dir_size {
+        for block in first_dir_block_num.range(dir_size) {
             controller
                 .block_device
-                .read(&mut blocks, self.lba_start + BlockIdx(sector))
+                .read(&mut blocks, block, "read_dir")
                 .map_err(|e| Error::DeviceError(e))?;
             for entry in 0..Block::LEN / OnDiskDirEntry::LEN {
                 let start = entry * OnDiskDirEntry::LEN;
@@ -537,21 +552,21 @@ impl Fat32Volume {
         let mut blocks = [Block::new()];
         controller
             .block_device
-            .read(&mut blocks, self.lba_start)
+            .read(&mut blocks, self.lba_start, "read_bpb")
             .map_err(|e| Error::DeviceError(e))?;
         let bpb = Bpb::new(&blocks[0]).map_err(|e| Error::FormatError(e))?;
-        let fat_size = bpb.fat_size();
         // FAT32 => 4 bytes per entry
         let fat_offset = cluster.0 * 4;
-        // This is the sector in the FAT that contains this Cluster.
-        let this_fat_sector_num =
-            bpb.reserved_sector_count() as u32 + (fat_offset / Block::LEN as u32);
+        // This is the block in the FAT that contains this Cluster.
+        let this_fat_block_num =
+            bpb.reserved_block_count() as u32 + (fat_offset / Block::LEN as u32);
         let this_fat_ent_offset = fat_offset as usize % Block::LEN;
         controller
             .block_device
             .read(
                 &mut blocks,
-                BlockIdx(self.lba_start.0 + this_fat_sector_num),
+                BlockIdx(self.lba_start.0 + this_fat_block_num),
+                "read_fat",
             )
             .map_err(|e| Error::DeviceError(e))?;
         let mut entry =
@@ -572,24 +587,15 @@ impl Fat32Volume {
         T: TimeSource,
     {
         let mut blocks = [Block::new()];
+        // FAT32 => 2 bytes per entry
+        let fat_offset = cluster.0 * 4;
+        // This is the block in the FAT that contains this Cluster.
+        let this_fat_block_num =
+            self.lba_start + self.fat_start + BlockCount(fat_offset / Block::LEN as u32);
+        let this_fat_ent_offset = fat_offset as usize % Block::LEN;
         controller
             .block_device
-            .read(&mut blocks, self.lba_start)
-            .map_err(|e| Error::DeviceError(e))?;
-        let (this_fat_sector_num, this_fat_ent_offset) = {
-            let bpb = Bpb::new(&blocks[0]).map_err(|e| Error::FormatError(e))?;
-            let fat_size = bpb.fat_size();
-            // FAT32 => 2 bytes per entry
-            let fat_offset = cluster.0 * 4;
-            // This is the sector in the FAT that contains this Cluster.
-            let this_fat_sector_num =
-                bpb.reserved_sector_count() as u32 + (fat_offset / Block::LEN as u32);
-            let this_fat_ent_offset = fat_offset as usize % Block::LEN;
-            (BlockIdx(this_fat_sector_num), this_fat_ent_offset)
-        };
-        controller
-            .block_device
-            .read(&mut blocks, self.lba_start + this_fat_sector_num)
+            .read(&mut blocks, this_fat_block_num, "update_fat")
             .map_err(|e| Error::DeviceError(e))?;
         let entry = match new_value {
             Cluster::INVALID => 0x0FFFFFFF,
@@ -606,23 +612,22 @@ impl Fat32Volume {
         );
         controller
             .block_device
-            .write(&blocks, self.lba_start + this_fat_sector_num)
+            .write(&blocks, this_fat_block_num)
             .map_err(|e| Error::DeviceError(e))?;
         Ok(())
     }
 
-    /// Converts a cluster number (or `Cluster`) to a sector number (or
+    /// Converts a cluster number (or `Cluster`) to a block number (or
     /// `BlockIdx`). Gives an absolute `BlockIdx` you can pass to the
     /// controller.
     fn cluster_to_block(&self, cluster: Cluster) -> BlockIdx {
         let cluster_num = match cluster {
             Cluster::ROOT_DIR => self.first_root_dir_cluster.0,
-            c => c.0
+            c => c.0,
         };
         // FirstSectorofCluster = ((N – 2) * BPB_SecPerClus) + FirstDataSector;
-        let first_sector_of_cluster =
-            ((cluster_num - 2) * self.sectors_per_cluster as u32);
-        let res = BlockIdx(first_sector_of_cluster) + self.first_data_sector;
+        let first_block_of_cluster = BlockCount((cluster_num - 2) * self.blocks_per_cluster as u32);
+        let res = self.lba_start + self.first_data_block + first_block_of_cluster;
         res
     }
 
@@ -638,13 +643,13 @@ impl Fat32Volume {
         T: TimeSource,
     {
         let match_name = ShortFileName::new(name).map_err(|e| Error::FilenameError(e))?;
-        let first_dir_sector_num = self.cluster_to_block(dir.cluster).0;
+        let first_dir_block_num = self.cluster_to_block(dir.cluster);
         let mut blocks = [Block::new()];
         // TODO walk FAT to find directory size
-        for sector in first_dir_sector_num..first_dir_sector_num + self.sectors_per_cluster as u32 {
+        for block in first_dir_block_num.range(BlockCount(self.blocks_per_cluster as u32)) {
             controller
                 .block_device
-                .read(&mut blocks, self.lba_start + BlockIdx(sector))
+                .read(&mut blocks, block, "read_dir")
                 .map_err(|e| Error::DeviceError(e))?;
             for entry in 0..Block::LEN / OnDiskDirEntry::LEN {
                 let start = entry * OnDiskDirEntry::LEN;
@@ -675,13 +680,13 @@ impl Fat32Volume {
         D: BlockDevice,
         T: TimeSource,
     {
-        let first_dir_sector_num = self.cluster_to_block(dir.cluster).0;
+        let first_dir_block_num = self.cluster_to_block(dir.cluster);
         let mut blocks = [Block::new()];
-        // TODO walk FAT to find directory size
-        for sector in first_dir_sector_num..first_dir_sector_num + self.sectors_per_cluster as u32 {
+        // TODO track actual directory size
+        for block in first_dir_block_num.range(BlockCount(self.blocks_per_cluster as u32)) {
             controller
                 .block_device
-                .read(&mut blocks, self.lba_start + BlockIdx(sector))
+                .read(&mut blocks, block, "read_dir")
                 .map_err(|e| Error::DeviceError(e))?;
             for entry in 0..Block::LEN / OnDiskDirEntry::LEN {
                 let start = entry * OnDiskDirEntry::LEN;
@@ -698,7 +703,6 @@ impl Fat32Volume {
         }
         Ok(())
     }
-
 }
 
 /// Load the boot parameter block from the start of the given partition and
@@ -706,7 +710,7 @@ impl Fat32Volume {
 pub fn parse_volume<D, T>(
     controller: &mut Controller<D, T>,
     lba_start: BlockIdx,
-    num_blocks: BlockIdx,
+    num_blocks: BlockCount,
 ) -> Result<VolumeType, Error<D::Error>>
 where
     D: BlockDevice,
@@ -716,41 +720,45 @@ where
     let mut blocks = [Block::new()];
     controller
         .block_device
-        .read(&mut blocks, lba_start)
+        .read(&mut blocks, lba_start, "read_bpb")
         .map_err(|e| Error::DeviceError(e))?;
     let block = &blocks[0];
     let bpb = Bpb::new(&block).map_err(|e| Error::FormatError(e))?;
     match bpb.fat_type {
         FatType::Fat16 => {
             // FirstDataSector = BPB_ResvdSecCnt + (BPB_NumFATs * FATSz) + RootDirSectors;
-            let root_dir_sectors =
-                ((bpb.root_entries_count() as u32 * 32) + (Block::LEN as u32 - 1)) / Block::LEN as u32;
-            let first_root_dir_sector = bpb.reserved_sector_count() as u32
-                + (bpb.num_fats() as u32 * bpb.fat_size() as u32);
-            let first_data_sector = first_root_dir_sector + root_dir_sectors;
+            let root_dir_blocks = ((bpb.root_entries_count() as u32 * 32)
+                + (Block::LEN as u32 - 1))
+                / Block::LEN as u32;
+            let fat_start = BlockCount(bpb.reserved_block_count() as u32);
+            let first_root_dir_block =
+                fat_start + BlockCount(bpb.num_fats() as u32 * bpb.fat_size() as u32);
+            let first_data_block = first_root_dir_block + BlockCount(root_dir_blocks);
             let mut volume = Fat16Volume {
                 lba_start,
                 num_blocks,
                 name: VolumeName { data: [0u8; 11] },
                 root_entries_count: bpb.root_entries_count(),
-                sectors_per_cluster: bpb.sectors_per_cluster(),
-                first_root_dir_sector: BlockIdx(first_root_dir_sector),
-                first_data_sector: BlockIdx(first_data_sector),
+                blocks_per_cluster: bpb.blocks_per_cluster(),
+                first_root_dir_block: (first_root_dir_block),
+                first_data_block: (first_data_block),
+                fat_start: BlockCount(bpb.reserved_block_count() as u32),
             };
             volume.name.data[..].copy_from_slice(bpb.volume_label());
             Ok(VolumeType::Fat16(volume))
         }
         FatType::Fat32 => {
             // FirstDataSector = BPB_ResvdSecCnt + (BPB_NumFATs * FATSz);
-            let first_data_sector = bpb.reserved_sector_count() as u32
-                + (bpb.num_fats() as u32 * bpb.fat_size() as u32);
+            let first_data_block =
+                bpb.reserved_block_count() as u32 + (bpb.num_fats() as u32 * bpb.fat_size() as u32);
             let mut volume = Fat32Volume {
                 lba_start,
                 num_blocks,
                 name: VolumeName { data: [0u8; 11] },
-                sectors_per_cluster: bpb.sectors_per_cluster(),
-                first_data_sector: BlockIdx(first_data_sector),
-                first_root_dir_cluster: Cluster(bpb.first_root_dir_cluster())
+                blocks_per_cluster: bpb.blocks_per_cluster(),
+                first_data_block: BlockCount(first_data_block),
+                fat_start: BlockCount(bpb.reserved_block_count() as u32),
+                first_root_dir_cluster: Cluster(bpb.first_root_dir_cluster()),
             };
             volume.name.data[..].copy_from_slice(bpb.volume_label());
             Ok(VolumeType::Fat32(volume))
@@ -844,7 +852,8 @@ mod test {
                 true,
                 1,
                 [
-                    'o', 'v', 'e', 'r', 'l', 'a', 'y', 's', '\u{0000}', '\u{ffff}', '\u{ffff}', '\u{ffff}', '\u{ffff}',
+                    'o', 'v', 'e', 'r', 'l', 'a', 'y', 's', '\u{0000}', '\u{ffff}', '\u{ffff}',
+                    '\u{ffff}', '\u{ffff}',
                 ],
             ),
             Expected::Short(DirEntry {
@@ -859,7 +868,8 @@ mod test {
                 true,
                 2,
                 [
-                    '-', 'p', 'l', 'u', 's', '.', 'd', 't', 'b', '\u{0000}', '\u{ffff}', '\u{ffff}', '\u{ffff}',
+                    '-', 'p', 'l', 'u', 's', '.', 'd', 't', 'b', '\u{0000}', '\u{ffff}',
+                    '\u{ffff}', '\u{ffff}',
                 ],
             ),
             Expected::Lfn(
@@ -896,7 +906,8 @@ mod test {
                 true,
                 2,
                 [
-                    'c', 'o', 'm', '\u{0}', '\u{ffff}', '\u{ffff}', '\u{ffff}', '\u{ffff}', '\u{ffff}', '\u{ffff}', '\u{ffff}', '\u{ffff}', '\u{ffff}',
+                    'c', 'o', 'm', '\u{0}', '\u{ffff}', '\u{ffff}', '\u{ffff}', '\u{ffff}',
+                    '\u{ffff}', '\u{ffff}', '\u{ffff}', '\u{ffff}', '\u{ffff}',
                 ],
             ),
             Expected::Lfn(
@@ -918,7 +929,8 @@ mod test {
                 true,
                 2,
                 [
-                    '-', 'b', '.', 'd', 't', 'b', '\u{0000}', '\u{ffff}', '\u{ffff}', '\u{ffff}', '\u{ffff}', '\u{ffff}', '\u{ffff}',
+                    '-', 'b', '.', 'd', 't', 'b', '\u{0000}', '\u{ffff}', '\u{ffff}', '\u{ffff}',
+                    '\u{ffff}', '\u{ffff}', '\u{ffff}',
                 ],
             ),
             Expected::Lfn(
@@ -940,7 +952,8 @@ mod test {
                 true,
                 2,
                 [
-                    '.', 'd', 't', 'b', '\u{0000}', '\u{ffff}', '\u{ffff}', '\u{ffff}', '\u{ffff}', '\u{ffff}', '\u{ffff}', '\u{ffff}', '\u{ffff}',
+                    '.', 'd', 't', 'b', '\u{0000}', '\u{ffff}', '\u{ffff}', '\u{ffff}', '\u{ffff}',
+                    '\u{ffff}', '\u{ffff}', '\u{ffff}', '\u{ffff}',
                 ],
             ),
             Expected::Lfn(
@@ -1022,18 +1035,18 @@ mod test {
         let bpb = Bpb::new(&BPB_EXAMPLE).unwrap();
         assert_eq!(bpb.footer(), Bpb::FOOTER_VALUE);
         assert_eq!(bpb.oem_name(), b"mkfs.fat");
-        assert_eq!(bpb.bytes_per_sector(), 512);
-        assert_eq!(bpb.sectors_per_cluster(), 16);
-        assert_eq!(bpb.reserved_sector_count(), 1);
+        assert_eq!(bpb.bytes_per_block(), 512);
+        assert_eq!(bpb.blocks_per_cluster(), 16);
+        assert_eq!(bpb.reserved_block_count(), 1);
         assert_eq!(bpb.num_fats(), 2);
         assert_eq!(bpb.root_entries_count(), 512);
-        assert_eq!(bpb.total_sectors16(), 0);
+        assert_eq!(bpb.total_blocks16(), 0);
         assert!((bpb.media() & 0xF0) == 0xF0);
         assert_eq!(bpb.fat_size16(), 32);
-        assert_eq!(bpb.sectors_per_track(), 63);
+        assert_eq!(bpb.blocks_per_track(), 63);
         assert_eq!(bpb.num_heads(), 255);
-        assert_eq!(bpb.hidden_sectors(), 0);
-        assert_eq!(bpb.total_sectors32(), 122880);
+        assert_eq!(bpb.hidden_blocks(), 0);
+        assert_eq!(bpb.total_blocks32(), 122880);
         assert_eq!(bpb.footer(), 0xAA55);
         assert_eq!(bpb.drive_number(), 0x80);
         assert_eq!(bpb.boot_signature(), 0x29);
@@ -1041,7 +1054,7 @@ mod test {
         assert_eq!(bpb.volume_label(), b"boot       ");
         assert_eq!(bpb.fs_type(), b"FAT16   ");
         assert_eq!(bpb.fat_size(), 32);
-        assert_eq!(bpb.total_sectors(), 122880);
+        assert_eq!(bpb.total_blocks(), 122880);
         assert_eq!(bpb.fat_type, FatType::Fat16);
     }
 }
