@@ -60,6 +60,8 @@ where
     FileAlreadyOpen,
     /// We can't do that yet
     Unsupported,
+    /// Tried to read beyond end of file
+    EndOfFile,
 }
 
 /// We have to track what directories are open to prevent users from modifying
@@ -128,6 +130,21 @@ const PARTITION_ID_FAT16_LBA: u8 = 0x0E;
 /// Marker for a FAT16 partition. Seen on a card formatted with the official
 /// SD-Card formatter.
 const PARTITION_ID_FAT16: u8 = 0x06;
+
+/// Describes a region on the disk that we can read.
+#[derive(Debug)]
+struct DiskIndex {
+    /// Current cluster
+    cluster: Cluster,
+    /// Relative to start of cluster
+    block: BlockCount,
+    /// Relative to start of disk
+    block_abs: BlockIdx,
+    /// Relative to start of block
+    offset: usize,
+    /// How much can we read from here
+    amount: usize,
+}
 
 // ****************************************************************************
 //
@@ -347,19 +364,108 @@ where
     }
 
     /// Open a file with the given full path. A file can only be opened once.
-    pub fn open_file(
+    pub fn open_file_in_dir(
         &mut self,
-        _volume: &Volume,
-        _path: &str,
-        _mode: Mode,
+        volume: &Volume,
+        dir: &Directory,
+        name: &str,
+        mode: Mode,
     ) -> Result<File, Error<D::Error>> {
-        unimplemented!();
+        if mode != Mode::ReadOnly {
+            // Only read-only for now
+            return Err(Error::Unsupported);
+        }
+        let dir_entry = match &volume.volume_type {
+            VolumeType::Fat16(fat) => fat.find_directory_entry(self, dir, name)?,
+            VolumeType::Fat32(fat) => fat.find_directory_entry(self, dir, name)?,
+        };
+        Ok(File {
+            cluster: dir_entry.cluster,
+            current_offset: 0,
+            length: dir_entry.size,
+            mode,
+        })
+    }
+
+    /// Read from an open file.
+    pub fn read(
+        &mut self,
+        volume: &Volume,
+        file: &mut File,
+        buffer: &mut [u8],
+    ) -> Result<usize, Error<D::Error>> {
+        // Calculate which file block the current offset lies within
+        // While there is more to read, read the block and copy in to the buffer.
+        // If we need to find the next cluster, walk the FAT.
+        let mut space = buffer.len();
+        let mut read = 0;
+        let mut disk_index = DiskIndex {
+            cluster: file.cluster,
+            block: BlockCount(0),
+            offset: file.current_offset as usize,
+            amount: 0,
+            block_abs: BlockIdx(0),
+        };
+        while space > 0 && !file.eof() {
+            self.walk_fat(volume, &mut disk_index)?;
+            let mut blocks = [Block::new()];
+            self.block_device
+                .read(&mut blocks, disk_index.block_abs, "read")
+                .map_err(Error::DeviceError)?;
+            let block = &blocks[0];
+            let to_copy = disk_index.amount.min(space).min(file.left() as usize);
+            assert!(to_copy != 0);
+            buffer[read..read + to_copy]
+                .copy_from_slice(&block[disk_index.offset..disk_index.offset + to_copy]);
+            read += to_copy;
+            space -= to_copy;
+            disk_index.offset += to_copy;
+            file.current_offset += to_copy as u32;
+        }
+        Ok(read)
+    }
+
+    fn walk_fat(
+        &mut self,
+        volume: &Volume,
+        disk_index: &mut DiskIndex,
+    ) -> Result<(), Error<D::Error>> {
+        match &volume.volume_type {
+            VolumeType::Fat16(fat) => {
+                while disk_index.offset >= Block::LEN {
+                    disk_index.block = disk_index.block + BlockCount(1);
+                    disk_index.offset -= Block::LEN;
+                    if disk_index.block >= BlockCount(fat.blocks_per_cluster as u32) {
+                        // Go to next cluster
+                        disk_index.cluster = fat.next_cluster(self, disk_index.cluster)?;
+                        disk_index.block =
+                            disk_index.block - BlockCount(fat.blocks_per_cluster as u32);
+                    }
+                }
+                disk_index.block_abs = fat.cluster_to_block(disk_index.cluster) + disk_index.block;
+            }
+            VolumeType::Fat32(fat) => {
+                while disk_index.offset >= Block::LEN {
+                    disk_index.block = disk_index.block + BlockCount(1);
+                    disk_index.offset -= Block::LEN;
+                    if disk_index.block >= BlockCount(fat.blocks_per_cluster as u32) {
+                        // Go to next cluster
+                        disk_index.cluster = fat.next_cluster(self, disk_index.cluster)?;
+                        disk_index.block =
+                            disk_index.block - BlockCount(fat.blocks_per_cluster as u32);
+                    }
+                }
+                disk_index.block_abs = fat.cluster_to_block(disk_index.cluster) + disk_index.block;
+            }
+        }
+        disk_index.amount = Block::LEN - disk_index.offset;
+        Ok(())
     }
 
     /// Close a file with the given full path.
-    pub fn close_file(&mut self, file: File) -> Result<(), Error<D::Error>> {
+    pub fn close_file(&mut self, _volume: &Volume, file: File) -> Result<(), Error<D::Error>> {
         drop(file);
-        unimplemented!();
+        Ok(())
     }
 }
 

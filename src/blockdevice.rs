@@ -86,6 +86,20 @@ impl core::ops::Add<BlockCount> for BlockCount {
     }
 }
 
+impl core::ops::Sub<BlockCount> for BlockIdx {
+    type Output = BlockIdx;
+    fn sub(self, rhs: BlockCount) -> BlockIdx {
+        BlockIdx(self.0 - rhs.0)
+    }
+}
+
+impl core::ops::Sub<BlockCount> for BlockCount {
+    type Output = BlockCount;
+    fn sub(self, rhs: BlockCount) -> BlockCount {
+        BlockCount(self.0 - rhs.0)
+    }
+}
+
 impl core::ops::Deref for Block {
     type Target = [u8; 512];
     fn deref(&self) -> &[u8; 512] {

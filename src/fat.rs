@@ -416,10 +416,23 @@ impl Fat16Volume {
         Ok(())
     }
 
+    /// Look in the FAT to see which cluster comes next.
+    pub(crate) fn next_cluster<D, T>(
+        &self,
+        _controller: &mut Controller<D, T>,
+        _cluster: Cluster,
+    ) -> Result<Cluster, Error<D::Error>>
+    where
+        D: BlockDevice,
+        T: TimeSource,
+    {
+        unimplemented!();
+    }
+
     /// Converts a cluster number (or `Cluster`) to a block number (or
     /// `BlockIdx`). Gives an absolute `BlockIdx` you can pass to the
     /// controller.
-    fn cluster_to_block(&self, cluster: Cluster) -> BlockIdx {
+    pub(crate) fn cluster_to_block(&self, cluster: Cluster) -> BlockIdx {
         self.lba_start
             + match cluster {
                 Cluster::ROOT_DIR => self.first_root_dir_block,
@@ -586,10 +599,23 @@ impl Fat32Volume {
         Ok(())
     }
 
+    /// Look in the FAT to see which cluster comes next.
+    pub(crate) fn next_cluster<D, T>(
+        &self,
+        _controller: &mut Controller<D, T>,
+        _cluster: Cluster,
+    ) -> Result<Cluster, Error<D::Error>>
+    where
+        D: BlockDevice,
+        T: TimeSource,
+    {
+        unimplemented!();
+    }
+
     /// Converts a cluster number (or `Cluster`) to a block number (or
     /// `BlockIdx`). Gives an absolute `BlockIdx` you can pass to the
     /// controller.
-    fn cluster_to_block(&self, cluster: Cluster) -> BlockIdx {
+    pub(crate) fn cluster_to_block(&self, cluster: Cluster) -> BlockIdx {
         let cluster_num = match cluster {
             Cluster::ROOT_DIR => self.first_root_dir_cluster.0,
             c => c.0,

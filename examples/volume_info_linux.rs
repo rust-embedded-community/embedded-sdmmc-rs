@@ -1,7 +1,8 @@
 extern crate embedded_sdmmc;
 
 use embedded_sdmmc::{
-    Block, BlockCount, BlockDevice, BlockIdx, Controller, Error, TimeSource, Timestamp, VolumeIdx,
+    Block, BlockCount, BlockDevice, BlockIdx, Controller, Error, Mode, TimeSource, Timestamp,
+    VolumeIdx,
 };
 use std::cell::RefCell;
 use std::fs::File;
@@ -106,6 +107,20 @@ fn main() -> Result<(), Error<std::io::Error>> {
                 "\tFound README.TXT?: {:?}",
                 controller.find_directory_entry(&volume, &dir, "README.TXT")
             );
+            let mut f = controller.open_file_in_dir(&volume, &dir, "README.TXT", Mode::ReadOnly)?;
+            println!("FILE STARTS:");
+            while !f.eof() {
+                let mut buffer = [0u8; 32];
+                let num_read = controller.read(&volume, &mut f, &mut buffer)?;
+                for b in &buffer[0..num_read] {
+                    if *b == 10 {
+                        print!("\\n");
+                    }
+                    print!("{}", *b as char);
+                }
+            }
+            println!("EOF");
+            controller.close_file(&volume, f)?;
             assert!(controller.open_root_dir(&volume).is_err());
             controller.close_dir(&volume, dir);
             assert!(controller.open_root_dir(&volume).is_ok());

@@ -77,13 +77,16 @@ pub struct Timestamp {
 pub struct Attributes(u8);
 
 /// Represents an open file on disk.
+#[derive(Debug)]
 pub struct File {
     /// The starting point of the file.
     pub(crate) cluster: Cluster,
     /// How far through the file we've read (in bytes).
     pub(crate) current_offset: u32,
     /// The length of the file, in bytes.
-    pub(crate) current_length: u32,
+    pub(crate) length: u32,
+    /// What mode the file was opened in
+    pub(crate) mode: Mode,
 }
 
 /// Represents an open directory on disk.
@@ -511,7 +514,58 @@ impl core::fmt::Debug for Attributes {
     }
 }
 
-impl File {}
+impl File {
+    /// Create a new file handle.
+    pub(crate) fn new(cluster: Cluster, length: u32, mode: Mode) -> File {
+        File {
+            cluster,
+            mode,
+            length,
+            current_offset: 0,
+        }
+    }
+
+    /// Are we at the end of the file?
+    pub fn eof(&self) -> bool {
+        self.current_offset == self.length
+    }
+
+    /// Seek to a new position in the file, relative to the start of the file.
+    pub fn seek_from_start(&mut self, offset: u32) -> Result<(), ()> {
+        if offset <= self.length {
+            self.current_offset = offset;
+            Ok(())
+        } else {
+            Err(())
+        }
+    }
+
+    /// Seek to a new position in the file, relative to the end of the file.
+    pub fn seek_from_end(&mut self, offset: u32) -> Result<(), ()> {
+        if offset <= self.length {
+            self.current_offset = self.length - offset;
+            Ok(())
+        } else {
+            Err(())
+        }
+    }
+
+    /// Seek to a new position in the file, relative to the current position.
+    pub fn seek_from_current(&mut self, offset: i32) -> Result<(), ()> {
+        let new_offset = self.current_offset as i64 + offset as i64;
+        if new_offset >= 0 && new_offset <= self.length as i64 {
+            self.current_offset = new_offset as u32;
+            Ok(())
+        } else {
+            Err(())
+        }
+    }
+
+    /// Amount of file left to read.
+    pub fn left(&self) -> u32 {
+        self.length - self.current_offset
+    }
+}
 
 impl Directory {}
 
