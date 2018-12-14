@@ -530,6 +530,11 @@ impl File {
         self.current_offset == self.length
     }
 
+    /// How long is the file?
+    pub fn length(&self) -> u32 {
+        self.length
+    }
+
     /// Seek to a new position in the file, relative to the start of the file.
     pub fn seek_from_start(&mut self, offset: u32) -> Result<(), ()> {
         if offset <= self.length {

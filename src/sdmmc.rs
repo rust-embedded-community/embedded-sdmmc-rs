@@ -34,8 +34,14 @@ pub enum Error {
     Transport,
     /// We failed to enable CRC checking on the SD card
     CantEnableCRC,
-    /// We didn't get a response from the card
-    Timeout,
+    /// We didn't get a response when reading data from the card
+    TimeoutReadBuffer,
+    /// We didn't get a response when waiting for the card to not be busy
+    TimeoutWaitNotBusy,
+    /// We didn't get a response when executing this command
+    TimeoutCommand(u8),
+    /// We didn't get a response when executing this application-specific command
+    TimeoutACommand(u8),
     /// We got a bad response from Command 58
     Cmd58Error,
     /// We failed to read the Card Specific Data register
@@ -48,6 +54,8 @@ pub enum Error {
     WriteError,
     /// Can't perform this operation with the card in this state
     BadState,
+    /// Couldn't find the card
+    CardNotFound,
 }
 
 /// The possible states `SdMmcSpi` can be in.
@@ -77,9 +85,9 @@ impl Delay {
         Delay(DEFAULT_DELAY_COUNT)
     }
 
-    fn delay(&mut self) -> Result<(), Error> {
+    fn delay(&mut self, err: Error) -> Result<(), Error> {
         if self.0 == 0 {
-            Err(Error::Timeout)
+            Err(err)
         } else {
             let dummy_var: u32 = 0;
             for _ in 0..100_000 {
@@ -137,9 +145,27 @@ where
             // Assert CS
             s.cs_low();
             // Enter SPI mode
-            let mut delay = Delay::new();
-            while s.card_command(CMD0, 0)? != R1_IDLE_STATE {
-                delay.delay()?;
+            let mut attempts = 32;
+            while attempts > 0 {
+                match s.card_command(CMD0, 0) {
+                    Err(Error::TimeoutCommand(0)) => {
+                        // Try again?
+                        attempts -= 1;
+                    }
+                    Err(e) => {
+                        return Err(e);
+                    }
+                    Ok(R1_IDLE_STATE) => {
+                        break;
+                    }
+                    Ok(_) => {
+                        // Try again
+                    }
+                }
+
+            }
+            if attempts == 0 {
+                return Err(Error::CardNotFound);
             }
             // Enable CRC
             if s.card_command(CMD59, 1)? != R1_IDLE_STATE {
@@ -160,7 +186,7 @@ where
                     s.card_type = CardType::SD2;
                     break;
                 }
-                delay.delay()?;
+                delay.delay(Error::TimeoutCommand(CMD8))?;
             }
 
             let arg = match s.card_type {
@@ -170,7 +196,7 @@ where
 
             let mut delay = Delay::new();
             while s.card_acmd(ACMD41, arg)? != R1_READY_STATE {
-                delay.delay()?;
+                delay.delay(Error::TimeoutACommand(ACMD41))?;
             }
 
             if s.card_type == CardType::SD2 {
@@ -290,7 +316,7 @@ where
             if s != 0xFF {
                 break s;
             }
-            delay.delay()?;
+            delay.delay(Error::TimeoutReadBuffer)?;
         };
         if status != DATA_START_BLOCK {
             return Err(Error::ReadError);
@@ -357,14 +383,14 @@ where
             let _result = self.receive()?;
         }
 
-        for _ in 0..255 {
+        for _ in 0..512 {
             let result = self.receive()?;
             if (result & 0x80) == 0 {
                 return Ok(result);
             }
         }
 
-        Err(Error::Timeout)
+        Err(Error::TimeoutCommand(command))
     }
 
     /// Receive a byte from the SD card by clocking in an 0xFF byte.
@@ -394,7 +420,7 @@ where
             if s == 0xFF {
                 break;
             }
-            delay.delay()?;
+            delay.delay(Error::TimeoutWaitNotBusy)?;
         }
         Ok(())
     }
