@@ -1,4 +1,4 @@
-//! embedded-sdmmc: A SD/MMC Library written in Embedded Rust
+//! embedded-sdmmc-rs - A SD/MMC Library written in Embedded Rust
 
 #![cfg_attr(not(test), no_std)]
 #![allow(dead_code)]
@@ -58,6 +58,8 @@ where
     FileNotFound,
     /// You can't open a file twice
     FileAlreadyOpen,
+    /// You can't open a directory twice
+    DirAlreadyOpen,
     /// We can't do that yet
     Unsupported,
     /// Tried to read beyond end of file
@@ -263,27 +265,25 @@ where
     /// this directory handle is open. In particular, stop this directory
     /// being unlinked.
     pub fn open_root_dir(&mut self, volume: &Volume) -> Result<Directory, Error<D::Error>> {
-        // Find a free directory entry
-        let mut space = None;
+        // Find a free directory entry, and check the root dir isn't open. As
+        // we already know the root dir's magic cluster number, we can do both
+        // checks in one loop.
+        let mut open_dirs_row = None;
         for (i, d) in self.open_dirs.iter().enumerate() {
             if *d == (volume.idx, Cluster::ROOT_DIR) {
-                return Err(Error::FileAlreadyOpen);
+                return Err(Error::DirAlreadyOpen);
             }
             if d.1 == Cluster::INVALID {
-                space = Some(i);
+                open_dirs_row = Some(i);
                 break;
             }
         }
-        match space {
-            Some(idx) => {
-                // Remember this open directory
-                self.open_dirs[idx] = (volume.idx, Cluster::ROOT_DIR);
-                Ok(Directory {
-                    cluster: Cluster::ROOT_DIR,
-                })
-            }
-            None => Err(Error::TooManyOpenDirs),
-        }
+        let open_dirs_row = open_dirs_row.ok_or(Error::TooManyOpenDirs)?;
+        // Remember this open directory
+        self.open_dirs[open_dirs_row] = (volume.idx, Cluster::ROOT_DIR);
+        Ok(Directory {
+            cluster: Cluster::ROOT_DIR,
+        })
     }
 
     /// Open a directory. You can then read the directory entries in a random
@@ -299,26 +299,27 @@ where
         _name: &str,
     ) -> Result<Directory, Error<D::Error>> {
         // Find a free directory entry
-        let mut space = None;
+        let mut open_dirs_row = None;
         for (i, d) in self.open_dirs.iter().enumerate() {
             if d.1 == Cluster::INVALID {
-                space = Some(i);
+                open_dirs_row = Some(i);
             }
         }
-        match space {
-            Some(idx) => {
-                let result: Result<Directory, Error<D::Error>> = match &volume.volume_type {
-                    VolumeType::Fat16(_fat) => Err(Error::Unsupported),
-                    VolumeType::Fat32(_fat) => Err(Error::Unsupported),
-                };
-                if let Ok(ref d) = result {
-                    // Remember this open directory
-                    self.open_dirs[idx] = (volume.idx, d.cluster);
-                }
-                result
+        let open_dirs_row = open_dirs_row.ok_or(Error::TooManyOpenDirs)?;
+        // Open the directory
+        let dir: Directory = match &volume.volume_type {
+            VolumeType::Fat16(_fat) => Err(Error::Unsupported),
+            VolumeType::Fat32(_fat) => Err(Error::Unsupported),
+        }?;
+        // Check it's not already open
+        for (_i, dir_table_row) in self.open_dirs.iter().enumerate() {
+            if *dir_table_row == (volume.idx, dir.cluster) {
+                return Err(Error::DirAlreadyOpen);
             }
-            None => Err(Error::TooManyOpenDirs),
         }
+        // Remember this open directory
+        self.open_dirs[open_dirs_row] = (volume.idx, dir.cluster);
+        Ok(dir)
     }
 
     /// Close a directory. You cannot perform operations on an open directory
@@ -375,10 +376,26 @@ where
             // Only read-only for now
             return Err(Error::Unsupported);
         }
+        // Find a free directory entry
+        let mut open_files_row = None;
+        for (i, d) in self.open_files.iter().enumerate() {
+            if d.1 == Cluster::INVALID {
+                open_files_row = Some(i);
+            }
+        }
+        let open_files_row = open_files_row.ok_or(Error::TooManyOpenDirs)?;
         let dir_entry = match &volume.volume_type {
             VolumeType::Fat16(fat) => fat.find_directory_entry(self, dir, name)?,
             VolumeType::Fat32(fat) => fat.find_directory_entry(self, dir, name)?,
         };
+        // Check it's not already open
+        for dir_table_row in self.open_files.iter() {
+            if *dir_table_row == (volume.idx, dir_entry.cluster) {
+                return Err(Error::DirAlreadyOpen);
+            }
+        }
+        // Remember this open file
+        self.open_files[open_files_row] = (volume.idx, dir_entry.cluster);
         Ok(File {
             cluster: dir_entry.cluster,
             current_offset: 0,
@@ -425,6 +442,19 @@ where
         Ok(read)
     }
 
+    /// Close a file with the given full path.
+    pub fn close_file(&mut self, volume: &Volume, file: File) -> Result<(), Error<D::Error>> {
+        let target = (volume.idx, file.cluster);
+        for d in self.open_files.iter_mut() {
+            if *d == target {
+                d.1 = Cluster::INVALID;
+                break;
+            }
+        }
+        drop(file);
+        Ok(())
+    }
+
     fn walk_fat(
         &mut self,
         volume: &Volume,
@@ -459,12 +489,6 @@ where
             }
         }
         disk_index.amount = Block::LEN - disk_index.offset;
-        Ok(())
-    }
-
-    /// Close a file with the given full path.
-    pub fn close_file(&mut self, _volume: &Volume, file: File) -> Result<(), Error<D::Error>> {
-        drop(file);
         Ok(())
     }
 }
@@ -677,7 +701,7 @@ mod tests {
 
         /// Write one or more blocks, starting at the given block index.
         fn write(
-            &mut self,
+            &self,
             _blocks: &[Block],
             _start_block_idx: BlockIdx,
         ) -> Result<(), Self::Error> {

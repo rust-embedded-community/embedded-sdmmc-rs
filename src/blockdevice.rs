@@ -1,4 +1,4 @@
-//! embedded-sdmmc-rs - Block Devices
+//! embedded-sdmmc-rs - Block Device support
 //!
 //! Generic code for handling block devices.
 
@@ -44,7 +44,7 @@ pub trait BlockDevice {
         reason: &str,
     ) -> Result<(), Self::Error>;
     /// Write one or more blocks, starting at the given block index.
-    fn write(&mut self, blocks: &[Block], start_block_idx: BlockIdx) -> Result<(), Self::Error>;
+    fn write(&self, blocks: &[Block], start_block_idx: BlockIdx) -> Result<(), Self::Error>;
     /// Determine how many blocks this device can hold.
     fn num_blocks(&self) -> Result<BlockCount, Self::Error>;
 }
@@ -180,3 +180,9 @@ impl core::iter::Iterator for BlockIter {
         }
     }
 }
+
+// ****************************************************************************
+//
+// End Of File
+//
+// ****************************************************************************

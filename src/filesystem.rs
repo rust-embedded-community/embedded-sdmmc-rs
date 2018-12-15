@@ -1,4 +1,4 @@
-//! embedded-sdmmc-rs - Generic File System
+//! embedded-sdmmc-rs - Generic File System structures
 //!
 //! Implements generic file system components. These should be applicable to
 //! most (if not all) supported filesystems.

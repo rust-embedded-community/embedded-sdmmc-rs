@@ -1,4 +1,4 @@
-//! embedded-sdmmc-rs - FAT file system
+//! embedded-sdmmc-rs - FAT16/FAT32 file system implementation
 //!
 //! Implements the File Allocation Table file system. Supports FAT16 and FAT32 volumes.
 
@@ -1053,3 +1053,9 @@ mod test {
         assert_eq!(bpb.fat_type, FatType::Fat16);
     }
 }
+
+// ****************************************************************************
+//
+// End Of File
+//
+// ****************************************************************************

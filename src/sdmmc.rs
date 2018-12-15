@@ -262,9 +262,9 @@ where
 
     /// Perform a function that might error with the chipselect low.
     /// Always releases the chipselect, even if the function errors.
-    fn with_chip_select_mut<F, T>(&mut self, func: F) -> T
+    fn with_chip_select_mut<F, T>(&self, func: F) -> T
     where
-        F: FnOnce(&mut Self) -> T,
+        F: FnOnce(&Self) -> T,
     {
         self.cs_low();
         let result = func(self);
@@ -339,7 +339,7 @@ where
     }
 
     /// Write an arbitrary number of bytes to the card.
-    fn write_data(&mut self, token: u8, buffer: &[u8]) -> Result<(), Error> {
+    fn write_data(&self, token: u8, buffer: &[u8]) -> Result<(), Error> {
         let calc_crc = crc16(buffer);
         self.send(token)?;
         for &b in buffer.iter() {
@@ -465,7 +465,7 @@ where
     }
 
     /// Write one or more blocks, starting at the given block index.
-    fn write(&mut self, blocks: &[Block], start_block_idx: BlockIdx) -> Result<(), Self::Error> {
+    fn write(&self, blocks: &[Block], start_block_idx: BlockIdx) -> Result<(), Self::Error> {
         let start_idx = match self.card_type {
             CardType::SD1 | CardType::SD2 => start_block_idx.0 * 512,
             CardType::SDHC => start_block_idx.0,
@@ -505,3 +505,9 @@ where
         Ok(BlockCount(num_blocks))
     }
 }
+
+// ****************************************************************************
+//
+// End Of File
+//
+// ****************************************************************************
