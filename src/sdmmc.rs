@@ -162,7 +162,6 @@ where
                         // Try again
                     }
                 }
-
             }
             if attempts == 0 {
                 return Err(Error::CardNotFound);
