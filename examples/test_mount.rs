@@ -3,7 +3,8 @@
 //! This example should be given a file or block device as the first and only
 //! argument. It will attempt to mount all four possible primary MBR
 //! partitions, one at a time, prints the root directory and will print a file
-//! called "README.TXT", if found.
+//! called "README.TXT". It will then list the contents of the "TEST"
+//! sub-directory.
 //!
 //! ```bash
 //! $ cargo run --example test_mount -- /dev/mmcblk0
@@ -121,18 +122,18 @@ fn main() -> Result<(), Error<std::io::Error>> {
         let volume = controller.get_volume(VolumeIdx(i));
         println!("volume {}: {:#?}", i, volume);
         if let Ok(volume) = volume {
-            let dir = controller.open_root_dir(&volume)?;
+            let root_dir = controller.open_root_dir(&volume)?;
             println!("\tListing root directory:");
-            controller.iterate_dir(&volume, &dir, |x| {
+            controller.iterate_dir(&volume, &root_dir, |x| {
                 println!("\t\tFound: {:?}", x);
             })?;
             println!("\tFinding {}...", FILE_TO_FIND);
             println!(
                 "\tFound {}?: {:?}",
                 FILE_TO_FIND,
-                controller.find_directory_entry(&volume, &dir, FILE_TO_FIND)
+                controller.find_directory_entry(&volume, &root_dir, FILE_TO_FIND)
             );
-            let mut f = controller.open_file_in_dir(&volume, &dir, FILE_TO_FIND, Mode::ReadOnly)?;
+            let mut f = controller.open_file_in_dir(&volume, &root_dir, FILE_TO_FIND, Mode::ReadOnly)?;
             println!("FILE STARTS:");
             while !f.eof() {
                 let mut buffer = [0u8; 32];
@@ -146,12 +147,21 @@ fn main() -> Result<(), Error<std::io::Error>> {
             }
             println!("EOF");
             // Can't open file twice
-            assert!(controller.open_file_in_dir(&volume, &dir, FILE_TO_FIND, Mode::ReadOnly).is_err());
-
+            assert!(controller.open_file_in_dir(&volume, &root_dir, FILE_TO_FIND, Mode::ReadOnly).is_err());
             controller.close_file(&volume, f)?;
 
+            let test_dir = controller.open_dir(&volume, &root_dir, "TEST")?;
+            // Check we can't open it twice
+            assert!(controller.open_dir(&volume, &root_dir, "TEST").is_err());
+            // Print the contents
+            println!("\tListing TEST directory:");
+            controller.iterate_dir(&volume, &test_dir, |x| {
+                println!("\t\tFound: {:?}", x);
+            })?;
+            controller.close_dir(&volume, test_dir);
+
             assert!(controller.open_root_dir(&volume).is_err());
-            controller.close_dir(&volume, dir);
+            controller.close_dir(&volume, root_dir);
             assert!(controller.open_root_dir(&volume).is_ok());
         }
     }
