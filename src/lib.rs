@@ -60,6 +60,8 @@ where
     FileAlreadyOpen,
     /// You can't open a directory twice
     DirAlreadyOpen,
+    /// You can't open a directory as a file
+    OpenedDirAsFile,
     /// We can't do that yet
     Unsupported,
     /// Tried to read beyond end of file
@@ -295,10 +297,10 @@ where
     pub fn open_dir(
         &mut self,
         volume: &Volume,
-        _root: &Directory,
-        _name: &str,
+        parent_dir: &Directory,
+        name: &str,
     ) -> Result<Directory, Error<D::Error>> {
-        // Find a free directory entry
+        // Find a free open directory table row
         let mut open_dirs_row = None;
         for (i, d) in self.open_dirs.iter().enumerate() {
             if d.1 == Cluster::INVALID {
@@ -306,20 +308,28 @@ where
             }
         }
         let open_dirs_row = open_dirs_row.ok_or(Error::TooManyOpenDirs)?;
+
         // Open the directory
-        let dir: Directory = match &volume.volume_type {
-            VolumeType::Fat16(_fat) => Err(Error::Unsupported),
-            VolumeType::Fat32(_fat) => Err(Error::Unsupported),
-        }?;
+        let dir_entry = match &volume.volume_type {
+            VolumeType::Fat16(fat) => fat.find_directory_entry(self, parent_dir, name)?,
+            VolumeType::Fat32(fat) => fat.find_directory_entry(self, parent_dir, name)?,
+        };
+
+        if !dir_entry.attributes.is_directory() {
+            return Err(Error::OpenedDirAsFile);
+        }
+
         // Check it's not already open
         for (_i, dir_table_row) in self.open_dirs.iter().enumerate() {
-            if *dir_table_row == (volume.idx, dir.cluster) {
+            if *dir_table_row == (volume.idx, dir_entry.cluster) {
                 return Err(Error::DirAlreadyOpen);
             }
         }
         // Remember this open directory
-        self.open_dirs[open_dirs_row] = (volume.idx, dir.cluster);
-        Ok(dir)
+        self.open_dirs[open_dirs_row] = (volume.idx, dir_entry.cluster);
+        Ok(Directory {
+            cluster: dir_entry.cluster
+        })
     }
 
     /// Close a directory. You cannot perform operations on an open directory
@@ -388,6 +398,11 @@ where
             VolumeType::Fat16(fat) => fat.find_directory_entry(self, dir, name)?,
             VolumeType::Fat32(fat) => fat.find_directory_entry(self, dir, name)?,
         };
+
+        if dir_entry.attributes.is_directory() {
+            return Err(Error::OpenedDirAsFile);
+        }
+
         // Check it's not already open
         for dir_table_row in self.open_files.iter() {
             if *dir_table_row == (volume.idx, dir_entry.cluster) {
