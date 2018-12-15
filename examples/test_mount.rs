@@ -1,4 +1,28 @@
+//! # Tests the Embedded SDMMC Library
+//!
+//! This example should be given a file or block device as the first and only
+//! argument. It will attempt to mount all four possible primary MBR
+//! partitions, one at a time, prints the root directory and will print a file
+//! called "README.TXT", if found.
+//!
+//! ```bash
+//! $ cargo run --example test_mount -- /dev/mmcblk0
+//! $ cargo run --example test_mount -- /dev/sda
+//! ```
+//!
+//! If you pass a block device it should be unmounted. No testing has been
+//! performed with Windows raw block devices - please report back if you try
+//! this! There is a gzipped example disk image which you can gunzip and test
+//! with if you don't have a suitable block device.
+//!
+//! ```bash
+//! zcat ./disk.img.gz > ./disk.img
+//! $ cargo run --example test_mount -- ./disk.img
+//! ```
+
 extern crate embedded_sdmmc;
+
+const FILE_TO_FIND: &'static str = "README.TXT";
 
 use embedded_sdmmc::{
     Block, BlockCount, BlockDevice, BlockIdx, Controller, Error, Mode, TimeSource, Timestamp,
@@ -52,7 +76,7 @@ impl BlockDevice for LinuxBlockDevice {
         Ok(())
     }
 
-    fn write(&mut self, blocks: &[Block], start_block_idx: BlockIdx) -> Result<(), Self::Error> {
+    fn write(&self, blocks: &[Block], start_block_idx: BlockIdx) -> Result<(), Self::Error> {
         self.file
             .borrow_mut()
             .seek(SeekFrom::Start(start_block_idx.into_bytes()))?;
@@ -102,12 +126,13 @@ fn main() -> Result<(), Error<std::io::Error>> {
             controller.iterate_dir(&volume, &dir, |x| {
                 println!("\t\tFound: {:?}", x);
             })?;
-            println!("\tFinding README.TXT...");
+            println!("\tFinding {}...", FILE_TO_FIND);
             println!(
-                "\tFound README.TXT?: {:?}",
-                controller.find_directory_entry(&volume, &dir, "README.TXT")
+                "\tFound {}?: {:?}",
+                FILE_TO_FIND,
+                controller.find_directory_entry(&volume, &dir, FILE_TO_FIND)
             );
-            let mut f = controller.open_file_in_dir(&volume, &dir, "README.TXT", Mode::ReadOnly)?;
+            let mut f = controller.open_file_in_dir(&volume, &dir, FILE_TO_FIND, Mode::ReadOnly)?;
             println!("FILE STARTS:");
             while !f.eof() {
                 let mut buffer = [0u8; 32];
@@ -120,7 +145,11 @@ fn main() -> Result<(), Error<std::io::Error>> {
                 }
             }
             println!("EOF");
+            // Can't open file twice
+            assert!(controller.open_file_in_dir(&volume, &dir, FILE_TO_FIND, Mode::ReadOnly).is_err());
+
             controller.close_file(&volume, f)?;
+
             assert!(controller.open_root_dir(&volume).is_err());
             controller.close_dir(&volume, dir);
             assert!(controller.open_root_dir(&volume).is_ok());
@@ -128,3 +157,4 @@ fn main() -> Result<(), Error<std::io::Error>> {
     }
     Ok(())
 }
+
