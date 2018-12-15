@@ -419,14 +419,42 @@ impl Fat16Volume {
     /// Look in the FAT to see which cluster comes next.
     pub(crate) fn next_cluster<D, T>(
         &self,
-        _controller: &mut Controller<D, T>,
-        _cluster: Cluster,
+        controller: &mut Controller<D, T>,
+        cluster: Cluster,
     ) -> Result<Cluster, Error<D::Error>>
     where
         D: BlockDevice,
         T: TimeSource,
     {
-        unimplemented!();
+        let mut blocks = [Block::new()];
+        let fat_offset = cluster.0 * 2;
+        let this_fat_block_num = self.lba_start + self.fat_start.offset_bytes(fat_offset);
+        let this_fat_ent_offset = (fat_offset % Block::LEN_U32) as usize;
+        controller
+            .block_device
+            .read(&mut blocks, this_fat_block_num, "next_cluster")
+            .map_err(Error::DeviceError)?;
+        let fat_entry =
+            LittleEndian::read_u16(&blocks[0][this_fat_ent_offset..=this_fat_ent_offset + 1]);
+        match fat_entry {
+            0xFFF7 => {
+                // Bad cluster
+                Err(Error::BadCluster)
+            }
+            0xFFF8..=0xFFFF => {
+                // There is no next cluster
+                Err(Error::EndOfFile)
+            }
+            f => {
+                // Seems legit
+                Ok(Cluster(u32::from(f)))
+            }
+        }
+    }
+
+    /// Number of bytes in a cluster.
+    pub(crate) fn bytes_per_cluster(&self) -> u32 {
+        u32::from(self.blocks_per_cluster) * Block::LEN_U32
     }
 
     /// Converts a cluster number (or `Cluster`) to a block number (or
@@ -602,14 +630,47 @@ impl Fat32Volume {
     /// Look in the FAT to see which cluster comes next.
     pub(crate) fn next_cluster<D, T>(
         &self,
-        _controller: &mut Controller<D, T>,
-        _cluster: Cluster,
+        controller: &mut Controller<D, T>,
+        cluster: Cluster,
     ) -> Result<Cluster, Error<D::Error>>
     where
         D: BlockDevice,
         T: TimeSource,
     {
-        unimplemented!();
+        let mut blocks = [Block::new()];
+        let fat_offset = cluster.0 * 4;
+        let this_fat_block_num = self.lba_start + self.fat_start.offset_bytes(fat_offset);
+        let this_fat_ent_offset = (fat_offset % Block::LEN_U32) as usize;
+        controller
+            .block_device
+            .read(&mut blocks, this_fat_block_num, "next_cluster")
+            .map_err(Error::DeviceError)?;
+        let fat_entry =
+            LittleEndian::read_u32(&blocks[0][this_fat_ent_offset..=this_fat_ent_offset + 3])
+                & 0x0FFF_FFFF;
+        match fat_entry {
+            0x0000_0000 => {
+                // Jumped to free space
+                Err(Error::BadCluster)
+            }
+            0x0FFF_FFF7 => {
+                // Bad cluster
+                Err(Error::BadCluster)
+            }
+            0x0000_0001 | 0x0FFF_FFF8..=0x0FFF_FFFF => {
+                // There is no next cluster
+                Err(Error::EndOfFile)
+            }
+            f => {
+                // Seems legit
+                Ok(Cluster(u32::from(f)))
+            }
+        }
+    }
+
+    /// Number of bytes in a cluster.
+    pub(crate) fn bytes_per_cluster(&self) -> u32 {
+        u32::from(self.blocks_per_cluster) * Block::LEN_U32
     }
 
     /// Converts a cluster number (or `Cluster`) to a block number (or

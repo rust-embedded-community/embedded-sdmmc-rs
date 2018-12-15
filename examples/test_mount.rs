@@ -23,7 +23,8 @@
 
 extern crate embedded_sdmmc;
 
-const FILE_TO_FIND: &'static str = "README.TXT";
+const FILE_TO_PRINT: &'static str = "README.TXT";
+const FILE_TO_CHECKSUM: &'static str = "64MB.DAT";
 
 use embedded_sdmmc::{
     Block, BlockCount, BlockDevice, BlockIdx, Controller, Error, Mode, TimeSource, Timestamp,
@@ -111,33 +112,39 @@ impl TimeSource for Clock {
     }
 }
 
-fn main() -> Result<(), Error<std::io::Error>> {
+fn main() {
     let mut args = std::env::args().skip(1);
     let filename = args.next().unwrap_or("/dev/mmcblk0".into());
     let print_blocks = args.find(|x| x == "-v").map(|_| true).unwrap_or(false);
-    let lbd = LinuxBlockDevice::new(filename, print_blocks).map_err(Error::DeviceError)?;
+    let lbd = LinuxBlockDevice::new(filename, print_blocks)
+        .map_err(Error::DeviceError)
+        .unwrap();
     println!("lbd: {:?}", lbd);
     let mut controller = Controller::new(lbd, Clock);
-    for i in 0..3 {
+    for i in 0..=3 {
         let volume = controller.get_volume(VolumeIdx(i));
         println!("volume {}: {:#?}", i, volume);
         if let Ok(volume) = volume {
-            let root_dir = controller.open_root_dir(&volume)?;
+            let root_dir = controller.open_root_dir(&volume).unwrap();
             println!("\tListing root directory:");
-            controller.iterate_dir(&volume, &root_dir, |x| {
-                println!("\t\tFound: {:?}", x);
-            })?;
-            println!("\tFinding {}...", FILE_TO_FIND);
+            controller
+                .iterate_dir(&volume, &root_dir, |x| {
+                    println!("\t\tFound: {:?}", x);
+                })
+                .unwrap();
+            println!("\tFinding {}...", FILE_TO_PRINT);
             println!(
                 "\tFound {}?: {:?}",
-                FILE_TO_FIND,
-                controller.find_directory_entry(&volume, &root_dir, FILE_TO_FIND)
+                FILE_TO_PRINT,
+                controller.find_directory_entry(&volume, &root_dir, FILE_TO_PRINT)
             );
-            let mut f = controller.open_file_in_dir(&volume, &root_dir, FILE_TO_FIND, Mode::ReadOnly)?;
+            let mut f = controller
+                .open_file_in_dir(&volume, &root_dir, FILE_TO_PRINT, Mode::ReadOnly)
+                .unwrap();
             println!("FILE STARTS:");
             while !f.eof() {
                 let mut buffer = [0u8; 32];
-                let num_read = controller.read(&volume, &mut f, &mut buffer)?;
+                let num_read = controller.read(&volume, &mut f, &mut buffer).unwrap();
                 for b in &buffer[0..num_read] {
                     if *b == 10 {
                         print!("\\n");
@@ -147,24 +154,43 @@ fn main() -> Result<(), Error<std::io::Error>> {
             }
             println!("EOF");
             // Can't open file twice
-            assert!(controller.open_file_in_dir(&volume, &root_dir, FILE_TO_FIND, Mode::ReadOnly).is_err());
-            controller.close_file(&volume, f)?;
+            assert!(controller
+                .open_file_in_dir(&volume, &root_dir, FILE_TO_PRINT, Mode::ReadOnly)
+                .is_err());
+            controller.close_file(&volume, f).unwrap();
 
-            let test_dir = controller.open_dir(&volume, &root_dir, "TEST")?;
+            let test_dir = controller.open_dir(&volume, &root_dir, "TEST").unwrap();
             // Check we can't open it twice
             assert!(controller.open_dir(&volume, &root_dir, "TEST").is_err());
             // Print the contents
             println!("\tListing TEST directory:");
-            controller.iterate_dir(&volume, &test_dir, |x| {
-                println!("\t\tFound: {:?}", x);
-            })?;
+            controller
+                .iterate_dir(&volume, &test_dir, |x| {
+                    println!("\t\tFound: {:?}", x);
+                })
+                .unwrap();
             controller.close_dir(&volume, test_dir);
+
+            // Checksum example file. We just sum the bytes, as a quick and dirty checksum.
+            // We also read in a weird block size, just to exercise the offset calculation code.
+            let mut f = controller
+                .open_file_in_dir(&volume, &root_dir, FILE_TO_CHECKSUM, Mode::ReadOnly)
+                .unwrap();
+            println!("Checksuming {} bytes of {}", f.length(), FILE_TO_CHECKSUM);
+            let mut csum = 0u32;
+            while !f.eof() {
+                let mut buffer = [0u8; 2047];
+                let num_read = controller.read(&volume, &mut f, &mut buffer).unwrap();
+                for b in &buffer[0..num_read] {
+                    csum += u32::from(*b);
+                }
+            }
+            println!("Checksum over {} bytes: {}", f.length(), csum);
+            controller.close_file(&volume, f).unwrap();
 
             assert!(controller.open_root_dir(&volume).is_err());
             controller.close_dir(&volume, root_dir);
             assert!(controller.open_root_dir(&volume).is_ok());
         }
     }
-    Ok(())
 }
-

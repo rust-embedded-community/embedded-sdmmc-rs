@@ -80,7 +80,9 @@ pub struct Attributes(u8);
 #[derive(Debug)]
 pub struct File {
     /// The starting point of the file.
-    pub(crate) cluster: Cluster,
+    pub(crate) starting_cluster: Cluster,
+    /// The current cluster, and how many bytes that short-cuts us
+    pub(crate) current_cluster: (u32, Cluster),
     /// How far through the file we've read (in bytes).
     pub(crate) current_offset: u32,
     /// The length of the file, in bytes.
@@ -518,7 +520,8 @@ impl File {
     /// Create a new file handle.
     pub(crate) fn new(cluster: Cluster, length: u32, mode: Mode) -> File {
         File {
-            cluster,
+            starting_cluster: cluster,
+            current_cluster: (0, cluster),
             mode,
             length,
             current_offset: 0,
@@ -539,6 +542,10 @@ impl File {
     pub fn seek_from_start(&mut self, offset: u32) -> Result<(), ()> {
         if offset <= self.length {
             self.current_offset = offset;
+            if offset < self.current_cluster.0 {
+                // Back to start
+                self.current_cluster = (0, self.starting_cluster);
+            }
             Ok(())
         } else {
             Err(())
@@ -549,6 +556,10 @@ impl File {
     pub fn seek_from_end(&mut self, offset: u32) -> Result<(), ()> {
         if offset <= self.length {
             self.current_offset = self.length - offset;
+            if offset < self.current_cluster.0 {
+                // Back to start
+                self.current_cluster = (0, self.starting_cluster);
+            }
             Ok(())
         } else {
             Err(())
