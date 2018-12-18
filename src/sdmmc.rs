@@ -219,6 +219,11 @@ where
         result
     }
 
+    /// De-init the card so it can't be used
+    pub fn deinit(&mut self) {
+        self.state = State::NoInit;
+    }
+
     /// Return the usable size of this SD card in bytes.
     pub fn card_size_bytes(&self) -> Result<u64, Error> {
         self.check_state()?;
@@ -440,11 +445,11 @@ where
         start_block_idx: BlockIdx,
         _reason: &str,
     ) -> Result<(), Self::Error> {
+        self.check_state()?;
         let start_idx = match self.card_type {
             CardType::SD1 | CardType::SD2 => start_block_idx.0 * 512,
             CardType::SDHC => start_block_idx.0,
         };
-        self.check_state()?;
         self.with_chip_select(|s| {
             if blocks.len() == 1 {
                 // Start a single-block read
@@ -465,11 +470,11 @@ where
 
     /// Write one or more blocks, starting at the given block index.
     fn write(&self, blocks: &[Block], start_block_idx: BlockIdx) -> Result<(), Self::Error> {
+        self.check_state()?;
         let start_idx = match self.card_type {
             CardType::SD1 | CardType::SD2 => start_block_idx.0 * 512,
             CardType::SDHC => start_block_idx.0,
         };
-        self.check_state()?;
         self.with_chip_select_mut(|s| {
             if blocks.len() == 1 {
                 // Start a single-block write
