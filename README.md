@@ -30,11 +30,16 @@ match cont.device().init() {
 }
 ```
 
-## Todo List (PRs welcome!)
+## Supported features
 
-* Open files read-only
+* Open files read-only from an open directory
 * Read data from open files
 * Close files
+* Iterate root directory
+* Iterate sub-directories
+
+## Todo List (PRs welcome!)
+
 * Open non-root dirs
 * Iterate non-root dirs
 * Open files for append
@@ -45,16 +50,16 @@ match cont.device().init() {
 * Delete (empty) directories
 * Handle MS-DOS `/path/foo/bar.txt` style paths.
 
-## Unreleased changes (will be 0.1.0)
+## Unreleased changes (will be 0.2.0)
+
+* No changes
+
+## Changelog
 
 * Can read blocks from an SD Card using an `embedded_hal::SPI` device and a
   `embedded_hal::OutputPin` for Chip Select.
 * Can read partition tables and open a FAT32 or FAT16 formatted partition.
 * Can open and iterate the root directory of a FAT16 formatted partition.
-
-## Changelog
-
-* Nothing released yet!
 
 ## License
 
