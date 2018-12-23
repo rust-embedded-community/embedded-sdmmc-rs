@@ -407,7 +407,7 @@ impl Timestamp {
 
 impl core::fmt::Debug for Timestamp {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-        write!(f, "{}", self)
+        write!(f, "Timestamp({})", self)
     }
 }
 
@@ -415,7 +415,7 @@ impl core::fmt::Display for Timestamp {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         write!(
             f,
-            "{}-{:02}-{:02}T{:02}:{:02}:{:02}",
+            "{}-{:02}-{:02} {:02}:{:02}:{:02}",
             u16::from(self.year_since_1970) + 1970,
             self.zero_indexed_month + 1,
             self.zero_indexed_day + 1,
