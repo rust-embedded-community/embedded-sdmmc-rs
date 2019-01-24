@@ -10,7 +10,7 @@ use super::{Block, BlockCount, BlockDevice, BlockIdx};
 use core::cell::UnsafeCell;
 use nb::block;
 
-const DEFAULT_DELAY_COUNT: u32 = 32;
+const DEFAULT_DELAY_COUNT: u32 = 32_000;
 
 /// Represents an SD Card interface built from an SPI peripheral and a Chip
 /// Select pin. We need Chip Select to be separate so we can clock out some
@@ -90,7 +90,7 @@ impl Delay {
             Err(err)
         } else {
             let dummy_var: u32 = 0;
-            for _ in 0..100_000 {
+            for _ in 0..100 {
                 unsafe { core::ptr::read_volatile(&dummy_var) };
             }
             self.0 -= 1;
