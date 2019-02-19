@@ -56,6 +56,10 @@ match cont.device().init() {
 
 * No changes
 
+### Version 0.2.1
+
+* Added `readme=README.md` to `Cargo.toml`
+
 ### Version 0.2.0
 
 * Reduce delay waiting for response. Big speed improvements.

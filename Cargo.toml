@@ -1,6 +1,6 @@
 [package]
 name = "embedded-sdmmc"
-version = "0.2.0"
+version = "0.2.1"
 authors = ["Jonathan 'theJPster' Pallant <github@thejpster.org.uk>"]
 description = "A basic SD/MMC driver for Embedded Rust."
 keywords = ["sdcard", "mmc", "embedded", "fat32"]
@@ -8,6 +8,7 @@ categories = ["embedded", "no-std"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/thejpster/embedded-sdmmc-rs"
 edition = "2018"
+readme = "README.md"
 
 [dependencies]
 embedded-hal = "0.2.2"
