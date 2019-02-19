@@ -50,11 +50,17 @@ match cont.device().init() {
 * Delete (empty) directories
 * Handle MS-DOS `/path/foo/bar.txt` style paths.
 
-## Unreleased changes (will be 0.2.0)
+## Changelog
+
+### Unreleased changes (will be 0.3.0)
 
 * No changes
 
-## Changelog
+### Version 0.2.0
+
+* Reduce delay waiting for response. Big speed improvements.
+
+### Version 0.1.0
 
 * Can read blocks from an SD Card using an `embedded_hal::SPI` device and a
   `embedded_hal::OutputPin` for Chip Select.
