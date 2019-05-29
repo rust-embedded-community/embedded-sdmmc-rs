@@ -7,7 +7,7 @@
 
 use super::sdmmc_proto::*;
 use super::{Block, BlockCount, BlockDevice, BlockIdx};
-use core::cell::UnsafeCell;
+use core::cell::RefCell;
 use nb::block;
 
 const DEFAULT_DELAY_COUNT: u32 = 32_000;
@@ -21,8 +21,8 @@ where
     CS: embedded_hal::digital::v2::OutputPin,
     <SPI as embedded_hal::spi::FullDuplex<u8>>::Error: core::fmt::Debug,
 {
-    spi: UnsafeCell<SPI>,
-    cs: UnsafeCell<CS>,
+    spi: RefCell<SPI>,
+    cs: RefCell<CS>,
     card_type: CardType,
     state: State,
 }
@@ -110,8 +110,8 @@ where
     /// Create a new SD/MMC controller using a raw SPI interface.
     pub fn new(spi: SPI, cs: CS) -> SdMmcSpi<SPI, CS> {
         SdMmcSpi {
-            spi: UnsafeCell::new(spi),
-            cs: UnsafeCell::new(cs),
+            spi: RefCell::new(spi),
+            cs: RefCell::new(cs),
             card_type: CardType::SD1,
             state: State::NoInit,
         }
@@ -119,18 +119,16 @@ where
 
     /// Get a temporary borrow on the underlying SPI device. Useful if you
     /// need to re-clock the SPI after performing `init()`.
-    pub fn spi(&mut self) -> &mut SPI {
-        unsafe { &mut *self.spi.get() }
+    pub fn spi(&mut self) -> core::cell::RefMut<SPI> {
+        self.spi.borrow_mut()
     }
 
     fn cs_high(&self) -> Result<(), Error> {
-        let cs = unsafe { &mut *self.cs.get() };
-        cs.set_high().map_err(|_| Error::GpioError)
+        self.cs.borrow_mut().set_high().map_err(|_| Error::GpioError)
     }
 
     fn cs_low(&self) -> Result<(), Error> {
-        let cs = unsafe { &mut *self.cs.get() };
-        cs.set_low().map_err(|_| Error::GpioError)
+        self.cs.borrow_mut().set_low().map_err(|_| Error::GpioError)
     }
 
     /// This routine must be performed with an SPI clock speed of around 100 - 400 kHz.
@@ -412,7 +410,7 @@ where
 
     /// Send one byte and receive one byte.
     fn transfer(&self, out: u8) -> Result<u8, Error> {
-        let spi = unsafe { &mut *self.spi.get() };
+        let mut spi = self.spi.borrow_mut();
         block!(spi.send(out)).map_err(|_e| Error::Transport)?;
         block!(spi.read()).map_err(|_e| Error::Transport)
     }
