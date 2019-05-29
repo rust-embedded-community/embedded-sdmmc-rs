@@ -54,7 +54,7 @@ match cont.device().init() {
 
 ### Unreleased changes (will be 0.3.0)
 
-* No changes
+* Updated to `v2` embedded-hal traits.
 
 ### Version 0.2.1
 

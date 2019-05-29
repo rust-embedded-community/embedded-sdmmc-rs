@@ -18,7 +18,7 @@ const DEFAULT_DELAY_COUNT: u32 = 32_000;
 pub struct SdMmcSpi<SPI, CS>
 where
     SPI: embedded_hal::spi::FullDuplex<u8>,
-    CS: embedded_hal::digital::OutputPin,
+    CS: embedded_hal::digital::v2::OutputPin,
     <SPI as embedded_hal::spi::FullDuplex<u8>>::Error: core::fmt::Debug,
 {
     spi: UnsafeCell<SPI>,
@@ -56,6 +56,8 @@ pub enum Error {
     BadState,
     /// Couldn't find the card
     CardNotFound,
+    /// Couldn't set a GPIO pin
+    GpioError,
 }
 
 /// The possible states `SdMmcSpi` can be in.
@@ -102,7 +104,7 @@ impl Delay {
 impl<SPI, CS> SdMmcSpi<SPI, CS>
 where
     SPI: embedded_hal::spi::FullDuplex<u8>,
-    CS: embedded_hal::digital::OutputPin,
+    CS: embedded_hal::digital::v2::OutputPin,
     <SPI as embedded_hal::spi::FullDuplex<u8>>::Error: core::fmt::Debug,
 {
     /// Create a new SD/MMC controller using a raw SPI interface.
@@ -121,14 +123,14 @@ where
         unsafe { &mut *self.spi.get() }
     }
 
-    fn cs_high(&self) {
+    fn cs_high(&self) -> Result<(), Error> {
         let cs = unsafe { &mut *self.cs.get() };
-        cs.set_high();
+        cs.set_high().map_err(|_| Error::GpioError)
     }
 
-    fn cs_low(&self) {
+    fn cs_low(&self) -> Result<(), Error> {
         let cs = unsafe { &mut *self.cs.get() };
-        cs.set_low();
+        cs.set_low().map_err(|_| Error::GpioError)
     }
 
     /// This routine must be performed with an SPI clock speed of around 100 - 400 kHz.
@@ -138,12 +140,12 @@ where
             // Assume it hasn't worked
             s.state = State::Error;
             // Supply minimum of 74 clock cycles without CS asserted.
-            s.cs_high();
+            s.cs_high()?;
             for _ in 0..10 {
                 s.send(0xFF)?;
             }
             // Assert CS
-            s.cs_low();
+            s.cs_low()?;
             // Enter SPI mode
             let mut attempts = 32;
             while attempts > 0 {
@@ -214,7 +216,7 @@ where
             Ok(())
         };
         let result = f(self);
-        self.cs_high();
+        self.cs_high()?;
         let _ = self.receive();
         result
     }
@@ -266,25 +268,25 @@ where
 
     /// Perform a function that might error with the chipselect low.
     /// Always releases the chipselect, even if the function errors.
-    fn with_chip_select_mut<F, T>(&self, func: F) -> T
+    fn with_chip_select_mut<F, T>(&self, func: F) -> Result<T, Error>
     where
-        F: FnOnce(&Self) -> T,
+        F: FnOnce(&Self) -> Result<T, Error>,
     {
-        self.cs_low();
+        self.cs_low()?;
         let result = func(self);
-        self.cs_high();
+        self.cs_high()?;
         result
     }
 
     /// Perform a function that might error with the chipselect low.
     /// Always releases the chipselect, even if the function errors.
-    fn with_chip_select<F, T>(&self, func: F) -> T
+    fn with_chip_select<F, T>(&self, func: F) -> Result<T, Error>
     where
-        F: FnOnce(&Self) -> T,
+        F: FnOnce(&Self) -> Result<T, Error>,
     {
-        self.cs_low();
+        self.cs_low()?;
         let result = func(self);
-        self.cs_high();
+        self.cs_high()?;
         result
     }
 
@@ -434,7 +436,7 @@ impl<SPI, CS> BlockDevice for SdMmcSpi<SPI, CS>
 where
     SPI: embedded_hal::spi::FullDuplex<u8>,
     <SPI as embedded_hal::spi::FullDuplex<u8>>::Error: core::fmt::Debug,
-    CS: embedded_hal::digital::OutputPin,
+    CS: embedded_hal::digital::v2::OutputPin,
 {
     type Error = Error;
 
