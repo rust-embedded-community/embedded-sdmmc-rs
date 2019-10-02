@@ -39,6 +39,9 @@ pub struct Fat16Volume {
     pub(crate) first_root_dir_block: BlockCount,
     /// Number of entries in root directory (it's reserved and not in the FAT)
     pub(crate) root_entries_count: u16,
+    /// Number of free clusters
+    pub(crate) free_clusters_count: Option<u32>,
+    pub(crate) next_free_cluster: Option<Cluster>,
 }
 
 /// Identifies a FAT32 Volume on the disk.
@@ -59,6 +62,9 @@ pub struct Fat32Volume {
     /// The root directory does not have a reserved area in FAT32. This is the
     /// cluster it starts in (nominally 2).
     pub(crate) first_root_dir_cluster: Cluster,
+    /// Number of free clusters
+    pub(crate) free_clusters_count: Option<u32>,
+    pub(crate) next_free_cluster: Option<Cluster>,
 }
 
 impl core::fmt::Debug for VolumeName {
@@ -195,6 +201,14 @@ impl<'a> Bpb<'a> {
         Cluster(LittleEndian::read_u32(&self.data[44..=47]))
     }
 
+    pub fn fs_info_block(&self) -> Option<BlockCount> {
+        if self.fat_type != FatType::Fat32 {
+            None
+        } else {
+            Some(BlockCount(u32::from(self.fs_info())))
+        }
+    }
+
     // Magic functions that get the right FAT16/FAT32 result
 
     pub fn fat_size(&self) -> u32 {
@@ -212,6 +226,51 @@ impl<'a> Bpb<'a> {
             result
         } else {
             self.total_blocks32()
+        }
+    }
+}
+
+struct InfoSector<'a> {
+    data: &'a [u8; 512],
+}
+
+impl<'a> InfoSector<'a> {
+    const LEAD_SIG: u32 = 0x41615252;
+    const STRUC_SIG: u32 = 0x61417272;
+    const TRAIL_SIG: u32 = 0xAA550000;
+
+    fn create_from_bytes(data: &[u8; 512]) -> Result<InfoSector, &'static str> {
+        let info = InfoSector { data };
+        if info.lead_sig() != Self::LEAD_SIG {
+            return Err("Bad lead signature on InfoSector");
+        }
+        if info.struc_sig() != Self::STRUC_SIG {
+            return Err("Bad struc signature on InfoSector");
+        }
+        if info.trail_sig() != Self::TRAIL_SIG {
+            return Err("Bad trail signature on InfoSector");
+        }
+        Ok(info)
+    }
+
+    define_field!(lead_sig, u32, 0);
+    define_field!(struc_sig, u32, 484);
+    define_field!(free_count, u32, 488);
+    define_field!(next_free, u32, 492);
+    define_field!(trail_sig, u32, 508);
+
+    pub fn free_clusters_count(&self) -> Option<u32> {
+        match self.free_count() {
+            0xFFFF_FFFF => None,
+            n => Some(n),
+        }
+    }
+
+    pub fn next_free_cluster(&self) -> Option<Cluster> {
+        match self.next_free() {
+            // 0 and 1 are reserved clusters
+            0xFFFF_FFFF | 0 | 1 => None,
+            n => Some(Cluster(n)),
         }
     }
 }
@@ -687,6 +746,16 @@ impl Fat32Volume {
         self.lba_start + self.first_data_block + first_block_of_cluster
     }
 
+    /// Returns the expected number of free clusters if available or None otherwise.
+    pub(crate) fn free_clusters_count(&self) -> Option<u32> {
+        self.free_clusters_count
+    }
+
+    /// Returns a hint for the next free cluster or None if not available.
+    pub(crate) fn next_free_cluster(&self) -> Option<Cluster> {
+        self.next_free_cluster
+    }
+
     /// Get an entry from the given directory
     pub(crate) fn find_directory_entry<D, T>(
         &self,
@@ -799,6 +868,8 @@ where
                 first_root_dir_block: (first_root_dir_block),
                 first_data_block: (first_data_block),
                 fat_start: BlockCount(u32::from(bpb.reserved_block_count())),
+                free_clusters_count: None,
+                next_free_cluster: None,
             };
             volume.name.data[..].copy_from_slice(bpb.volume_label());
             Ok(VolumeType::Fat16(volume))
@@ -807,6 +878,22 @@ where
             // FirstDataSector = BPB_ResvdSecCnt + (BPB_NumFATs * FATSz);
             let first_data_block = u32::from(bpb.reserved_block_count())
                 + (u32::from(bpb.num_fats()) * bpb.fat_size());
+
+            // Safe to unwrap since this is a Fat32 Type
+            let info_location = bpb.fs_info_block().unwrap();
+            let mut info_blocks = [Block::new()];
+            controller
+                .block_device
+                .read(
+                    &mut info_blocks,
+                    lba_start + info_location,
+                    "read_info_sector",
+                )
+                .map_err(Error::DeviceError)?;
+            let info_block = &info_blocks[0];
+            let info_sector =
+                InfoSector::create_from_bytes(&info_block).map_err(Error::FormatError)?;
+
             let mut volume = Fat32Volume {
                 lba_start,
                 num_blocks,
@@ -815,6 +902,8 @@ where
                 first_data_block: BlockCount(first_data_block),
                 fat_start: BlockCount(u32::from(bpb.reserved_block_count())),
                 first_root_dir_cluster: Cluster(bpb.first_root_dir_cluster()),
+                free_clusters_count: info_sector.free_clusters_count(),
+                next_free_cluster: info_sector.next_free_cluster(),
             };
             volume.name.data[..].copy_from_slice(bpb.volume_label());
             Ok(VolumeType::Fat32(volume))

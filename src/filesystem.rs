@@ -187,7 +187,7 @@ impl ShortFileName {
         for ch in name.bytes() {
             match ch {
                 // Microsoft say these are the invalid characters
-                0x00...0x1F
+                0x00..=0x1F
                 | 0x20
                 | 0x22
                 | 0x2A
@@ -254,7 +254,7 @@ impl ShortFileName {
         for ch in name.bytes() {
             match ch {
                 // Microsoft say these are the invalid characters
-                0x00...0x1F
+                0x00..=0x1F
                 | 0x20
                 | 0x22
                 | 0x2A
@@ -660,7 +660,6 @@ mod test {
         assert!(ShortFileName::create_from_str("123456789").is_err());
         assert!(ShortFileName::create_from_str("12345678.ABCD").is_err());
     }
-
 }
 
 // ****************************************************************************
