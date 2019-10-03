@@ -10,9 +10,12 @@ use crate::{
 use byteorder::{ByteOrder, LittleEndian};
 use core::convert::TryFrom;
 
+/// Indentifies the supported types of FAT format
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-enum FatType {
+pub enum FatType {
+    /// Fat16 Format
     Fat16,
+    /// Fat32 Format
     Fat32,
 }
 
@@ -396,7 +399,7 @@ impl<'a> OnDiskDirEntry<'a> {
         Cluster(cluster_no)
     }
 
-    fn get_entry(&self, fat_type: FatType) -> DirEntry {
+    fn get_entry(&self, fat_type: FatType, entry_block: BlockIdx, entry_offset: u32) -> DirEntry {
         let mut result = DirEntry {
             name: ShortFileName {
                 contents: [0u8; 11],
@@ -410,6 +413,8 @@ impl<'a> OnDiskDirEntry<'a> {
                 self.first_cluster_fat16()
             },
             size: self.file_size(),
+            entry_block,
+            entry_offset,
         };
         result.name.contents.copy_from_slice(&self.data[0..11]);
         result
@@ -539,7 +544,7 @@ impl Fat16Volume {
         controller: &mut Controller<D, T>,
         dir: &Directory,
         name: &str,
-    ) -> Result<(DirEntry, BlockIdx, u32), Error<D::Error>>
+    ) -> Result<DirEntry, Error<D::Error>>
     where
         D: BlockDevice,
         T: TimeSource,
@@ -571,7 +576,7 @@ impl Fat16Volume {
                     // Found it
                     // Safe, since Block::LEN always fits on a u32
                     let start = u32::try_from(start).unwrap();
-                    return Ok((dir_entry.get_entry(FatType::Fat16), block, start));
+                    return Ok(dir_entry.get_entry(FatType::Fat16, block, start));
                 }
             }
         }
@@ -614,7 +619,9 @@ impl Fat16Volume {
                     // Can quit early
                     return Ok(());
                 } else if dir_entry.is_valid() && !dir_entry.is_lfn() {
-                    let entry = dir_entry.get_entry(FatType::Fat16);
+                    // Safe, since Block::LEN always fits on a u32
+                    let start = u32::try_from(start).unwrap();
+                    let entry = dir_entry.get_entry(FatType::Fat16, block, start);
                     func(&entry);
                 }
             }
@@ -765,7 +772,7 @@ impl Fat32Volume {
         controller: &mut Controller<D, T>,
         dir: &Directory,
         name: &str,
-    ) -> Result<(DirEntry, BlockIdx, u32), Error<D::Error>>
+    ) -> Result<DirEntry, Error<D::Error>>
     where
         D: BlockDevice,
         T: TimeSource,
@@ -790,7 +797,7 @@ impl Fat32Volume {
                     // Found it
                     // Safe, since Block::LEN always fits on a u32
                     let start = u32::try_from(start).unwrap();
-                    return Ok((dir_entry.get_entry(FatType::Fat16), block, start));
+                    return Ok(dir_entry.get_entry(FatType::Fat16, block, start));
                 }
             }
         }
@@ -826,7 +833,9 @@ impl Fat32Volume {
                     // Can quit early
                     return Ok(());
                 } else if dir_entry.is_valid() && !dir_entry.is_lfn() {
-                    let entry = dir_entry.get_entry(FatType::Fat16);
+                    // Safe, since Block::LEN always fits on a u32
+                    let start = u32::try_from(start).unwrap();
+                    let entry = dir_entry.get_entry(FatType::Fat16, block, start);
                     func(&entry);
                 }
             }
@@ -997,6 +1006,8 @@ mod test {
                 attributes: Attributes::create_from_fat(Attributes::VOLUME),
                 cluster: Cluster(0),
                 size: 0,
+                entry_block: BlockIdx(0),
+                entry_offset: 0,
             }),
             Expected::Lfn(
                 true,
@@ -1013,6 +1024,8 @@ mod test {
                 attributes: Attributes::create_from_fat(Attributes::DIRECTORY),
                 cluster: Cluster(3),
                 size: 0,
+                entry_block: BlockIdx(0),
+                entry_offset: 0,
             }),
             Expected::Lfn(
                 true,
@@ -1036,6 +1049,8 @@ mod test {
                 attributes: Attributes::create_from_fat(Attributes::ARCHIVE),
                 cluster: Cluster(9),
                 size: 11120,
+                entry_block: BlockIdx(0),
+                entry_offset: 0,
             }),
             Expected::Lfn(
                 true,
@@ -1051,6 +1066,8 @@ mod test {
                 attributes: Attributes::create_from_fat(Attributes::ARCHIVE),
                 cluster: Cluster(5),
                 size: 18693,
+                entry_block: BlockIdx(0),
+                entry_offset: 0,
             }),
             Expected::Lfn(
                 true,
@@ -1074,6 +1091,8 @@ mod test {
                 attributes: Attributes::create_from_fat(Attributes::ARCHIVE),
                 cluster: Cluster(8),
                 size: 1494,
+                entry_block: BlockIdx(0),
+                entry_offset: 0,
             }),
             Expected::Lfn(
                 true,
@@ -1097,6 +1116,8 @@ mod test {
                 attributes: Attributes::create_from_fat(Attributes::ARCHIVE),
                 cluster: Cluster(15),
                 size: 12108,
+                entry_block: BlockIdx(0),
+                entry_offset: 0,
             }),
             Expected::Lfn(
                 true,
@@ -1127,7 +1148,7 @@ mod test {
                     assert_eq!(*contents, calc_contents);
                 }
                 Expected::Short(expected_entry) if !on_disk_entry.is_lfn() => {
-                    let parsed_entry = on_disk_entry.get_entry(FatType::Fat32);
+                    let parsed_entry = on_disk_entry.get_entry(FatType::Fat32, BlockIdx(0), 0);
                     assert_eq!(*expected_entry, parsed_entry);
                 }
                 _ => {

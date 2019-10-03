@@ -45,6 +45,10 @@ pub struct DirEntry {
     pub cluster: Cluster,
     /// The size of the file in bytes.
     pub size: u32,
+    /// The disk block of this entry
+    pub entry_block: BlockIdx,
+    /// The offset on its block (in bytes)
+    pub entry_offset: u32,
 }
 
 /// An MS-DOS 8.3 filename. 7-bit ASCII only. All lower-case is converted to
@@ -76,7 +80,7 @@ pub struct Timestamp {
 /// Indicates whether a directory entry is read-only, a directory, a volume
 /// label, etc.
 #[derive(Copy, Clone, PartialOrd, Ord, PartialEq, Eq)]
-pub struct Attributes(u8);
+pub struct Attributes(pub(crate) u8);
 
 /// Represents an open file on disk.
 #[derive(Debug)]
@@ -91,10 +95,8 @@ pub struct File {
     pub(crate) length: u32,
     /// What mode the file was opened in
     pub(crate) mode: Mode,
-    /// File's DirEntry BlockIdx
-    pub(crate) entry_block: BlockIdx,
-    /// File's DirEntry offset in its cluster (in bytes)
-    pub(crate) entry_offset: u32,
+    /// DirEntry of this file
+    pub(crate) entry: DirEntry,
 }
 
 /// Represents an open directory on disk.
@@ -102,6 +104,8 @@ pub struct File {
 pub struct Directory {
     /// The starting point of the directory listing.
     pub(crate) cluster: Cluster,
+    /// Dir Entry of this directory, None for the root directory
+    pub(crate) entry: Option<DirEntry>,
 }
 
 /// The different ways we can open a file.
@@ -364,6 +368,23 @@ impl Timestamp {
         }
     }
 
+    // TODO add tests for the method
+    /// Serialize a `Timestamp` to FAT format
+    pub fn serialize_to_fat(&self) -> [u8; 4] {
+        let mut data = [0u8; 4];
+
+        let hours = (u16::from(self.hours) << 11) & 0xF800;
+        let minutes = (u16::from(self.minutes) << 5) & 0x07E0;
+        let seconds = (u16::from(self.seconds / 2)) & 0x001F;
+        data[..2].copy_from_slice(&(hours | minutes | seconds).to_le_bytes()[..]);
+
+        let year = (u16::from(self.year_since_1970 - 10) << 9) & 0xFE00;
+        let month = (u16::from(self.zero_indexed_month + 1) << 5) & 0x01E0;
+        let day = u16::from(self.zero_indexed_day + 1) & 0x001F;
+        data[2..].copy_from_slice(&(year | month | day).to_le_bytes()[..]);
+        data
+    }
+
     /// Create a `Timestamp` from year/month/day/hour/minute/second.
     ///
     /// Values should be given as you'd write then (i.e. 1980, 01, 01, 13, 30,
@@ -524,15 +545,14 @@ impl core::fmt::Debug for Attributes {
 
 impl File {
     /// Create a new file handle.
-    pub(crate) fn new(cluster: Cluster, length: u32, mode: Mode, entry_block: BlockIdx, entry_offset: u32) -> File {
+    pub(crate) fn new(cluster: Cluster, length: u32, mode: Mode, entry: DirEntry) -> File {
         File {
             starting_cluster: cluster,
             current_cluster: (0, cluster),
             mode,
             length,
             current_offset: 0,
-            entry_block,
-            entry_offset,
+            entry,
         }
     }
 
