@@ -17,6 +17,8 @@
 //
 // ****************************************************************************
 
+use crate::blockdevice::BlockIdx;
+
 /// Things that impl this can tell you the current time.
 pub trait TimeSource {
     /// Returns the current time
@@ -89,6 +91,10 @@ pub struct File {
     pub(crate) length: u32,
     /// What mode the file was opened in
     pub(crate) mode: Mode,
+    /// File's DirEntry BlockIdx
+    pub(crate) entry_block: BlockIdx,
+    /// File's DirEntry offset in its cluster (in bytes)
+    pub(crate) entry_offset: u32,
 }
 
 /// Represents an open directory on disk.
@@ -518,13 +524,15 @@ impl core::fmt::Debug for Attributes {
 
 impl File {
     /// Create a new file handle.
-    pub(crate) fn new(cluster: Cluster, length: u32, mode: Mode) -> File {
+    pub(crate) fn new(cluster: Cluster, length: u32, mode: Mode, entry_block: BlockIdx, entry_offset: u32) -> File {
         File {
             starting_cluster: cluster,
             current_cluster: (0, cluster),
             mode,
             length,
             current_offset: 0,
+            entry_block,
+            entry_offset,
         }
     }
 

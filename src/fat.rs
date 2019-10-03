@@ -8,6 +8,7 @@ use crate::{
     ShortFileName, TimeSource, Timestamp, VolumeType,
 };
 use byteorder::{ByteOrder, LittleEndian};
+use core::convert::TryFrom;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 enum FatType {
@@ -538,7 +539,7 @@ impl Fat16Volume {
         controller: &mut Controller<D, T>,
         dir: &Directory,
         name: &str,
-    ) -> Result<DirEntry, Error<D::Error>>
+    ) -> Result<(DirEntry, BlockIdx, u32), Error<D::Error>>
     where
         D: BlockDevice,
         T: TimeSource,
@@ -568,7 +569,9 @@ impl Fat16Volume {
                     return Err(Error::FileNotFound);
                 } else if dir_entry.matches(&match_name) {
                     // Found it
-                    return Ok(dir_entry.get_entry(FatType::Fat16));
+                    // Safe, since Block::LEN always fits on a u32
+                    let start = u32::try_from(start).unwrap();
+                    return Ok((dir_entry.get_entry(FatType::Fat16), block, start));
                 }
             }
         }
@@ -762,7 +765,7 @@ impl Fat32Volume {
         controller: &mut Controller<D, T>,
         dir: &Directory,
         name: &str,
-    ) -> Result<DirEntry, Error<D::Error>>
+    ) -> Result<(DirEntry, BlockIdx, u32), Error<D::Error>>
     where
         D: BlockDevice,
         T: TimeSource,
@@ -785,7 +788,9 @@ impl Fat32Volume {
                     return Err(Error::FileNotFound);
                 } else if dir_entry.matches(&match_name) {
                     // Found it
-                    return Ok(dir_entry.get_entry(FatType::Fat16));
+                    // Safe, since Block::LEN always fits on a u32
+                    let start = u32::try_from(start).unwrap();
+                    return Ok((dir_entry.get_entry(FatType::Fat16), block, start));
                 }
             }
         }

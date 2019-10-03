@@ -68,6 +68,8 @@ where
     EndOfFile,
     /// Found a bad cluster
     BadCluster,
+    /// Error while converting types
+    ConversionError,
 }
 
 /// We have to track what directories are open to prevent users from modifying
@@ -297,7 +299,7 @@ where
         let open_dirs_row = open_dirs_row.ok_or(Error::TooManyOpenDirs)?;
 
         // Open the directory
-        let dir_entry = match &volume.volume_type {
+        let (dir_entry, _entry_block, _entry_offset) = match &volume.volume_type {
             VolumeType::Fat16(fat) => fat.find_directory_entry(self, parent_dir, name)?,
             VolumeType::Fat32(fat) => fat.find_directory_entry(self, parent_dir, name)?,
         };
@@ -338,7 +340,7 @@ where
         volume: &Volume,
         dir: &Directory,
         name: &str,
-    ) -> Result<DirEntry, Error<D::Error>> {
+    ) -> Result<(DirEntry, BlockIdx, u32), Error<D::Error>> {
         match &volume.volume_type {
             VolumeType::Fat16(fat) => fat.find_directory_entry(self, dir, name),
             VolumeType::Fat32(fat) => fat.find_directory_entry(self, dir, name),
@@ -381,7 +383,7 @@ where
             }
         }
         let open_files_row = open_files_row.ok_or(Error::TooManyOpenDirs)?;
-        let dir_entry = match &volume.volume_type {
+        let (dir_entry, entry_block, entry_offset) = match &volume.volume_type {
             VolumeType::Fat16(fat) => fat.find_directory_entry(self, dir, name)?,
             VolumeType::Fat32(fat) => fat.find_directory_entry(self, dir, name)?,
         };
@@ -404,6 +406,8 @@ where
             current_offset: 0,
             length: dir_entry.size,
             mode,
+            entry_block,
+            entry_offset,
         })
     }
 
