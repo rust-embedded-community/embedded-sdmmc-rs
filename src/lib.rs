@@ -71,6 +71,8 @@ where
     BadCluster,
     /// Error while converting types
     ConversionError,
+    /// The device does not have enough space for the operation
+    NotEnoughSpace,
 }
 
 /// We have to track what directories are open to prevent users from modifying
@@ -821,6 +823,7 @@ mod tests {
                     },
                     free_clusters_count: None,
                     next_free_cluster: None,
+                    cluster_count: 965788,
                 })
             }
         );

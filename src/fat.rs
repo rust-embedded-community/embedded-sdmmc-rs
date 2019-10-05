@@ -10,6 +10,8 @@ use crate::{
 use byteorder::{ByteOrder, LittleEndian};
 use core::convert::TryFrom;
 
+pub const RESERVED_ENTRIES: u32 = 2;
+
 /// Indentifies the supported types of FAT format
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum FatType {
@@ -46,6 +48,8 @@ pub struct Fat16Volume {
     /// Number of free clusters
     pub(crate) free_clusters_count: Option<u32>,
     pub(crate) next_free_cluster: Option<Cluster>,
+    /// Total number of clusters
+    pub(crate) cluster_count: u32,
 }
 
 /// Identifies a FAT32 Volume on the disk.
@@ -69,6 +73,8 @@ pub struct Fat32Volume {
     /// Number of free clusters
     pub(crate) free_clusters_count: Option<u32>,
     pub(crate) next_free_cluster: Option<Cluster>,
+    /// Total number of clusters
+    pub(crate) cluster_count: u32,
 }
 
 impl core::fmt::Debug for VolumeName {
@@ -83,6 +89,7 @@ impl core::fmt::Debug for VolumeName {
 struct Bpb<'a> {
     data: &'a [u8; 512],
     fat_type: FatType,
+    cluster_count: u32,
 }
 
 impl<'a> Bpb<'a> {
@@ -92,6 +99,7 @@ impl<'a> Bpb<'a> {
         let mut bpb = Bpb {
             data,
             fat_type: FatType::Fat16,
+            cluster_count: 0,
         };
         if bpb.footer() != Self::FOOTER_VALUE {
             return Err("Bad BPB footer");
@@ -104,10 +112,10 @@ impl<'a> Bpb<'a> {
             - (u32::from(bpb.reserved_block_count())
                 + (u32::from(bpb.num_fats()) * bpb.fat_size())
                 + root_dir_blocks);
-        let cluster_count = data_blocks / u32::from(bpb.blocks_per_cluster());
-        if cluster_count < 4085 {
+        bpb.cluster_count = data_blocks / u32::from(bpb.blocks_per_cluster());
+        if bpb.cluster_count < 4085 {
             return Err("FAT12 is unsupported");
-        } else if cluster_count < 65525 {
+        } else if bpb.cluster_count < 65525 {
             bpb.fat_type = FatType::Fat16;
         } else {
             bpb.fat_type = FatType::Fat32;
@@ -231,6 +239,10 @@ impl<'a> Bpb<'a> {
         } else {
             self.total_blocks32()
         }
+    }
+
+    pub fn total_clusters(&self) -> u32 {
+        self.cluster_count
     }
 }
 
@@ -465,9 +477,10 @@ impl Fat16Volume {
             .read(&mut blocks, this_fat_block_num, "read_fat")
             .map_err(Error::DeviceError)?;
         let entry = match new_value {
-            Cluster::INVALID => 0xFFFF,
+            Cluster::INVALID => 0xFFF6,
             Cluster::BAD => 0xFFF7,
             Cluster::EMPTY => 0x0000,
+            Cluster::END_OF_FILE => 0xFFFF,
             _ => new_value.0 as u16,
         };
         LittleEndian::write_u16(
@@ -625,6 +638,106 @@ impl Fat16Volume {
                     func(&entry);
                 }
             }
+        }
+        Ok(())
+    }
+
+    // TODO write some tests
+    /// Finds the next free cluster after the start_cluster and before end_cluster
+    pub(crate) fn find_next_free_cluster<D, T>(
+        &self,
+        controller: &mut Controller<D, T>,
+        start_cluster: Cluster,
+        end_cluster: Cluster,
+    ) -> Result<Cluster, Error<D::Error>>
+    where
+        D: BlockDevice,
+        T: TimeSource,
+    {
+        let mut blocks = [Block::new()];
+        let mut current_cluster = start_cluster + 1;
+        while current_cluster.0 < end_cluster.0 {
+            let fat_offset = current_cluster.0 * 2;
+            let this_fat_block_num = self.lba_start + self.fat_start.offset_bytes(fat_offset);
+            let mut this_fat_ent_offset =
+                usize::try_from(fat_offset % Block::LEN_U32).map_err(|_| Error::ConversionError)?;
+            controller
+                .block_device
+                .read(&mut blocks, this_fat_block_num, "next_cluster")
+                .map_err(Error::DeviceError)?;
+
+            while this_fat_ent_offset < Block::LEN - 2 {
+                let fat_entry = LittleEndian::read_u16(
+                    &blocks[0][this_fat_ent_offset..=this_fat_ent_offset + 1],
+                );
+                if fat_entry == 0 {
+                    return Ok(current_cluster);
+                }
+                this_fat_ent_offset += 2;
+                current_cluster += 1;
+            }
+        }
+        Err(Error::NotEnoughSpace)
+    }
+
+    /// Tries to allocate a cluster
+    pub(crate) fn alloc_cluster<D, T>(
+        &mut self,
+        controller: &mut Controller<D, T>,
+        prev_cluster: Option<Cluster>,
+        hint: Option<Cluster>,
+        total_clusters: u32,
+        zero: bool,
+    ) -> Result<Cluster, Error<D::Error>>
+    where
+        D: BlockDevice,
+        T: TimeSource,
+    {
+        let end_cluster = Cluster(total_clusters + RESERVED_ENTRIES);
+        let start_cluster = match hint {
+            Some(cluster) if cluster.0 < end_cluster.0 => cluster,
+            _ => Cluster(RESERVED_ENTRIES),
+        };
+        let new_cluster = match self.find_next_free_cluster(controller, start_cluster, end_cluster) {
+            Ok(cluster) => cluster,
+            Err(_) if start_cluster.0 > RESERVED_ENTRIES => {
+                self.find_next_free_cluster(controller, Cluster(RESERVED_ENTRIES), end_cluster)?
+            },
+            Err(e) => return Err(e),
+        };
+        self.update_fat(controller, new_cluster, Cluster::END_OF_FILE)?;
+        if let Some(cluster) = prev_cluster {
+            self.update_fat(controller, cluster, new_cluster)?;
+        }
+        if zero {
+            let blocks = [Block::new()];
+            let first_block = self.cluster_to_block(new_cluster);
+            let num_blocks = BlockCount(u32::from(self.blocks_per_cluster));
+            for block in first_block.range(num_blocks) {
+                controller.block_device.write(&blocks, block).map_err(Error::DeviceError)?;
+            }
+        }
+        Ok(new_cluster)
+    }
+
+    /// Tries to allocate a chain of clusters
+    pub(crate) fn alloc_clusters<D, T>(
+        &mut self,
+        controller: &mut Controller<D, T>,
+        mut prev_cluster: Option<Cluster>,
+        hint: Option<Cluster>,
+        mut clusters_to_alloc: u32,
+        total_clusters: u32,
+        zero: bool,
+    ) -> Result<(), Error<D::Error>>
+    where
+        D: BlockDevice,
+        T: TimeSource,
+    {
+        while clusters_to_alloc > 0 {
+            let new_cluster = self.alloc_cluster(controller, prev_cluster, hint, total_clusters, zero)?;
+            prev_cluster = Some(new_cluster);
+            clusters_to_alloc -= 1;
         }
         Ok(())
     }
@@ -842,6 +955,106 @@ impl Fat32Volume {
         }
         Ok(())
     }
+
+    // TODO write some tests
+    /// Finds the next free cluster after the start_cluster and before end_cluster
+    pub(crate) fn find_next_free_cluster<D, T>(
+        &self,
+        controller: &mut Controller<D, T>,
+        start_cluster: Cluster,
+        end_cluster: Cluster,
+    ) -> Result<Cluster, Error<D::Error>>
+    where
+        D: BlockDevice,
+        T: TimeSource,
+    {
+        let mut blocks = [Block::new()];
+        let mut current_cluster = start_cluster + 1;
+        while current_cluster.0 < end_cluster.0 {
+            let fat_offset = current_cluster.0 * 4;
+            let this_fat_block_num = self.lba_start + self.fat_start.offset_bytes(fat_offset);
+            let mut this_fat_ent_offset =
+                usize::try_from(fat_offset % Block::LEN_U32).map_err(|_| Error::ConversionError)?;
+            controller
+                .block_device
+                .read(&mut blocks, this_fat_block_num, "next_cluster")
+                .map_err(Error::DeviceError)?;
+
+            while this_fat_ent_offset < Block::LEN - 4 {
+                let fat_entry = LittleEndian::read_u32(
+                    &blocks[0][this_fat_ent_offset..=this_fat_ent_offset + 3],
+                ) & 0x0FFF_FFFF;
+                if fat_entry == 0 {
+                    return Ok(current_cluster);
+                }
+                this_fat_ent_offset += 4;
+                current_cluster += 1;
+            }
+        }
+        Err(Error::NotEnoughSpace)
+    }
+
+    /// Tries to allocate a cluster
+    pub(crate) fn alloc_cluster<D, T>(
+        &mut self,
+        controller: &mut Controller<D, T>,
+        prev_cluster: Option<Cluster>,
+        hint: Option<Cluster>,
+        total_clusters: u32,
+        zero: bool,
+    ) -> Result<Cluster, Error<D::Error>>
+    where
+        D: BlockDevice,
+        T: TimeSource,
+    {
+        let end_cluster = Cluster(total_clusters + RESERVED_ENTRIES);
+        let start_cluster = match hint {
+            Some(cluster) if cluster.0 < end_cluster.0 => cluster,
+            _ => Cluster(RESERVED_ENTRIES),
+        };
+        let new_cluster = match self.find_next_free_cluster(controller, start_cluster, end_cluster) {
+            Ok(cluster) => cluster,
+            Err(_) if start_cluster.0 > RESERVED_ENTRIES => {
+                self.find_next_free_cluster(controller, Cluster(RESERVED_ENTRIES), end_cluster)?
+            },
+            Err(e) => return Err(e),
+        };
+        self.update_fat(controller, new_cluster, Cluster::END_OF_FILE)?;
+        if let Some(cluster) = prev_cluster {
+            self.update_fat(controller, cluster, new_cluster)?;
+        }
+        if zero {
+            let blocks = [Block::new()];
+            let first_block = self.cluster_to_block(new_cluster);
+            let num_blocks = BlockCount(u32::from(self.blocks_per_cluster));
+            for block in first_block.range(num_blocks) {
+                controller.block_device.write(&blocks, block).map_err(Error::DeviceError)?;
+            }
+        }
+        Ok(new_cluster)
+    }
+
+    /// Tries to allocate a chain of clusters
+    pub(crate) fn alloc_clusters<D, T>(
+        &mut self,
+        controller: &mut Controller<D, T>,
+        mut prev_cluster: Option<Cluster>,
+        hint: Option<Cluster>,
+        mut clusters_to_alloc: u32,
+        total_clusters: u32,
+        zero: bool,
+    ) -> Result<(), Error<D::Error>>
+    where
+        D: BlockDevice,
+        T: TimeSource,
+    {
+        while clusters_to_alloc > 0 {
+            let new_cluster = self.alloc_cluster(controller, prev_cluster, hint, total_clusters, zero)?;
+            prev_cluster = Some(new_cluster);
+            clusters_to_alloc -= 1;
+        }
+        Ok(())
+    }
 }
 
 /// Load the boot parameter block from the start of the given partition and
@@ -884,6 +1097,7 @@ where
                 fat_start: BlockCount(u32::from(bpb.reserved_block_count())),
                 free_clusters_count: None,
                 next_free_cluster: None,
+                cluster_count: bpb.total_clusters(),
             };
             volume.name.data[..].copy_from_slice(bpb.volume_label());
             Ok(VolumeType::Fat16(volume))
@@ -918,6 +1132,7 @@ where
                 first_root_dir_cluster: Cluster(bpb.first_root_dir_cluster()),
                 free_clusters_count: info_sector.free_clusters_count(),
                 next_free_cluster: info_sector.next_free_cluster(),
+                cluster_count: bpb.total_clusters(),
             };
             volume.name.data[..].copy_from_slice(bpb.volume_label());
             Ok(VolumeType::Fat32(volume))
