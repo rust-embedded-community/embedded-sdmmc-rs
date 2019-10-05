@@ -75,6 +75,8 @@ pub struct Fat32Volume {
     pub(crate) next_free_cluster: Option<Cluster>,
     /// Total number of clusters
     pub(crate) cluster_count: u32,
+    /// Block count of the info sector
+    pub(crate) info_location: BlockCount,
 }
 
 impl core::fmt::Debug for VolumeName {
@@ -685,16 +687,14 @@ impl Fat16Volume {
         &mut self,
         controller: &mut Controller<D, T>,
         prev_cluster: Option<Cluster>,
-        hint: Option<Cluster>,
-        total_clusters: u32,
         zero: bool,
     ) -> Result<Cluster, Error<D::Error>>
     where
         D: BlockDevice,
         T: TimeSource,
     {
-        let end_cluster = Cluster(total_clusters + RESERVED_ENTRIES);
-        let start_cluster = match hint {
+        let end_cluster = Cluster(self.cluster_count + RESERVED_ENTRIES);
+        let start_cluster = match self.next_free_cluster {
             Some(cluster) if cluster.0 < end_cluster.0 => cluster,
             _ => Cluster(RESERVED_ENTRIES),
         };
@@ -725,9 +725,7 @@ impl Fat16Volume {
         &mut self,
         controller: &mut Controller<D, T>,
         mut prev_cluster: Option<Cluster>,
-        hint: Option<Cluster>,
         mut clusters_to_alloc: u32,
-        total_clusters: u32,
         zero: bool,
     ) -> Result<(), Error<D::Error>>
     where
@@ -735,7 +733,7 @@ impl Fat16Volume {
         T: TimeSource,
     {
         while clusters_to_alloc > 0 {
-            let new_cluster = self.alloc_cluster(controller, prev_cluster, hint, total_clusters, zero)?;
+            let new_cluster = self.alloc_cluster(controller, prev_cluster, zero)?;
             prev_cluster = Some(new_cluster);
             clusters_to_alloc -= 1;
         }
@@ -869,16 +867,6 @@ impl Fat32Volume {
         self.lba_start + self.first_data_block + first_block_of_cluster
     }
 
-    /// Returns the expected number of free clusters if available or None otherwise.
-    pub(crate) fn free_clusters_count(&self) -> Option<u32> {
-        self.free_clusters_count
-    }
-
-    /// Returns a hint for the next free cluster or None if not available.
-    pub(crate) fn next_free_cluster(&self) -> Option<Cluster> {
-        self.next_free_cluster
-    }
-
     /// Get an entry from the given directory
     pub(crate) fn find_directory_entry<D, T>(
         &self,
@@ -999,16 +987,14 @@ impl Fat32Volume {
         &mut self,
         controller: &mut Controller<D, T>,
         prev_cluster: Option<Cluster>,
-        hint: Option<Cluster>,
-        total_clusters: u32,
         zero: bool,
     ) -> Result<Cluster, Error<D::Error>>
     where
         D: BlockDevice,
         T: TimeSource,
     {
-        let end_cluster = Cluster(total_clusters + RESERVED_ENTRIES);
-        let start_cluster = match hint {
+        let end_cluster = Cluster(self.cluster_count + RESERVED_ENTRIES);
+        let start_cluster = match self.next_free_cluster {
             Some(cluster) if cluster.0 < end_cluster.0 => cluster,
             _ => Cluster(RESERVED_ENTRIES),
         };
@@ -1019,10 +1005,14 @@ impl Fat32Volume {
             },
             Err(e) => return Err(e),
         };
-        self.update_fat(controller, new_cluster, Cluster::END_OF_FILE)?;
         if let Some(cluster) = prev_cluster {
             self.update_fat(controller, cluster, new_cluster)?;
         }
+        self.update_fat(controller, new_cluster, Cluster::END_OF_FILE)?;
+        self.next_free_cluster = Some(new_cluster + 1);
+        if let Some(ref mut number_free_cluster) = self.free_clusters_count {
+            *number_free_cluster -= 1;
+        };
         if zero {
             let blocks = [Block::new()];
             let first_block = self.cluster_to_block(new_cluster);
@@ -1039,9 +1029,7 @@ impl Fat32Volume {
         &mut self,
         controller: &mut Controller<D, T>,
         mut prev_cluster: Option<Cluster>,
-        hint: Option<Cluster>,
         mut clusters_to_alloc: u32,
-        total_clusters: u32,
         zero: bool,
     ) -> Result<(), Error<D::Error>>
     where
@@ -1049,7 +1037,7 @@ impl Fat32Volume {
         T: TimeSource,
     {
         while clusters_to_alloc > 0 {
-            let new_cluster = self.alloc_cluster(controller, prev_cluster, hint, total_clusters, zero)?;
+            let new_cluster = self.alloc_cluster(controller, prev_cluster, zero)?;
             prev_cluster = Some(new_cluster);
             clusters_to_alloc -= 1;
         }
@@ -1133,6 +1121,7 @@ where
                 free_clusters_count: info_sector.free_clusters_count(),
                 next_free_cluster: info_sector.next_free_cluster(),
                 cluster_count: bpb.total_clusters(),
+                info_location,
             };
             volume.name.data[..].copy_from_slice(bpb.volume_label());
             Ok(VolumeType::Fat32(volume))

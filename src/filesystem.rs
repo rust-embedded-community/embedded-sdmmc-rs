@@ -19,6 +19,9 @@
 
 use crate::blockdevice::BlockIdx;
 
+/// Maximum file size supported by this library
+pub const MAX_FILE_SIZE: u32 = core::u32::MAX;
+
 /// Things that impl this can tell you the current time.
 pub trait TimeSource {
     /// Returns the current time
@@ -636,6 +639,11 @@ impl File {
     /// Amount of file left to read.
     pub fn left(&self) -> u32 {
         self.length - self.current_offset
+    }
+
+    pub(crate) fn update_length(&mut self, new: u32) {
+        self.length = new;
+        self.entry.size = new;
     }
 }
 

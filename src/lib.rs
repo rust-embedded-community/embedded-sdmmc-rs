@@ -26,7 +26,7 @@ pub use crate::blockdevice::{Block, BlockCount, BlockDevice, BlockIdx};
 pub use crate::fat::{Fat16Volume, Fat32Volume, FatType};
 pub use crate::filesystem::{
     Attributes, Cluster, DirEntry, Directory, File, FilenameError, Mode, ShortFileName, TimeSource,
-    Timestamp,
+    Timestamp, MAX_FILE_SIZE,
 };
 pub use crate::sdmmc::Error as SdMmcError;
 pub use crate::sdmmc::SdMmcSpi;
@@ -73,6 +73,8 @@ where
     ConversionError,
     /// The device does not have enough space for the operation
     NotEnoughSpace,
+    /// Cluster was not properly allocated by the library
+    AllocationError,
 }
 
 /// We have to track what directories are open to prevent users from modifying
@@ -447,6 +449,64 @@ where
         Ok(read)
     }
 
+    /// Write to a open file.
+    pub fn write(
+        &mut self,
+        volume: &mut Volume,
+        file: &mut File,
+        buffer: &mut [u8],
+    ) -> Result<usize, Error<D::Error>> {
+        // TODO check files attributes
+        let bytes_until_max = usize::try_from(MAX_FILE_SIZE - file.current_offset).map_err(|_| Error::ConversionError)?;
+        let bytes_to_write = core::cmp::min(buffer.len(), bytes_until_max);
+        let mut written = 0;
+
+        while written < bytes_to_write {
+            let (block_idx, block_offset, block_avail, resume_from) = match self.find_data_on_disk(volume, file.current_cluster, file.current_offset) {
+                Ok(vars) => vars,
+                Err(Error::EndOfFile) => {
+                    match &mut volume.volume_type {
+                        VolumeType::Fat16(ref mut fat) => {
+                            match fat.alloc_cluster(self, Some(file.current_cluster.1), true) {
+                                Err(_) => return Ok(written),
+                                _ => (),
+                            }
+                            self.find_data_on_disk(volume, file.current_cluster, file.current_offset).map_err(|_| Error::AllocationError)?
+                        },
+                        VolumeType::Fat32(ref mut fat) => {
+                            match fat.alloc_cluster(self, Some(file.current_cluster.1), true) {
+                                Err(_) => return Ok(written),
+                                _ => (),
+                            }
+                            self.find_data_on_disk(volume, file.current_cluster, file.current_offset).map_err(|_| Error::AllocationError)?
+                        },
+                    }
+                },
+                Err(e) => return Err(e),
+            };
+            let mut blocks = [Block::new()];
+            self.block_device.read(&mut blocks, block_idx, "read").map_err(Error::DeviceError)?;
+            let block = &mut blocks[0];
+            let to_copy = core::cmp::min(block_avail, bytes_to_write);
+            block[block_offset..block_offset + to_copy].copy_from_slice(&buffer[written..written + to_copy]);
+            self.block_device.write(&mut blocks, block_idx).map_err(Error::DeviceError)?;
+
+            written += to_copy;
+            file.current_cluster = resume_from;
+            let to_copy = i32::try_from(to_copy).map_err(|_| Error::ConversionError)?;
+            file.update_length(file.length + (to_copy as u32));
+            file.seek_from_current(to_copy).unwrap();
+            // TODO update entry Timestamps
+            let fat_type = match &volume.volume_type {
+                VolumeType::Fat16(_) => FatType::Fat16,
+                VolumeType::Fat32(_) => FatType::Fat32,
+            };
+            self.write_entry_to_disk(fat_type, &file.entry)?;
+            // TODO update infoSector
+        }
+        Ok(written)
+    }
+
     /// Close a file with the given full path.
     pub fn close_file(&mut self, volume: &Volume, file: File) -> Result<(), Error<D::Error>> {
         let target = (volume.idx, file.starting_cluster);
@@ -499,7 +559,7 @@ where
     fn write_entry_to_disk(
         &mut self,
         fat_type: FatType,
-        entry: DirEntry,
+        entry: &DirEntry,
     ) -> Result<(), Error<D::Error>> {
         let mut blocks = [Block::new()];
         self.block_device
@@ -824,6 +884,7 @@ mod tests {
                     free_clusters_count: None,
                     next_free_cluster: None,
                     cluster_count: 965788,
+                    info_location: BlockCount(1),
                 })
             }
         );
