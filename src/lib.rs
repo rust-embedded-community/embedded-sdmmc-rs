@@ -454,42 +454,57 @@ where
         &mut self,
         volume: &mut Volume,
         file: &mut File,
-        buffer: &mut [u8],
+        buffer: &[u8],
     ) -> Result<usize, Error<D::Error>> {
         // TODO check files attributes
-        let bytes_until_max = usize::try_from(MAX_FILE_SIZE - file.current_offset).map_err(|_| Error::ConversionError)?;
+        let bytes_until_max = usize::try_from(MAX_FILE_SIZE - file.current_offset)
+            .map_err(|_| Error::ConversionError)?;
         let bytes_to_write = core::cmp::min(buffer.len(), bytes_until_max);
         let mut written = 0;
 
         while written < bytes_to_write {
-            let (block_idx, block_offset, block_avail, resume_from) = match self.find_data_on_disk(volume, file.current_cluster, file.current_offset) {
-                Ok(vars) => vars,
-                Err(Error::EndOfFile) => {
-                    match &mut volume.volume_type {
+            let (block_idx, block_offset, block_avail, resume_from) =
+                match self.find_data_on_disk(volume, file.current_cluster, file.current_offset) {
+                    Ok(vars) => vars,
+                    Err(Error::EndOfFile) => match &mut volume.volume_type {
                         VolumeType::Fat16(ref mut fat) => {
                             match fat.alloc_cluster(self, Some(file.current_cluster.1), true) {
                                 Err(_) => return Ok(written),
                                 _ => (),
                             }
-                            self.find_data_on_disk(volume, file.current_cluster, file.current_offset).map_err(|_| Error::AllocationError)?
-                        },
+                            self.find_data_on_disk(
+                                volume,
+                                file.current_cluster,
+                                file.current_offset,
+                            )
+                            .map_err(|_| Error::AllocationError)?
+                        }
                         VolumeType::Fat32(ref mut fat) => {
                             match fat.alloc_cluster(self, Some(file.current_cluster.1), true) {
                                 Err(_) => return Ok(written),
                                 _ => (),
                             }
-                            self.find_data_on_disk(volume, file.current_cluster, file.current_offset).map_err(|_| Error::AllocationError)?
-                        },
-                    }
-                },
-                Err(e) => return Err(e),
-            };
+                            self.find_data_on_disk(
+                                volume,
+                                file.current_cluster,
+                                file.current_offset,
+                            )
+                            .map_err(|_| Error::AllocationError)?
+                        }
+                    },
+                    Err(e) => return Err(e),
+                };
             let mut blocks = [Block::new()];
-            self.block_device.read(&mut blocks, block_idx, "read").map_err(Error::DeviceError)?;
+            self.block_device
+                .read(&mut blocks, block_idx, "read")
+                .map_err(Error::DeviceError)?;
             let block = &mut blocks[0];
-            let to_copy = core::cmp::min(block_avail, bytes_to_write);
-            block[block_offset..block_offset + to_copy].copy_from_slice(&buffer[written..written + to_copy]);
-            self.block_device.write(&mut blocks, block_idx).map_err(Error::DeviceError)?;
+            let to_copy = core::cmp::min(block_avail, bytes_to_write - written);
+            block[block_offset..block_offset + to_copy]
+                .copy_from_slice(&buffer[written..written + to_copy]);
+            self.block_device
+                .write(&mut blocks, block_idx)
+                .map_err(Error::DeviceError)?;
 
             written += to_copy;
             file.current_cluster = resume_from;

@@ -499,7 +499,7 @@ impl Fat16Volume {
     /// Look in the FAT to see which cluster comes next.
     pub(crate) fn next_cluster<D, T>(
         &self,
-        controller: &mut Controller<D, T>,
+        controller: &Controller<D, T>,
         cluster: Cluster,
     ) -> Result<Cluster, Error<D::Error>>
     where
@@ -565,9 +565,13 @@ impl Fat16Volume {
         T: TimeSource,
     {
         let match_name = ShortFileName::create_from_str(name).map_err(Error::FilenameError)?;
-        let first_dir_block_num = self.cluster_to_block(dir.cluster);
+        let mut first_dir_block_num = match dir.cluster {
+            Cluster::ROOT_DIR => self.lba_start + self.first_root_dir_block,
+            _ => self.cluster_to_block(dir.cluster),
+        };
+        let mut current_cluster = Some(dir.cluster);
         let mut blocks = [Block::new()];
-        // TODO track actual directory size
+
         let dir_size = match dir.cluster {
             Cluster::ROOT_DIR => BlockCount(
                 ((self.root_entries_count as u32 * 32) + (Block::LEN as u32 - 1))
@@ -575,24 +579,37 @@ impl Fat16Volume {
             ),
             _ => BlockCount(u32::from(self.blocks_per_cluster)),
         };
-        for block in first_dir_block_num.range(dir_size) {
-            controller
-                .block_device
-                .read(&mut blocks, block, "read_dir")
-                .map_err(Error::DeviceError)?;
-            for entry in 0..Block::LEN / OnDiskDirEntry::LEN {
-                let start = entry * OnDiskDirEntry::LEN;
-                let end = (entry + 1) * OnDiskDirEntry::LEN;
-                let dir_entry = OnDiskDirEntry::new(&blocks[0][start..end]);
-                if dir_entry.is_end() {
-                    // Can quit early
-                    return Err(Error::FileNotFound);
-                } else if dir_entry.matches(&match_name) {
-                    // Found it
-                    // Safe, since Block::LEN always fits on a u32
-                    let start = u32::try_from(start).unwrap();
-                    return Ok(dir_entry.get_entry(FatType::Fat16, block, start));
+        while let Some(cluster) = current_cluster {
+            for block in first_dir_block_num.range(dir_size) {
+                controller
+                    .block_device
+                    .read(&mut blocks, block, "read_dir")
+                    .map_err(Error::DeviceError)?;
+                for entry in 0..Block::LEN / OnDiskDirEntry::LEN {
+                    let start = entry * OnDiskDirEntry::LEN;
+                    let end = (entry + 1) * OnDiskDirEntry::LEN;
+                    let dir_entry = OnDiskDirEntry::new(&blocks[0][start..end]);
+                    if dir_entry.is_end() {
+                        // Can quit early
+                        return Err(Error::FileNotFound);
+                    } else if dir_entry.matches(&match_name) {
+                        // Found it
+                        // Safe, since Block::LEN always fits on a u32
+                        let start = u32::try_from(start).unwrap();
+                        return Ok(dir_entry.get_entry(FatType::Fat16, block, start));
+                    }
                 }
+            }
+            if cluster != Cluster::ROOT_DIR {
+                current_cluster = match self.next_cluster(controller, cluster) {
+                    Ok(n) => {
+                        first_dir_block_num = self.cluster_to_block(n);
+                        Some(n)
+                    },
+                    _ => None,
+                };
+            } else {
+                current_cluster = None;
             }
         }
         Err(Error::FileNotFound)
@@ -611,7 +628,11 @@ impl Fat16Volume {
         D: BlockDevice,
         T: TimeSource,
     {
-        let first_dir_block_num = self.cluster_to_block(dir.cluster);
+        let mut first_dir_block_num = match dir.cluster {
+            Cluster::ROOT_DIR => self.lba_start + self.first_root_dir_block,
+            _ => self.cluster_to_block(dir.cluster),
+        };
+        let mut current_cluster = Some(dir.cluster);
         // TODO track actual directory size
         let dir_size = match dir.cluster {
             Cluster::ROOT_DIR => BlockCount(
@@ -621,24 +642,37 @@ impl Fat16Volume {
             _ => BlockCount(u32::from(self.blocks_per_cluster)),
         };
         let mut blocks = [Block::new()];
-        for block in first_dir_block_num.range(dir_size) {
-            controller
-                .block_device
-                .read(&mut blocks, block, "read_dir")
-                .map_err(Error::DeviceError)?;
-            for entry in 0..Block::LEN / OnDiskDirEntry::LEN {
-                let start = entry * OnDiskDirEntry::LEN;
-                let end = (entry + 1) * OnDiskDirEntry::LEN;
-                let dir_entry = OnDiskDirEntry::new(&blocks[0][start..end]);
-                if dir_entry.is_end() {
-                    // Can quit early
-                    return Ok(());
-                } else if dir_entry.is_valid() && !dir_entry.is_lfn() {
-                    // Safe, since Block::LEN always fits on a u32
-                    let start = u32::try_from(start).unwrap();
-                    let entry = dir_entry.get_entry(FatType::Fat16, block, start);
-                    func(&entry);
+        while let Some(cluster) = current_cluster {
+            for block in first_dir_block_num.range(dir_size) {
+                controller
+                    .block_device
+                    .read(&mut blocks, block, "read_dir")
+                    .map_err(Error::DeviceError)?;
+                for entry in 0..Block::LEN / OnDiskDirEntry::LEN {
+                    let start = entry * OnDiskDirEntry::LEN;
+                    let end = (entry + 1) * OnDiskDirEntry::LEN;
+                    let dir_entry = OnDiskDirEntry::new(&blocks[0][start..end]);
+                    if dir_entry.is_end() {
+                        // Can quit early
+                        return Ok(());
+                    } else if dir_entry.is_valid() && !dir_entry.is_lfn() {
+                        // Safe, since Block::LEN always fits on a u32
+                        let start = u32::try_from(start).unwrap();
+                        let entry = dir_entry.get_entry(FatType::Fat16, block, start);
+                        func(&entry);
+                    }
                 }
+            }
+            if cluster != Cluster::ROOT_DIR {
+                current_cluster = match self.next_cluster(controller, cluster) {
+                    Ok(n) => {
+                        first_dir_block_num = self.cluster_to_block(n);
+                        Some(n)
+                    },
+                    _ => None,
+                };
+            } else {
+                current_cluster = None;
             }
         }
         Ok(())
@@ -698,23 +732,31 @@ impl Fat16Volume {
             Some(cluster) if cluster.0 < end_cluster.0 => cluster,
             _ => Cluster(RESERVED_ENTRIES),
         };
-        let new_cluster = match self.find_next_free_cluster(controller, start_cluster, end_cluster) {
+        let new_cluster = match self.find_next_free_cluster(controller, start_cluster, end_cluster)
+        {
             Ok(cluster) => cluster,
             Err(_) if start_cluster.0 > RESERVED_ENTRIES => {
                 self.find_next_free_cluster(controller, Cluster(RESERVED_ENTRIES), end_cluster)?
-            },
+            }
             Err(e) => return Err(e),
         };
         self.update_fat(controller, new_cluster, Cluster::END_OF_FILE)?;
         if let Some(cluster) = prev_cluster {
             self.update_fat(controller, cluster, new_cluster)?;
         }
+        self.next_free_cluster = Some(new_cluster + 1);
+        if let Some(ref mut number_free_cluster) = self.free_clusters_count {
+            *number_free_cluster -= 1;
+        };
         if zero {
             let blocks = [Block::new()];
             let first_block = self.cluster_to_block(new_cluster);
             let num_blocks = BlockCount(u32::from(self.blocks_per_cluster));
             for block in first_block.range(num_blocks) {
-                controller.block_device.write(&blocks, block).map_err(Error::DeviceError)?;
+                controller
+                    .block_device
+                    .write(&blocks, block)
+                    .map_err(Error::DeviceError)?;
             }
         }
         Ok(new_cluster)
@@ -810,7 +852,7 @@ impl Fat32Volume {
     /// Look in the FAT to see which cluster comes next.
     pub(crate) fn next_cluster<D, T>(
         &self,
-        controller: &mut Controller<D, T>,
+        controller: &Controller<D, T>,
         cluster: Cluster,
     ) -> Result<Cluster, Error<D::Error>>
     where
@@ -879,29 +921,38 @@ impl Fat32Volume {
         T: TimeSource,
     {
         let match_name = ShortFileName::create_from_str(name).map_err(Error::FilenameError)?;
-        let first_dir_block_num = self.cluster_to_block(dir.cluster);
+        let mut current_cluster = match dir.cluster {
+            Cluster::ROOT_DIR => Some(self.first_root_dir_cluster),
+            _ => Some(dir.cluster),
+        };
         let mut blocks = [Block::new()];
-        // TODO walk FAT to find directory size
-        for block in first_dir_block_num.range(BlockCount(u32::from(self.blocks_per_cluster))) {
-            controller
-                .block_device
-                .read(&mut blocks, block, "read_dir")
-                .map_err(Error::DeviceError)?;
-            for entry in 0..Block::LEN / OnDiskDirEntry::LEN {
-                let start = entry * OnDiskDirEntry::LEN;
-                let end = (entry + 1) * OnDiskDirEntry::LEN;
-                let dir_entry = OnDiskDirEntry::new(&blocks[0][start..end]);
-                if dir_entry.is_end() {
-                    // Can quit early
-                    return Err(Error::FileNotFound);
-                } else if dir_entry.matches(&match_name) {
-                    // Found it
-                    // Safe, since Block::LEN always fits on a u32
-                    let start = u32::try_from(start).unwrap();
-                    return Ok(dir_entry.get_entry(FatType::Fat16, block, start));
+        while let Some(cluster) = current_cluster {
+            let block_idx = self.cluster_to_block(cluster);
+            for block in block_idx.range(BlockCount(u32::from(self.blocks_per_cluster))) {
+                controller
+                    .block_device
+                    .read(&mut blocks, block, "read_dir")
+                    .map_err(Error::DeviceError)?;
+                for entry in 0..Block::LEN / OnDiskDirEntry::LEN {
+                    let start = entry * OnDiskDirEntry::LEN;
+                    let end = (entry + 1) * OnDiskDirEntry::LEN;
+                    let dir_entry = OnDiskDirEntry::new(&blocks[0][start..end]);
+                    if dir_entry.is_end() {
+                        // Can quit early
+                        return Err(Error::FileNotFound);
+                    } else if dir_entry.matches(&match_name) {
+                        // Found it
+                        // Safe, since Block::LEN always fits on a u32
+                        let start = u32::try_from(start).unwrap();
+                        return Ok(dir_entry.get_entry(FatType::Fat16, block, start));
+                    }
                 }
             }
-        }
+            current_cluster = match self.next_cluster(controller, cluster) {
+                Ok(n) => Some(n),
+                _ => None,
+            }
+        };
         Err(Error::FileNotFound)
     }
 
@@ -918,29 +969,38 @@ impl Fat32Volume {
         D: BlockDevice,
         T: TimeSource,
     {
-        let first_dir_block_num = self.cluster_to_block(dir.cluster);
+        let mut current_cluster = match dir.cluster {
+            Cluster::ROOT_DIR => Some(self.first_root_dir_cluster),
+            _ => Some(dir.cluster),
+        };
         let mut blocks = [Block::new()];
-        // TODO track actual directory size
-        for block in first_dir_block_num.range(BlockCount(u32::from(self.blocks_per_cluster))) {
-            controller
-                .block_device
-                .read(&mut blocks, block, "read_dir")
-                .map_err(Error::DeviceError)?;
-            for entry in 0..Block::LEN / OnDiskDirEntry::LEN {
-                let start = entry * OnDiskDirEntry::LEN;
-                let end = (entry + 1) * OnDiskDirEntry::LEN;
-                let dir_entry = OnDiskDirEntry::new(&blocks[0][start..end]);
-                if dir_entry.is_end() {
-                    // Can quit early
-                    return Ok(());
-                } else if dir_entry.is_valid() && !dir_entry.is_lfn() {
-                    // Safe, since Block::LEN always fits on a u32
-                    let start = u32::try_from(start).unwrap();
-                    let entry = dir_entry.get_entry(FatType::Fat16, block, start);
-                    func(&entry);
+        while let Some(cluster) = current_cluster {
+            let block_idx = self.cluster_to_block(cluster);
+            for block in block_idx.range(BlockCount(u32::from(self.blocks_per_cluster))) {
+                controller
+                    .block_device
+                    .read(&mut blocks, block, "read_dir")
+                    .map_err(Error::DeviceError)?;
+                for entry in 0..Block::LEN / OnDiskDirEntry::LEN {
+                    let start = entry * OnDiskDirEntry::LEN;
+                    let end = (entry + 1) * OnDiskDirEntry::LEN;
+                    let dir_entry = OnDiskDirEntry::new(&blocks[0][start..end]);
+                    if dir_entry.is_end() {
+                        // Can quit early
+                        return Ok(());
+                    } else if dir_entry.is_valid() && !dir_entry.is_lfn() {
+                        // Safe, since Block::LEN always fits on a u32
+                        let start = u32::try_from(start).unwrap();
+                        let entry = dir_entry.get_entry(FatType::Fat16, block, start);
+                        func(&entry);
+                    }
                 }
             }
-        }
+            current_cluster = match self.next_cluster(controller, cluster) {
+                Ok(n) => Some(n),
+                _ => None,
+            };
+        };
         Ok(())
     }
 
@@ -998,11 +1058,12 @@ impl Fat32Volume {
             Some(cluster) if cluster.0 < end_cluster.0 => cluster,
             _ => Cluster(RESERVED_ENTRIES),
         };
-        let new_cluster = match self.find_next_free_cluster(controller, start_cluster, end_cluster) {
+        let new_cluster = match self.find_next_free_cluster(controller, start_cluster, end_cluster)
+        {
             Ok(cluster) => cluster,
             Err(_) if start_cluster.0 > RESERVED_ENTRIES => {
                 self.find_next_free_cluster(controller, Cluster(RESERVED_ENTRIES), end_cluster)?
-            },
+            }
             Err(e) => return Err(e),
         };
         if let Some(cluster) = prev_cluster {
@@ -1018,7 +1079,10 @@ impl Fat32Volume {
             let first_block = self.cluster_to_block(new_cluster);
             let num_blocks = BlockCount(u32::from(self.blocks_per_cluster));
             for block in first_block.range(num_blocks) {
-                controller.block_device.write(&blocks, block).map_err(Error::DeviceError)?;
+                controller
+                    .block_device
+                    .write(&blocks, block)
+                    .map_err(Error::DeviceError)?;
             }
         }
         Ok(new_cluster)
