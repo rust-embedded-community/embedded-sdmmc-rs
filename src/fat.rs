@@ -605,7 +605,7 @@ impl Fat16Volume {
                     Ok(n) => {
                         first_dir_block_num = self.cluster_to_block(n);
                         Some(n)
-                    },
+                    }
                     _ => None,
                 };
             } else {
@@ -668,7 +668,7 @@ impl Fat16Volume {
                     Ok(n) => {
                         first_dir_block_num = self.cluster_to_block(n);
                         Some(n)
-                    },
+                    }
                     _ => None,
                 };
             } else {
@@ -781,6 +781,48 @@ impl Fat16Volume {
         }
         Ok(())
     }
+
+    pub(crate) fn truncate_cluster_chain<D, T>(
+        &mut self,
+        controller: &mut Controller<D, T>,
+        cluster: Cluster,
+    ) -> Result<(), Error<D::Error>>
+    where
+        D: BlockDevice,
+        T: TimeSource,
+    {
+        let mut next = match self.next_cluster(controller, cluster) {
+            Ok(n) => n,
+            Err(Error::EndOfFile) => return Ok(()),
+            Err(e) => return Err(e),
+        };
+        if let Some(ref mut next_free_cluster) = self.next_free_cluster {
+            if next_free_cluster.0 > next.0 {
+                *next_free_cluster = next;
+            }
+        } else {
+            self.next_free_cluster = Some(next);
+        }
+        self.update_fat(controller, cluster, Cluster::END_OF_FILE)?;
+
+        loop {
+            match self.next_cluster(controller, next) {
+                Ok(n) => {
+                    self.update_fat(controller, next, Cluster::EMPTY)?;
+                    next = n;
+                }
+                Err(Error::EndOfFile) => {
+                    self.update_fat(controller, next, Cluster::EMPTY)?;
+                    break;
+                }
+                Err(e) => return Err(e),
+            }
+            if let Some(ref mut number_free_cluster) = self.free_clusters_count {
+                *number_free_cluster += 1;
+            };
+        }
+        Ok(())
+    }
 }
 
 impl Fat32Volume {
@@ -830,7 +872,7 @@ impl Fat32Volume {
             .read(&mut blocks, this_fat_block_num, "read_fat")
             .map_err(Error::DeviceError)?;
         let entry = match new_value {
-            Cluster::INVALID => 0x0FFF_FFFF,
+            Cluster::INVALID => 0x0FFF_FFF6,
             Cluster::BAD => 0x0FFF_FFF7,
             Cluster::EMPTY => 0x0000_0000,
             _ => new_value.0,
@@ -873,7 +915,7 @@ impl Fat32Volume {
         match fat_entry {
             0x0000_0000 => {
                 // Jumped to free space
-                Err(Error::BadCluster)
+                Err(Error::JumpedFree)
             }
             0x0FFF_FFF7 => {
                 // Bad cluster
@@ -952,7 +994,7 @@ impl Fat32Volume {
                 Ok(n) => Some(n),
                 _ => None,
             }
-        };
+        }
         Err(Error::FileNotFound)
     }
 
@@ -1000,7 +1042,7 @@ impl Fat32Volume {
                 Ok(n) => Some(n),
                 _ => None,
             };
-        };
+        }
         Ok(())
     }
 
@@ -1104,6 +1146,48 @@ impl Fat32Volume {
             let new_cluster = self.alloc_cluster(controller, prev_cluster, zero)?;
             prev_cluster = Some(new_cluster);
             clusters_to_alloc -= 1;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn truncate_cluster_chain<D, T>(
+        &mut self,
+        controller: &mut Controller<D, T>,
+        cluster: Cluster,
+    ) -> Result<(), Error<D::Error>>
+    where
+        D: BlockDevice,
+        T: TimeSource,
+    {
+        let mut next = match self.next_cluster(controller, cluster) {
+            Ok(n) => n,
+            Err(Error::EndOfFile) => return Ok(()),
+            Err(e) => return Err(e),
+        };
+        if let Some(ref mut next_free_cluster) = self.next_free_cluster {
+            if next_free_cluster.0 > next.0 {
+                *next_free_cluster = next;
+            }
+        } else {
+            self.next_free_cluster = Some(next);
+        }
+        self.update_fat(controller, cluster, Cluster::END_OF_FILE)?;
+
+        loop {
+            match self.next_cluster(controller, next) {
+                Ok(n) => {
+                    self.update_fat(controller, next, Cluster::EMPTY)?;
+                    next = n;
+                }
+                Err(Error::EndOfFile) => {
+                    self.update_fat(controller, next, Cluster::EMPTY)?;
+                    break;
+                }
+                Err(e) => return Err(e),
+            }
+            if let Some(ref mut number_free_cluster) = self.free_clusters_count {
+                *number_free_cluster += 1;
+            };
         }
         Ok(())
     }

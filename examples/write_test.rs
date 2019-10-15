@@ -1,11 +1,4 @@
 //! # Tests the Embedded SDMMC Library
-//!
-//! This example should be given a file or block device as the first and only
-//! argument. It will attempt to mount all four possible primary MBR
-//! partitions, one at a time, prints the root directory and will print a file
-//! called "README.TXT". It will then list the contents of the "TEST"
-//! sub-directory.
-//!
 //! ```bash
 //! $ cargo run --example test_mount -- /dev/mmcblk0
 //! $ cargo run --example test_mount -- /dev/sda
@@ -129,12 +122,6 @@ fn main() {
     println!("volume {}: {:#?}", 0, volume);
     if let Ok(mut volume) = volume {
         let root_dir = controller.open_root_dir(&volume).unwrap();
-        println!("\tListing root directory:");
-        controller
-            .iterate_dir(&volume, &root_dir, |x| {
-                println!("\t\tFound: {:?}", x);
-            })
-            .unwrap();
         println!("\tFinding {}...", FILE_TO_PRINT);
         println!(
             "\tFound {}?: {:?}",
@@ -142,7 +129,7 @@ fn main() {
             controller.find_directory_entry(&volume, &root_dir, FILE_TO_PRINT)
         );
         let mut f = controller
-            .open_file_in_dir(&volume, &root_dir, FILE_TO_PRINT, Mode::ReadOnly)
+            .open_file_in_dir(&mut volume, &root_dir, FILE_TO_PRINT, Mode::ReadOnly)
             .unwrap();
         println!("FILE STARTS:");
         while !f.eof() {
@@ -155,6 +142,14 @@ fn main() {
                 print!("{}", *b as char);
             }
         }
+        println!("EOF");
+        controller.close_file(&volume, f).unwrap();
+
+        let mut f = controller
+            .open_file_in_dir(&mut volume, &root_dir, FILE_TO_PRINT, Mode::ReadWriteAppend)
+            .unwrap();
+
+        let buffer1 = b"\nFile Appended\n";
         let mut buffer: Vec<u8> = vec![];
         for _ in 0..64 {
             for _ in 0..15 {
@@ -162,8 +157,72 @@ fn main() {
             }
             buffer.push(b'\n');
         }
+        let num_written1 = controller.write(&mut volume, &mut f, &buffer1[..]).unwrap();
         let num_written = controller.write(&mut volume, &mut f, &buffer[..]).unwrap();
+        println!(
+            "\nNumber of bytes written: {}\n",
+            num_written + num_written1
+        );
+        controller.close_file(&volume, f).unwrap();
+
+        println!("\tFinding {}...", FILE_TO_PRINT);
+        println!(
+            "\tFound {}?: {:?}",
+            FILE_TO_PRINT,
+            controller.find_directory_entry(&volume, &root_dir, FILE_TO_PRINT)
+        );
+        let mut f = controller
+            .open_file_in_dir(&mut volume, &root_dir, FILE_TO_PRINT, Mode::ReadOnly)
+            .unwrap();
+        println!("FILE STARTS:");
+        while !f.eof() {
+            let mut buffer = [0u8; 32];
+            let num_read = controller.read(&volume, &mut f, &mut buffer).unwrap();
+            for b in &buffer[0..num_read] {
+                if *b == 10 {
+                    print!("\\n");
+                }
+                print!("{}", *b as char);
+            }
+        }
         println!("EOF");
-        println!("{}", num_written);
+        controller.close_file(&volume, f).unwrap();
+
+        let mut f = controller
+            .open_file_in_dir(
+                &mut volume,
+                &root_dir,
+                FILE_TO_PRINT,
+                Mode::ReadWriteTruncate,
+            )
+            .unwrap();
+
+        let buffer = b"Hello\n";
+        let num_written = controller.write(&mut volume, &mut f, &buffer[..]).unwrap();
+        println!("\nNumber of bytes written: {}\n", num_written);
+        controller.close_file(&volume, f).unwrap();
+
+        println!("\tFinding {}...", FILE_TO_PRINT);
+        println!(
+            "\tFound {}?: {:?}",
+            FILE_TO_PRINT,
+            controller.find_directory_entry(&volume, &root_dir, FILE_TO_PRINT)
+        );
+        let mut f = controller
+            .open_file_in_dir(&mut volume, &root_dir, FILE_TO_PRINT, Mode::ReadOnly)
+            .unwrap();
+        println!("FILE STARTS:");
+        while !f.eof() {
+            let mut buffer = [0u8; 32];
+            let num_read = controller.read(&volume, &mut f, &mut buffer).unwrap();
+            for b in &buffer[0..num_read] {
+                if *b == 10 {
+                    print!("\\n");
+                }
+                print!("{}", *b as char);
+            }
+        }
+        println!("EOF");
+        controller.close_file(&volume, f).unwrap();
     }
 }

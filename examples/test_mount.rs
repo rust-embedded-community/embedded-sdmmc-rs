@@ -124,7 +124,7 @@ fn main() {
     for i in 0..=3 {
         let volume = controller.get_volume(VolumeIdx(i));
         println!("volume {}: {:#?}", i, volume);
-        if let Ok(volume) = volume {
+        if let Ok(mut volume) = volume {
             let root_dir = controller.open_root_dir(&volume).unwrap();
             println!("\tListing root directory:");
             controller
@@ -139,7 +139,7 @@ fn main() {
                 controller.find_directory_entry(&volume, &root_dir, FILE_TO_PRINT)
             );
             let mut f = controller
-                .open_file_in_dir(&volume, &root_dir, FILE_TO_PRINT, Mode::ReadOnly)
+                .open_file_in_dir(&mut volume, &root_dir, FILE_TO_PRINT, Mode::ReadOnly)
                 .unwrap();
             println!("FILE STARTS:");
             while !f.eof() {
@@ -155,7 +155,7 @@ fn main() {
             println!("EOF");
             // Can't open file twice
             assert!(controller
-                .open_file_in_dir(&volume, &root_dir, FILE_TO_PRINT, Mode::ReadOnly)
+                .open_file_in_dir(&mut volume, &root_dir, FILE_TO_PRINT, Mode::ReadOnly)
                 .is_err());
             controller.close_file(&volume, f).unwrap();
 
@@ -174,7 +174,7 @@ fn main() {
             // Checksum example file. We just sum the bytes, as a quick and dirty checksum.
             // We also read in a weird block size, just to exercise the offset calculation code.
             let mut f = controller
-                .open_file_in_dir(&volume, &root_dir, FILE_TO_CHECKSUM, Mode::ReadOnly)
+                .open_file_in_dir(&mut volume, &root_dir, FILE_TO_CHECKSUM, Mode::ReadOnly)
                 .unwrap();
             println!("Checksuming {} bytes of {}", f.length(), FILE_TO_CHECKSUM);
             let mut csum = 0u32;

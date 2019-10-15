@@ -75,6 +75,8 @@ where
     NotEnoughSpace,
     /// Cluster was not properly allocated by the library
     AllocationError,
+    /// Jumped to free space during fat traversing
+    JumpedFree,
 }
 
 /// We have to track what directories are open to prevent users from modifying
@@ -373,15 +375,11 @@ where
     /// Open a file with the given full path. A file can only be opened once.
     pub fn open_file_in_dir(
         &mut self,
-        volume: &Volume,
+        volume: &mut Volume,
         dir: &Directory,
         name: &str,
         mode: Mode,
     ) -> Result<File, Error<D::Error>> {
-        if mode != Mode::ReadOnly {
-            // Only read-only for now
-            return Err(Error::Unsupported);
-        }
         // Find a free directory entry
         let mut open_files_row = None;
         for (i, d) in self.open_files.iter().enumerate() {
@@ -391,30 +389,106 @@ where
         }
         let open_files_row = open_files_row.ok_or(Error::TooManyOpenDirs)?;
         let dir_entry = match &volume.volume_type {
-            VolumeType::Fat16(fat) => fat.find_directory_entry(self, dir, name)?,
-            VolumeType::Fat32(fat) => fat.find_directory_entry(self, dir, name)?,
+            VolumeType::Fat16(fat) => fat.find_directory_entry(self, dir, name),
+            VolumeType::Fat32(fat) => fat.find_directory_entry(self, dir, name),
         };
 
-        if dir_entry.attributes.is_directory() {
-            return Err(Error::OpenedDirAsFile);
-        }
+        let dir_entry = match dir_entry {
+            Ok(entry) => Some(entry),
+            Err(_)
+                if (mode == Mode::ReadWriteCreate)
+                    | (mode == Mode::ReadWriteCreateOrTruncate)
+                    | (mode == Mode::ReadWriteCreateOrAppend) =>
+            {
+                None
+            }
+            _ => return Err(Error::FileNotFound),
+        };
 
         // Check it's not already open
-        for dir_table_row in self.open_files.iter() {
-            if *dir_table_row == (volume.idx, dir_entry.cluster) {
-                return Err(Error::DirAlreadyOpen);
+        if let Some(entry) = &dir_entry {
+            for dir_table_row in self.open_files.iter() {
+                if *dir_table_row == (volume.idx, entry.cluster) {
+                    return Err(Error::DirAlreadyOpen);
+                }
             }
-        }
-        // Remember this open file
-        self.open_files[open_files_row] = (volume.idx, dir_entry.cluster);
-        Ok(File {
-            starting_cluster: dir_entry.cluster,
-            current_cluster: (0, dir_entry.cluster),
-            current_offset: 0,
-            length: dir_entry.size,
-            mode,
-            entry: dir_entry,
-        })
+            if entry.attributes.is_directory() {
+                return Err(Error::OpenedDirAsFile);
+            }
+        };
+
+        let file = match mode {
+            Mode::ReadOnly => {
+                // Safe to unwrap, since we actually have a entry if we got here
+                let dir_entry = dir_entry.unwrap();
+
+                // Remember this open file
+                // TODO put this before the match after adding all modes
+                self.open_files[open_files_row] = (volume.idx, dir_entry.cluster);
+
+                File {
+                    starting_cluster: dir_entry.cluster,
+                    current_cluster: (0, dir_entry.cluster),
+                    current_offset: 0,
+                    length: dir_entry.size,
+                    mode,
+                    entry: dir_entry,
+                }
+            }
+            Mode::ReadWriteAppend => {
+                // Safe to unwrap, since we actually have a entry if we got here
+                let dir_entry = dir_entry.unwrap();
+                // Remember this open file
+                // TODO put this before the match after adding all modes
+                self.open_files[open_files_row] = (volume.idx, dir_entry.cluster);
+
+                let mut file = File {
+                    starting_cluster: dir_entry.cluster,
+                    current_cluster: (0, dir_entry.cluster),
+                    current_offset: 0,
+                    length: dir_entry.size,
+                    mode,
+                    entry: dir_entry,
+                };
+                // seek_from_end with 0 can't fail
+                file.seek_from_end(0).ok();
+                file
+            }
+            Mode::ReadWriteTruncate => {
+                // Safe to unwrap, since we actually have a entry if we got here
+                let dir_entry = dir_entry.unwrap();
+                // Remember this open file
+                // TODO put this before the match after adding all modes
+                self.open_files[open_files_row] = (volume.idx, dir_entry.cluster);
+
+                let mut file = File {
+                    starting_cluster: dir_entry.cluster,
+                    current_cluster: (0, dir_entry.cluster),
+                    current_offset: 0,
+                    length: dir_entry.size,
+                    mode,
+                    entry: dir_entry,
+                };
+                match &mut volume.volume_type {
+                    VolumeType::Fat16(fat) => {
+                        fat.truncate_cluster_chain(self, file.starting_cluster)?
+                    }
+                    VolumeType::Fat32(fat) => {
+                        fat.truncate_cluster_chain(self, file.starting_cluster)?
+                    }
+                };
+                file.update_length(0);
+                // TODO update entry Timestamps
+                let fat_type = match &volume.volume_type {
+                    VolumeType::Fat16(_) => FatType::Fat16,
+                    VolumeType::Fat32(_) => FatType::Fat32,
+                };
+                self.write_entry_to_disk(fat_type, &file.entry)?;
+                file
+            }
+            _ => return Err(Error::Unsupported),
+        };
+        Ok(file)
     }
 
     /// Read from an open file.
