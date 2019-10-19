@@ -17,7 +17,10 @@
 //
 // ****************************************************************************
 
+use core::convert::TryFrom;
+
 use crate::blockdevice::BlockIdx;
+use crate::fat::{FatType, OnDiskDirEntry};
 
 /// Maximum file size supported by this library
 pub const MAX_FILE_SIZE: u32 = core::u32::MAX;
@@ -211,7 +214,55 @@ impl core::ops::AddAssign<Cluster> for Cluster {
     }
 }
 
-// impl DirEntry
+impl DirEntry {
+    pub(crate) fn serialize(&self, fat_type: FatType) -> [u8; OnDiskDirEntry::LEN] {
+        let mut data = [0u8; OnDiskDirEntry::LEN];
+        data[0..11].copy_from_slice(&self.name.contents);
+        data[11] = self.attributes.0;
+        // 12: Reserved. Must be set to zero
+        // 13: CrtTimeTenth, not supported, set to zero
+        data[14..18].copy_from_slice(&self.ctime.serialize_to_fat()[..]);
+        // 0 + 18: LastAccDate, not supported, set to zero
+        let cluster_number = self.cluster.0;
+        let cluster_hi = if fat_type == FatType::Fat16 {
+            [0u8; 2]
+        } else {
+            // Safe due to the AND operation
+            u16::try_from((cluster_number >> 16) & 0x0000_FFFF)
+                .unwrap()
+                .to_le_bytes()
+        };
+        data[20..22].copy_from_slice(&cluster_hi[..]);
+        data[22..26].copy_from_slice(&self.mtime.serialize_to_fat()[..]);
+        // Safe due to the AND operation
+        let cluster_lo = u16::try_from(cluster_number & 0x0000_FFFF)
+            .unwrap()
+            .to_le_bytes();
+        data[26..28].copy_from_slice(&cluster_lo[..]);
+        data[28..32].copy_from_slice(&self.size.to_le_bytes()[..]);
+        data
+    }
+
+    pub(crate) fn new(
+        name: ShortFileName,
+        attributes: Attributes,
+        cluster: Cluster,
+        ctime: Timestamp,
+        entry_block: BlockIdx,
+        entry_offset: u32,
+    ) -> Self {
+        Self {
+            name,
+            mtime: ctime,
+            ctime,
+            attributes,
+            cluster,
+            size: 0,
+            entry_block,
+            entry_offset,
+        }
+    }
+}
 
 impl ShortFileName {
     const FILENAME_BASE_MAX_LEN: usize = 8;
@@ -409,7 +460,11 @@ impl Timestamp {
         let seconds = (u16::from(self.seconds / 2)) & 0x001F;
         data[..2].copy_from_slice(&(hours | minutes | seconds).to_le_bytes()[..]);
 
-        let year = (u16::from(self.year_since_1970 - 10) << 9) & 0xFE00;
+        let year = if self.year_since_1970 < 10 {
+            0
+        } else {
+            (u16::from(self.year_since_1970 - 10) << 9) & 0xFE00
+        };
         let month = (u16::from(self.zero_indexed_month + 1) << 5) & 0x01E0;
         let day = u16::from(self.zero_indexed_day + 1) & 0x001F;
         data[2..].copy_from_slice(&(year | month | day).to_le_bytes()[..]);
@@ -506,6 +561,11 @@ impl Attributes {
     /// Directory Entry.
     pub(crate) fn create_from_fat(value: u8) -> Attributes {
         Attributes(value)
+    }
+
+    pub(crate) fn set_archive(&mut self, flag: bool) {
+        let archive = if flag {0x20} else {0x00};
+        self.0 |= archive;
     }
 
     /// Does this file has the read-only attribute set?

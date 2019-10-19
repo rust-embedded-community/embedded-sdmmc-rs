@@ -77,6 +77,10 @@ where
     AllocationError,
     /// Jumped to free space during fat traversing
     JumpedFree,
+    /// Tried to open Read-Only file with write mode
+    ReadOnly,
+    /// Tried to create an existing file
+    FileAlreadyExists,
 }
 
 /// We have to track what directories are open to prevent users from modifying
@@ -405,8 +409,8 @@ where
             _ => return Err(Error::FileNotFound),
         };
 
-        // Check it's not already open
         if let Some(entry) = &dir_entry {
+            // Check it's not already open
             for dir_table_row in self.open_files.iter() {
                 if *dir_table_row == (volume.idx, entry.cluster) {
                     return Err(Error::DirAlreadyOpen);
@@ -415,16 +419,30 @@ where
             if entry.attributes.is_directory() {
                 return Err(Error::OpenedDirAsFile);
             }
+            if entry.attributes.is_read_only() && mode != Mode::ReadOnly {
+                return Err(Error::ReadOnly);
+            }
         };
+
+        let mut mode = mode;
+        if mode == Mode::ReadWriteCreateOrAppend {
+            if dir_entry.is_some() {
+                mode = Mode::ReadWriteAppend;
+            } else {
+                mode = Mode::ReadWriteCreate;
+            }
+        } else if mode == Mode::ReadWriteCreateOrTruncate {
+            if dir_entry.is_some() {
+                mode = Mode::ReadWriteTruncate;
+            } else {
+                mode = Mode::ReadWriteCreate;
+            }
+        }
 
         let file = match mode {
             Mode::ReadOnly => {
-                // Safe to unwrap, since we actually have a entry if we got here
+                // Safe to unwrap, since we actually have an entry if we got here
                 let dir_entry = dir_entry.unwrap();
-
-                // Remember this open file
-                // TODO put this before the match after adding all modes
-                self.open_files[open_files_row] = (volume.idx, dir_entry.cluster);
 
                 File {
                     starting_cluster: dir_entry.cluster,
@@ -436,11 +454,8 @@ where
                 }
             }
             Mode::ReadWriteAppend => {
-                // Safe to unwrap, since we actually have a entry if we got here
+                // Safe to unwrap, since we actually have an entry if we got here
                 let dir_entry = dir_entry.unwrap();
-                // Remember this open file
-                // TODO put this before the match after adding all modes
-                self.open_files[open_files_row] = (volume.idx, dir_entry.cluster);
 
                 let mut file = File {
                     starting_cluster: dir_entry.cluster,
@@ -455,11 +470,8 @@ where
                 file
             }
             Mode::ReadWriteTruncate => {
-                // Safe to unwrap, since we actually have a entry if we got here
+                // Safe to unwrap, since we actually have an entry if we got here
                 let dir_entry = dir_entry.unwrap();
-                // Remember this open file
-                // TODO put this before the match after adding all modes
-                self.open_files[open_files_row] = (volume.idx, dir_entry.cluster);
 
                 let mut file = File {
                     starting_cluster: dir_entry.cluster,
@@ -484,10 +496,38 @@ where
                     VolumeType::Fat32(_) => FatType::Fat32,
                 };
                 self.write_entry_to_disk(fat_type, &file.entry)?;
+
                 file
+            }
+            Mode::ReadWriteCreate => {
+                if dir_entry.is_some() {
+                    return Err(Error::FileAlreadyExists);
+                }
+                let file_name =
+                    ShortFileName::create_from_str(name).map_err(|e| Error::FilenameError(e))?;
+                let att = Attributes::create_from_fat(0);
+                let entry = match &mut volume.volume_type {
+                    VolumeType::Fat16(fat) => {
+                        fat.write_new_directory_entry(self, dir, file_name, att)?
+                    }
+                    VolumeType::Fat32(fat) => {
+                        fat.write_new_directory_entry(self, dir, file_name, att)?
+                    }
+                };
+
+                File {
+                    starting_cluster: entry.cluster,
+                    current_cluster: (0, entry.cluster),
+                    current_offset: 0,
+                    length: entry.size,
+                    mode,
+                    entry,
+                }
             }
             _ => return Err(Error::Unsupported),
         };
+        // Remember this open file
+        self.open_files[open_files_row] = (volume.idx, file.starting_cluster);
         Ok(file)
     }
 
@@ -530,7 +570,9 @@ where
         file: &mut File,
         buffer: &[u8],
     ) -> Result<usize, Error<D::Error>> {
-        // TODO check files attributes
+        if file.mode == Mode::ReadOnly {
+            return Err(Error::ReadOnly);
+        }
         let bytes_until_max = usize::try_from(MAX_FILE_SIZE - file.current_offset)
             .map_err(|_| Error::ConversionError)?;
         let bytes_to_write = core::cmp::min(buffer.len(), bytes_until_max);
@@ -542,7 +584,7 @@ where
                     Ok(vars) => vars,
                     Err(Error::EndOfFile) => match &mut volume.volume_type {
                         VolumeType::Fat16(ref mut fat) => {
-                            match fat.alloc_cluster(self, Some(file.current_cluster.1), true) {
+                            match fat.alloc_cluster(self, Some(file.current_cluster.1), false) {
                                 Err(_) => return Ok(written),
                                 _ => (),
                             }
@@ -554,7 +596,7 @@ where
                             .map_err(|_| Error::AllocationError)?
                         }
                         VolumeType::Fat32(ref mut fat) => {
-                            match fat.alloc_cluster(self, Some(file.current_cluster.1), true) {
+                            match fat.alloc_cluster(self, Some(file.current_cluster.1), false) {
                                 Err(_) => return Ok(written),
                                 _ => (),
                             }
@@ -585,6 +627,7 @@ where
             let to_copy = i32::try_from(to_copy).map_err(|_| Error::ConversionError)?;
             file.update_length(file.length + (to_copy as u32));
             file.seek_from_current(to_copy).unwrap();
+            file.entry.attributes.set_archive(true);
             // TODO update entry Timestamps
             let fat_type = match &volume.volume_type {
                 VolumeType::Fat16(_) => FatType::Fat16,
@@ -657,29 +700,7 @@ where
         let block = &mut blocks[0];
 
         let start = usize::try_from(entry.entry_offset).map_err(|_| Error::ConversionError)?;
-        block[start..start + 11].copy_from_slice(&entry.name.contents);
-        block[start + 11] = entry.attributes.0;
-        // start + 12: Reserved. Must be set to zero
-        // start + 13: CrtTimeTenth, not supported, set to zero
-        block[start + 14..start + 18].copy_from_slice(&entry.ctime.serialize_to_fat()[..]);
-        // start + 18: LastAccDate, not supported, set to zero
-        let cluster_number = entry.cluster.0;
-        let cluster_hi = if fat_type == FatType::Fat16 {
-            [0u8; 2]
-        } else {
-            // Safe due to the AND operation
-            u16::try_from((cluster_number >> 16) & 0x0000_FFFF)
-                .unwrap()
-                .to_le_bytes()
-        };
-        block[start + 20..start + 22].copy_from_slice(&cluster_hi[..]);
-        block[start + 22..start + 26].copy_from_slice(&entry.mtime.serialize_to_fat()[..]);
-        // Safe due to the AND operation
-        let cluster_lo = u16::try_from(cluster_number & 0x0000_FFFF)
-            .unwrap()
-            .to_le_bytes();
-        block[start + 26..start + 28].copy_from_slice(&cluster_lo[..]);
-        block[start + 28..start + 32].copy_from_slice(&entry.size.to_le_bytes()[..]);
+        block[start..start + 32].copy_from_slice(&entry.serialize(fat_type)[..]);
 
         self.block_device
             .write(&mut blocks, entry.entry_block)

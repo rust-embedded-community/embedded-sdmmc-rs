@@ -1,7 +1,7 @@
 //! # Tests the Embedded SDMMC Library
 //! ```bash
-//! $ cargo run --example write_test -- /dev/mmcblk0
-//! $ cargo run --example write_test -- /dev/sda
+//! $ cargo run --example create_test -- /dev/mmcblk0
+//! $ cargo run --example create_test -- /dev/sda
 //! ```
 //!
 //! If you pass a block device it should be unmounted. No testing has been
@@ -11,12 +11,12 @@
 //!
 //! ```bash
 //! zcat ./disk.img.gz > ./disk.img
-//! $ cargo run --example write_test -- ./disk.img
+//! $ cargo run --example create_test -- ./disk.img
 //! ```
 
 extern crate embedded_sdmmc;
 
-const FILE_TO_PRINT: &'static str = "README.TXT";
+const FILE_TO_CREATE: &'static str = "CREATE.TXT";
 
 use embedded_sdmmc::{
     Block, BlockCount, BlockDevice, BlockIdx, Controller, Error, Mode, TimeSource, Timestamp,
@@ -122,14 +122,15 @@ fn main() {
     println!("volume {}: {:#?}", 0, volume);
     if let Ok(mut volume) = volume {
         let root_dir = controller.open_root_dir(&volume).unwrap();
-        println!("\tFinding {}...", FILE_TO_PRINT);
-        println!(
-            "\tFound {}?: {:?}",
-            FILE_TO_PRINT,
-            controller.find_directory_entry(&volume, &root_dir, FILE_TO_PRINT)
-        );
+        println!("\tListing root directory:");
+            controller
+                .iterate_dir(&volume, &root_dir, |x| {
+                    println!("\t\tFound: {:?}", x);
+                })
+                .unwrap();
+        println!("Creating file {}...", FILE_TO_CREATE);
         let mut f = controller
-            .open_file_in_dir(&mut volume, &root_dir, FILE_TO_PRINT, Mode::ReadOnly)
+            .open_file_in_dir(&mut volume, &root_dir, FILE_TO_CREATE, Mode::ReadWriteCreate)
             .unwrap();
         println!("FILE STARTS:");
         while !f.eof() {
@@ -143,11 +144,6 @@ fn main() {
             }
         }
         println!("EOF");
-        controller.close_file(&volume, f).unwrap();
-
-        let mut f = controller
-            .open_file_in_dir(&mut volume, &root_dir, FILE_TO_PRINT, Mode::ReadWriteAppend)
-            .unwrap();
 
         let buffer1 = b"\nFile Appended\n";
         let mut buffer: Vec<u8> = vec![];
@@ -165,51 +161,8 @@ fn main() {
         );
         controller.close_file(&volume, f).unwrap();
 
-        println!("\tFinding {}...", FILE_TO_PRINT);
-        println!(
-            "\tFound {}?: {:?}",
-            FILE_TO_PRINT,
-            controller.find_directory_entry(&volume, &root_dir, FILE_TO_PRINT)
-        );
         let mut f = controller
-            .open_file_in_dir(&mut volume, &root_dir, FILE_TO_PRINT, Mode::ReadOnly)
-            .unwrap();
-        println!("FILE STARTS:");
-        while !f.eof() {
-            let mut buffer = [0u8; 32];
-            let num_read = controller.read(&volume, &mut f, &mut buffer).unwrap();
-            for b in &buffer[0..num_read] {
-                if *b == 10 {
-                    print!("\\n");
-                }
-                print!("{}", *b as char);
-            }
-        }
-        println!("EOF");
-        controller.close_file(&volume, f).unwrap();
-
-        let mut f = controller
-            .open_file_in_dir(
-                &mut volume,
-                &root_dir,
-                FILE_TO_PRINT,
-                Mode::ReadWriteTruncate,
-            )
-            .unwrap();
-
-        let buffer = b"Hello\n";
-        let num_written = controller.write(&mut volume, &mut f, &buffer[..]).unwrap();
-        println!("\nNumber of bytes written: {}\n", num_written);
-        controller.close_file(&volume, f).unwrap();
-
-        println!("\tFinding {}...", FILE_TO_PRINT);
-        println!(
-            "\tFound {}?: {:?}",
-            FILE_TO_PRINT,
-            controller.find_directory_entry(&volume, &root_dir, FILE_TO_PRINT)
-        );
-        let mut f = controller
-            .open_file_in_dir(&mut volume, &root_dir, FILE_TO_PRINT, Mode::ReadOnly)
+            .open_file_in_dir(&mut volume, &root_dir, FILE_TO_CREATE, Mode::ReadOnly)
             .unwrap();
         println!("FILE STARTS:");
         while !f.eof() {

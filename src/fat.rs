@@ -293,7 +293,7 @@ impl<'a> InfoSector<'a> {
     }
 }
 
-struct OnDiskDirEntry<'a> {
+pub(crate) struct OnDiskDirEntry<'a> {
     data: &'a [u8],
 }
 
@@ -330,8 +330,8 @@ impl<'a> core::fmt::Debug for OnDiskDirEntry<'a> {
 /// Represents the 32 byte directory entry. This is the same for FAT16 and
 /// FAT32 (except FAT16 doesn't use first_cluster_hi).
 impl<'a> OnDiskDirEntry<'a> {
-    const LEN: usize = 32;
-    const LEN_U32: u32 = 32;
+    pub(crate) const LEN: usize = 32;
+    pub(crate) const LEN_U32: u32 = 32;
     const LFN_FRAGMENT_LEN: usize = 13;
 
     define_field!(raw_attr, u8, 11);
@@ -613,6 +613,85 @@ impl Fat16Volume {
             }
         }
         Err(Error::FileNotFound)
+    }
+
+    /// Finds a empty entry space and writes the new entry to it, allocates a new cluster if it's
+    /// needed
+    pub(crate) fn write_new_directory_entry<D, T>(
+        &mut self,
+        controller: &mut Controller<D, T>,
+        dir: &Directory,
+        name: ShortFileName,
+        attributes: Attributes,
+    ) -> Result<(DirEntry), Error<D::Error>>
+    where
+        D: BlockDevice,
+        T: TimeSource,
+    {
+        let mut first_dir_block_num = match dir.cluster {
+            Cluster::ROOT_DIR => self.lba_start + self.first_root_dir_block,
+            _ => self.cluster_to_block(dir.cluster),
+        };
+        let mut current_cluster = Some(dir.cluster);
+        let mut blocks = [Block::new()];
+
+        let dir_size = match dir.cluster {
+            Cluster::ROOT_DIR => BlockCount(
+                ((self.root_entries_count as u32 * 32) + (Block::LEN as u32 - 1))
+                    / Block::LEN as u32,
+            ),
+            _ => BlockCount(u32::from(self.blocks_per_cluster)),
+        };
+        while let Some(cluster) = current_cluster {
+            for block in first_dir_block_num.range(dir_size) {
+                controller
+                    .block_device
+                    .read(&mut blocks, block, "read_dir")
+                    .map_err(Error::DeviceError)?;
+                for entry in 0..Block::LEN / OnDiskDirEntry::LEN {
+                    let start = entry * OnDiskDirEntry::LEN;
+                    let end = (entry + 1) * OnDiskDirEntry::LEN;
+                    let dir_entry = OnDiskDirEntry::new(&blocks[0][start..end]);
+                    // 0x00 or 0xE5 represents a free entry
+                    if !dir_entry.is_valid() {
+                        let ctime = controller.timesource.get_timestamp();
+                        let file_cluster = self.alloc_cluster(controller, None, false)?;
+                        let entry = DirEntry::new(
+                            name,
+                            attributes,
+                            file_cluster,
+                            ctime,
+                            block,
+                            start as u32,
+                        );
+                        &blocks[0][start..start + 32]
+                            .copy_from_slice(&entry.serialize(FatType::Fat16)[..]);
+                        controller
+                            .block_device
+                            .write(&mut blocks, block)
+                            .map_err(Error::DeviceError)?;
+                        return Ok(entry);
+                    }
+                }
+            }
+            if cluster != Cluster::ROOT_DIR {
+                current_cluster = match self.next_cluster(controller, cluster) {
+                    Ok(n) => {
+                        first_dir_block_num = self.cluster_to_block(n);
+                        Some(n)
+                    }
+                    Err(Error::EndOfFile) => {
+                        let c = self.alloc_cluster(controller, Some(cluster), true)?;
+                        first_dir_block_num = self.cluster_to_block(c);
+                        Some(c)
+                    }
+                    _ => None,
+                };
+            } else {
+                current_cluster = None;
+            }
+        }
+        Err(Error::NotEnoughSpace)
     }
 
     /// Calls callback `func` with every valid entry in the given directory.
@@ -996,6 +1075,75 @@ impl Fat32Volume {
             }
         }
         Err(Error::FileNotFound)
+    }
+
+    /// Finds a empty entry space and writes the new entry to it, allocates a new cluster if it's
+    /// needed
+    pub(crate) fn write_new_directory_entry<D, T>(
+        &mut self,
+        controller: &mut Controller<D, T>,
+        dir: &Directory,
+        name: ShortFileName,
+        attributes: Attributes,
+    ) -> Result<(DirEntry), Error<D::Error>>
+    where
+        D: BlockDevice,
+        T: TimeSource,
+    {
+        let mut first_dir_block_num = match dir.cluster {
+            Cluster::ROOT_DIR => self.cluster_to_block(self.first_root_dir_cluster),
+            _ => self.cluster_to_block(dir.cluster),
+        };
+        let mut current_cluster = Some(dir.cluster);
+        let mut blocks = [Block::new()];
+
+        let dir_size = BlockCount(u32::from(self.blocks_per_cluster));
+        while let Some(cluster) = current_cluster {
+            for block in first_dir_block_num.range(dir_size) {
+                controller
+                    .block_device
+                    .read(&mut blocks, block, "read_dir")
+                    .map_err(Error::DeviceError)?;
+                for entry in 0..Block::LEN / OnDiskDirEntry::LEN {
+                    let start = entry * OnDiskDirEntry::LEN;
+                    let end = (entry + 1) * OnDiskDirEntry::LEN;
+                    let dir_entry = OnDiskDirEntry::new(&blocks[0][start..end]);
+                    // 0x00 or 0xE5 represents a free entry
+                    if !dir_entry.is_valid() {
+                        let ctime = controller.timesource.get_timestamp();
+                        let file_cluster = self.alloc_cluster(controller, None, false)?;
+                        let entry = DirEntry::new(
+                            name,
+                            attributes,
+                            file_cluster,
+                            ctime,
+                            block,
+                            start as u32,
+                        );
+                        &blocks[0][start..start + 32]
+                            .copy_from_slice(&entry.serialize(FatType::Fat32)[..]);
+                        controller
+                            .block_device
+                            .write(&mut blocks, block)
+                            .map_err(Error::DeviceError)?;
+                        return Ok(entry);
+                    }
+                }
+            }
+            current_cluster = match self.next_cluster(controller, cluster) {
+                Ok(n) => {
+                    first_dir_block_num = self.cluster_to_block(n);
+                    Some(n)
+                }
+                Err(Error::EndOfFile) => {
+                    let c = self.alloc_cluster(controller, Some(cluster), true)?;
+                    first_dir_block_num = self.cluster_to_block(c);
+                    Some(c)
+                }
+                _ => None,
+            };
+        }
+        Err(Error::NotEnoughSpace)
     }
 
     /// Calls callback `func` with every valid entry in the given directory.
