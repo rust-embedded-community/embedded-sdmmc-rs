@@ -690,6 +690,7 @@ where
         Ok((block_idx, block_offset, available, start))
     }
 
+    /// Writes a Directory Entry to the disk
     fn write_entry_to_disk(
         &mut self,
         fat_type: FatType,

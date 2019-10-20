@@ -45,8 +45,9 @@ pub struct Fat16Volume {
     pub(crate) first_root_dir_block: BlockCount,
     /// Number of entries in root directory (it's reserved and not in the FAT)
     pub(crate) root_entries_count: u16,
-    /// Number of free clusters
+    /// Expected number of free clusters
     pub(crate) free_clusters_count: Option<u32>,
+    /// Number of the next expected free cluster
     pub(crate) next_free_cluster: Option<Cluster>,
     /// Total number of clusters
     pub(crate) cluster_count: u32,
@@ -70,8 +71,9 @@ pub struct Fat32Volume {
     /// The root directory does not have a reserved area in FAT32. This is the
     /// cluster it starts in (nominally 2).
     pub(crate) first_root_dir_cluster: Cluster,
-    /// Number of free clusters
+    /// Expected number of free clusters
     pub(crate) free_clusters_count: Option<u32>,
+    /// Number of the next expected free cluster
     pub(crate) next_free_cluster: Option<Cluster>,
     /// Total number of clusters
     pub(crate) cluster_count: u32,
@@ -248,6 +250,11 @@ impl<'a> Bpb<'a> {
     }
 }
 
+/// File System Information structure is only present on FAT32 partitions. It may contain a valid
+/// number of free clusters and the number of the next free cluster.
+/// The information contained in the structure must be considered as advisory only.
+/// File system driver implementations are not required to ensure that information within the
+/// structure is kept consistent.
 struct InfoSector<'a> {
     data: &'a [u8; 512],
 }
@@ -861,6 +868,7 @@ impl Fat16Volume {
         Ok(())
     }
 
+    /// Marks the input cluster as an EOF and the subsequents clusters in the chain as free
     pub(crate) fn truncate_cluster_chain<D, T>(
         &mut self,
         controller: &mut Controller<D, T>,
@@ -1312,6 +1320,7 @@ impl Fat32Volume {
         Ok(())
     }
 
+    /// Marks the input cluster as an EOF and the subsequents clusters in the chain as free
     pub(crate) fn truncate_cluster_chain<D, T>(
         &mut self,
         controller: &mut Controller<D, T>,
@@ -1354,6 +1363,7 @@ impl Fat32Volume {
         Ok(())
     }
 
+    /// Writes the updated info_sector to disk
     pub(crate) fn update_info_sector<D, T>(
         &mut self,
         controller: &mut Controller<D, T>,
