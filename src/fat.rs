@@ -75,8 +75,8 @@ pub struct Fat32Volume {
     pub(crate) next_free_cluster: Option<Cluster>,
     /// Total number of clusters
     pub(crate) cluster_count: u32,
-    /// Block count of the info sector
-    pub(crate) info_location: BlockCount,
+    /// Block idx of the info sector
+    pub(crate) info_location: BlockIdx,
 }
 
 impl core::fmt::Debug for VolumeName {
@@ -1260,7 +1260,21 @@ impl Fat32Volume {
             self.update_fat(controller, cluster, new_cluster)?;
         }
         self.update_fat(controller, new_cluster, Cluster::END_OF_FILE)?;
-        self.next_free_cluster = Some(new_cluster + 1);
+        self.next_free_cluster =
+            match self.find_next_free_cluster(controller, new_cluster, end_cluster) {
+                Ok(cluster) => Some(cluster),
+                Err(_) if new_cluster.0 > RESERVED_ENTRIES => {
+                    match self.find_next_free_cluster(
+                        controller,
+                        Cluster(RESERVED_ENTRIES),
+                        end_cluster,
+                    ) {
+                        Ok(cluster) => Some(cluster),
+                        Err(e) => return Err(e),
+                    }
+                }
+                Err(e) => return Err(e),
+            };
         if let Some(ref mut number_free_cluster) = self.free_clusters_count {
             *number_free_cluster -= 1;
         };
@@ -1337,6 +1351,36 @@ impl Fat32Volume {
                 *number_free_cluster += 1;
             };
         }
+        Ok(())
+    }
+
+    pub(crate) fn update_info_sector<D, T>(
+        &mut self,
+        controller: &mut Controller<D, T>,
+    ) -> Result<(), Error<D::Error>>
+    where
+        D: BlockDevice,
+        T: TimeSource,
+    {
+        if self.free_clusters_count.is_none() && self.next_free_cluster.is_none() {
+            return Ok(());
+        }
+        let mut blocks = [Block::new()];
+        controller
+            .block_device
+            .read(&mut blocks, self.info_location, "read_info_sector")
+            .map_err(Error::DeviceError)?;
+        let block = &mut blocks[0];
+        if let Some(count) = self.free_clusters_count {
+            block[488..492].copy_from_slice(&count.to_le_bytes());
+        }
+        if let Some(next_free_cluster) = self.next_free_cluster {
+            block[492..496].copy_from_slice(&next_free_cluster.0.to_le_bytes());
+        }
+        controller
+            .block_device
+            .write(&mut blocks, self.info_location)
+            .map_err(Error::DeviceError)?;
         Ok(())
     }
 }
@@ -1417,7 +1461,7 @@ where
                 free_clusters_count: info_sector.free_clusters_count(),
                 next_free_cluster: info_sector.next_free_cluster(),
                 cluster_count: bpb.total_clusters(),
-                info_location,
+                info_location: lba_start + info_location,
             };
             volume.name.data[..].copy_from_slice(bpb.volume_label());
             Ok(VolumeType::Fat32(volume))

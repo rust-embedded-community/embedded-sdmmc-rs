@@ -123,14 +123,19 @@ fn main() {
     if let Ok(mut volume) = volume {
         let root_dir = controller.open_root_dir(&volume).unwrap();
         println!("\tListing root directory:");
-            controller
-                .iterate_dir(&volume, &root_dir, |x| {
-                    println!("\t\tFound: {:?}", x);
-                })
-                .unwrap();
+        controller
+            .iterate_dir(&volume, &root_dir, |x| {
+                println!("\t\tFound: {:?}", x);
+            })
+            .unwrap();
         println!("Creating file {}...", FILE_TO_CREATE);
         let mut f = controller
-            .open_file_in_dir(&mut volume, &root_dir, FILE_TO_CREATE, Mode::ReadWriteCreate)
+            .open_file_in_dir(
+                &mut volume,
+                &root_dir,
+                FILE_TO_CREATE,
+                Mode::ReadWriteCreate,
+            )
             .unwrap();
         println!("FILE STARTS:");
         while !f.eof() {

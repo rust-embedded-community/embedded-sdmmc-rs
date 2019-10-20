@@ -564,7 +564,7 @@ impl Attributes {
     }
 
     pub(crate) fn set_archive(&mut self, flag: bool) {
-        let archive = if flag {0x20} else {0x00};
+        let archive = if flag { 0x20 } else { 0x00 };
         self.0 |= archive;
     }
 

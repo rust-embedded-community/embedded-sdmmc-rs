@@ -628,13 +628,15 @@ where
             file.update_length(file.length + (to_copy as u32));
             file.seek_from_current(to_copy).unwrap();
             file.entry.attributes.set_archive(true);
-            // TODO update entry Timestamps
-            let fat_type = match &volume.volume_type {
+            file.entry.mtime = self.timesource.get_timestamp();
+            let fat_type = match &mut volume.volume_type {
                 VolumeType::Fat16(_) => FatType::Fat16,
-                VolumeType::Fat32(_) => FatType::Fat32,
+                VolumeType::Fat32(fat) => {
+                    fat.update_info_sector(self)?;
+                    FatType::Fat32
+                }
             };
             self.write_entry_to_disk(fat_type, &file.entry)?;
-            // TODO update infoSector
         }
         Ok(written)
     }
@@ -994,7 +996,7 @@ mod tests {
                     free_clusters_count: None,
                     next_free_cluster: None,
                     cluster_count: 965788,
-                    info_location: BlockCount(1),
+                    info_location: BlockIdx(1) + BlockCount(1),
                 })
             }
         );
