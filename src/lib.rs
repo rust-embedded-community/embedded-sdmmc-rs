@@ -23,6 +23,7 @@ mod sdmmc;
 mod sdmmc_proto;
 
 pub use crate::blockdevice::{Block, BlockCount, BlockDevice, BlockIdx};
+use crate::fat::RESERVED_ENTRIES;
 pub use crate::fat::{Fat16Volume, Fat32Volume, FatType};
 pub use crate::filesystem::{
     Attributes, Cluster, DirEntry, Directory, File, FilenameError, Mode, ShortFileName, TimeSource,
@@ -572,6 +573,16 @@ where
     ) -> Result<usize, Error<D::Error>> {
         if file.mode == Mode::ReadOnly {
             return Err(Error::ReadOnly);
+        }
+        if file.starting_cluster.0 < RESERVED_ENTRIES {
+            file.starting_cluster = match &mut volume.volume_type {
+                VolumeType::Fat16(fat) => fat.alloc_cluster(self, None, false)?,
+                VolumeType::Fat32(fat) => fat.alloc_cluster(self, None, false)?,
+            };
+            file.entry.cluster = file.starting_cluster;
+        }
+        if (file.current_cluster.1).0 < file.starting_cluster.0 {
+            file.current_cluster = (0, file.starting_cluster);
         }
         let bytes_until_max = usize::try_from(MAX_FILE_SIZE - file.current_offset)
             .map_err(|_| Error::ConversionError)?;

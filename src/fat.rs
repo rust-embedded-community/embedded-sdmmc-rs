@@ -10,7 +10,7 @@ use crate::{
 use byteorder::{ByteOrder, LittleEndian};
 use core::convert::TryFrom;
 
-pub const RESERVED_ENTRIES: u32 = 2;
+pub(crate) const RESERVED_ENTRIES: u32 = 2;
 
 /// Indentifies the supported types of FAT format
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
