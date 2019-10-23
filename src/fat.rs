@@ -662,15 +662,8 @@ impl Fat16Volume {
                     // 0x00 or 0xE5 represents a free entry
                     if !dir_entry.is_valid() {
                         let ctime = controller.timesource.get_timestamp();
-                        let file_cluster = self.alloc_cluster(controller, None, false)?;
-                        let entry = DirEntry::new(
-                            name,
-                            attributes,
-                            file_cluster,
-                            ctime,
-                            block,
-                            start as u32,
-                        );
+                        let entry =
+                            DirEntry::new(name, attributes, Cluster(0), ctime, block, start as u32);
                         &blocks[0][start..start + 32]
                             .copy_from_slice(&entry.serialize(FatType::Fat16)[..]);
                         controller
@@ -1119,15 +1112,8 @@ impl Fat32Volume {
                     // 0x00 or 0xE5 represents a free entry
                     if !dir_entry.is_valid() {
                         let ctime = controller.timesource.get_timestamp();
-                        let file_cluster = self.alloc_cluster(controller, None, false)?;
-                        let entry = DirEntry::new(
-                            name,
-                            attributes,
-                            file_cluster,
-                            ctime,
-                            block,
-                            start as u32,
-                        );
+                        let entry =
+                            DirEntry::new(name, attributes, Cluster(0), ctime, block, start as u32);
                         &blocks[0][start..start + 32]
                             .copy_from_slice(&entry.serialize(FatType::Fat32)[..]);
                         controller
