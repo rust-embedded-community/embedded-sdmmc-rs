@@ -349,7 +349,7 @@ where
         for &b in buffer.iter() {
             self.send(b)?;
         }
-        self.send((calc_crc >> 16) as u8)?;
+        self.send((calc_crc >> 8) as u8)?;
         self.send(calc_crc as u8)?;
         let status = self.receive()?;
         if (status & DATA_RES_MASK) != DATA_RES_ACCEPTED {
