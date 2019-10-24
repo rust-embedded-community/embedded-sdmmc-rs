@@ -712,7 +712,6 @@ impl Fat16Volume {
             _ => self.cluster_to_block(dir.cluster),
         };
         let mut current_cluster = Some(dir.cluster);
-        // TODO track actual directory size
         let dir_size = match dir.cluster {
             Cluster::ROOT_DIR => BlockCount(
                 ((self.root_entries_count as u32 * 32) + (Block::LEN as u32 - 1))
@@ -770,7 +769,7 @@ impl Fat16Volume {
         T: TimeSource,
     {
         let mut blocks = [Block::new()];
-        let mut current_cluster = start_cluster + 1;
+        let mut current_cluster = start_cluster;
         while current_cluster.0 < end_cluster.0 {
             let fat_offset = current_cluster.0 * 2;
             let this_fat_block_num = self.lba_start + self.fat_start.offset_bytes(fat_offset);
@@ -823,7 +822,21 @@ impl Fat16Volume {
         if let Some(cluster) = prev_cluster {
             self.update_fat(controller, cluster, new_cluster)?;
         }
-        self.next_free_cluster = Some(new_cluster + 1);
+        self.next_free_cluster =
+            match self.find_next_free_cluster(controller, new_cluster, end_cluster) {
+                Ok(cluster) => Some(cluster),
+                Err(_) if new_cluster.0 > RESERVED_ENTRIES => {
+                    match self.find_next_free_cluster(
+                        controller,
+                        Cluster(RESERVED_ENTRIES),
+                        end_cluster,
+                    ) {
+                        Ok(cluster) => Some(cluster),
+                        Err(e) => return Err(e),
+                    }
+                }
+                Err(e) => return Err(e),
+            };
         if let Some(ref mut number_free_cluster) = self.free_clusters_count {
             *number_free_cluster -= 1;
         };
@@ -871,6 +884,10 @@ impl Fat16Volume {
         D: BlockDevice,
         T: TimeSource,
     {
+        if cluster.0 < RESERVED_ENTRIES {
+            // file doesn't have any valid cluster allocated, there is nothing to do
+            return Ok(());
+        }
         let mut next = match self.next_cluster(controller, cluster) {
             Ok(n) => n,
             Err(Error::EndOfFile) => return Ok(()),
@@ -1201,7 +1218,7 @@ impl Fat32Volume {
         T: TimeSource,
     {
         let mut blocks = [Block::new()];
-        let mut current_cluster = start_cluster + 1;
+        let mut current_cluster = start_cluster;
         while current_cluster.0 < end_cluster.0 {
             let fat_offset = current_cluster.0 * 4;
             let this_fat_block_num = self.lba_start + self.fat_start.offset_bytes(fat_offset);
@@ -1316,6 +1333,10 @@ impl Fat32Volume {
         D: BlockDevice,
         T: TimeSource,
     {
+        if cluster.0 < RESERVED_ENTRIES {
+            // file doesn't have any valid cluster allocated, there is nothing to do
+            return Ok(());
+        }
         let mut next = match self.next_cluster(controller, cluster) {
             Ok(n) => n,
             Err(Error::EndOfFile) => return Ok(()),

@@ -32,20 +32,16 @@ match cont.device().init() {
 
 ## Supported features
 
-* Open files read-only from an open directory
+* Open files in all supported methods from an open directory
 * Read data from open files
+* Write data to open files
 * Close files
 * Iterate root directory
 * Iterate sub-directories
 
 ## Todo List (PRs welcome!)
 
-* Open non-root dirs
-* Iterate non-root dirs
-* Open files for append
-* Append to files
 * Create new dirs
-* Create new files
 * Delete files
 * Delete (empty) directories
 * Handle MS-DOS `/path/foo/bar.txt` style paths.
@@ -55,6 +51,11 @@ match cont.device().init() {
 ### Unreleased changes (will be 0.3.0)
 
 * Updated to `v2` embedded-hal traits.
+* Added open support for all modes.
+* Added write support for files.
+* Added `Info_Sector` tracking for FAT32.
+* Change directory iteration to look in all the directory's clusters.
+* Added `write_test` and `create_test`.
 
 ### Version 0.2.1
 

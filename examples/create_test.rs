@@ -128,7 +128,9 @@ fn main() {
                 println!("\t\tFound: {:?}", x);
             })
             .unwrap();
-        println!("Creating file {}...", FILE_TO_CREATE);
+        println!("\nCreating file {}...", FILE_TO_CREATE);
+        // This will panic if the file already exists, use ReadWriteCreateOrAppend or
+        // ReadWriteCreateOrTruncate instead
         let mut f = controller
             .open_file_in_dir(
                 &mut volume,
@@ -137,6 +139,7 @@ fn main() {
                 Mode::ReadWriteCreate,
             )
             .unwrap();
+        println!("\nReading from file");
         println!("FILE STARTS:");
         while !f.eof() {
             let mut buffer = [0u8; 32];
@@ -158,17 +161,29 @@ fn main() {
             }
             buffer.push(b'\n');
         }
+        println!("\nAppending to file");
         let num_written1 = controller.write(&mut volume, &mut f, &buffer1[..]).unwrap();
         let num_written = controller.write(&mut volume, &mut f, &buffer[..]).unwrap();
-        println!(
-            "\nNumber of bytes written: {}\n",
-            num_written + num_written1
-        );
+        println!("Number of bytes written: {}\n", num_written + num_written1);
         controller.close_file(&volume, f).unwrap();
 
         let mut f = controller
-            .open_file_in_dir(&mut volume, &root_dir, FILE_TO_CREATE, Mode::ReadOnly)
+            .open_file_in_dir(
+                &mut volume,
+                &root_dir,
+                FILE_TO_CREATE,
+                Mode::ReadWriteCreateOrAppend,
+            )
             .unwrap();
+        f.seek_from_start(0).unwrap();
+
+        println!("\tFinding {}...", FILE_TO_CREATE);
+        println!(
+            "\tFound {}?: {:?}",
+            FILE_TO_CREATE,
+            controller.find_directory_entry(&volume, &root_dir, FILE_TO_CREATE)
+        );
+        println!("\nReading from file");
         println!("FILE STARTS:");
         while !f.eof() {
             let mut buffer = [0u8; 32];

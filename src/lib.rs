@@ -575,6 +575,7 @@ where
             return Err(Error::ReadOnly);
         }
         if file.starting_cluster.0 < RESERVED_ENTRIES {
+            // file doesn't have a valid allocated cluster (possible zero-length file), allocate one
             file.starting_cluster = match &mut volume.volume_type {
                 VolumeType::Fat16(fat) => fat.alloc_cluster(self, None, false)?,
                 VolumeType::Fat32(fat) => fat.alloc_cluster(self, None, false)?,
