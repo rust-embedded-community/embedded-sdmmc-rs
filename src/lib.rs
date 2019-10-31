@@ -11,6 +11,7 @@
 // ****************************************************************************
 
 use byteorder::{ByteOrder, LittleEndian};
+use core::convert::TryFrom;
 
 #[macro_use]
 mod structure;
@@ -22,10 +23,11 @@ mod sdmmc;
 mod sdmmc_proto;
 
 pub use crate::blockdevice::{Block, BlockCount, BlockDevice, BlockIdx};
-pub use crate::fat::{Fat16Volume, Fat32Volume};
+use crate::fat::RESERVED_ENTRIES;
+pub use crate::fat::{Fat16Volume, Fat32Volume, FatType};
 pub use crate::filesystem::{
     Attributes, Cluster, DirEntry, Directory, File, FilenameError, Mode, ShortFileName, TimeSource,
-    Timestamp,
+    Timestamp, MAX_FILE_SIZE,
 };
 pub use crate::sdmmc::Error as SdMmcError;
 pub use crate::sdmmc::SdMmcSpi;
@@ -68,6 +70,18 @@ where
     EndOfFile,
     /// Found a bad cluster
     BadCluster,
+    /// Error while converting types
+    ConversionError,
+    /// The device does not have enough space for the operation
+    NotEnoughSpace,
+    /// Cluster was not properly allocated by the library
+    AllocationError,
+    /// Jumped to free space during fat traversing
+    JumpedFree,
+    /// Tried to open Read-Only file with write mode
+    ReadOnly,
+    /// Tried to create an existing file
+    FileAlreadyExists,
 }
 
 /// We have to track what directories are open to prevent users from modifying
@@ -272,6 +286,7 @@ where
         self.open_dirs[open_dirs_row] = (volume.idx, Cluster::ROOT_DIR);
         Ok(Directory {
             cluster: Cluster::ROOT_DIR,
+            entry: None,
         })
     }
 
@@ -316,6 +331,7 @@ where
         self.open_dirs[open_dirs_row] = (volume.idx, dir_entry.cluster);
         Ok(Directory {
             cluster: dir_entry.cluster,
+            entry: Some(dir_entry),
         })
     }
 
@@ -364,15 +380,11 @@ where
     /// Open a file with the given full path. A file can only be opened once.
     pub fn open_file_in_dir(
         &mut self,
-        volume: &Volume,
+        volume: &mut Volume,
         dir: &Directory,
         name: &str,
         mode: Mode,
     ) -> Result<File, Error<D::Error>> {
-        if mode != Mode::ReadOnly {
-            // Only read-only for now
-            return Err(Error::Unsupported);
-        }
         // Find a free directory entry
         let mut open_files_row = None;
         for (i, d) in self.open_files.iter().enumerate() {
@@ -382,29 +394,142 @@ where
         }
         let open_files_row = open_files_row.ok_or(Error::TooManyOpenDirs)?;
         let dir_entry = match &volume.volume_type {
-            VolumeType::Fat16(fat) => fat.find_directory_entry(self, dir, name)?,
-            VolumeType::Fat32(fat) => fat.find_directory_entry(self, dir, name)?,
+            VolumeType::Fat16(fat) => fat.find_directory_entry(self, dir, name),
+            VolumeType::Fat32(fat) => fat.find_directory_entry(self, dir, name),
         };
 
-        if dir_entry.attributes.is_directory() {
-            return Err(Error::OpenedDirAsFile);
-        }
+        let dir_entry = match dir_entry {
+            Ok(entry) => Some(entry),
+            Err(_)
+                if (mode == Mode::ReadWriteCreate)
+                    | (mode == Mode::ReadWriteCreateOrTruncate)
+                    | (mode == Mode::ReadWriteCreateOrAppend) =>
+            {
+                None
+            }
+            _ => return Err(Error::FileNotFound),
+        };
 
-        // Check it's not already open
-        for dir_table_row in self.open_files.iter() {
-            if *dir_table_row == (volume.idx, dir_entry.cluster) {
-                return Err(Error::DirAlreadyOpen);
+        if let Some(entry) = &dir_entry {
+            // Check it's not already open
+            for dir_table_row in self.open_files.iter() {
+                if *dir_table_row == (volume.idx, entry.cluster) {
+                    return Err(Error::DirAlreadyOpen);
+                }
+            }
+            if entry.attributes.is_directory() {
+                return Err(Error::OpenedDirAsFile);
+            }
+            if entry.attributes.is_read_only() && mode != Mode::ReadOnly {
+                return Err(Error::ReadOnly);
+            }
+        };
+
+        let mut mode = mode;
+        if mode == Mode::ReadWriteCreateOrAppend {
+            if dir_entry.is_some() {
+                mode = Mode::ReadWriteAppend;
+            } else {
+                mode = Mode::ReadWriteCreate;
+            }
+        } else if mode == Mode::ReadWriteCreateOrTruncate {
+            if dir_entry.is_some() {
+                mode = Mode::ReadWriteTruncate;
+            } else {
+                mode = Mode::ReadWriteCreate;
             }
         }
+
+        let file = match mode {
+            Mode::ReadOnly => {
+                // Safe to unwrap, since we actually have an entry if we got here
+                let dir_entry = dir_entry.unwrap();
+
+                File {
+                    starting_cluster: dir_entry.cluster,
+                    current_cluster: (0, dir_entry.cluster),
+                    current_offset: 0,
+                    length: dir_entry.size,
+                    mode,
+                    entry: dir_entry,
+                }
+            }
+            Mode::ReadWriteAppend => {
+                // Safe to unwrap, since we actually have an entry if we got here
+                let dir_entry = dir_entry.unwrap();
+
+                let mut file = File {
+                    starting_cluster: dir_entry.cluster,
+                    current_cluster: (0, dir_entry.cluster),
+                    current_offset: 0,
+                    length: dir_entry.size,
+                    mode,
+                    entry: dir_entry,
+                };
+                // seek_from_end with 0 can't fail
+                file.seek_from_end(0).ok();
+                file
+            }
+            Mode::ReadWriteTruncate => {
+                // Safe to unwrap, since we actually have an entry if we got here
+                let dir_entry = dir_entry.unwrap();
+
+                let mut file = File {
+                    starting_cluster: dir_entry.cluster,
+                    current_cluster: (0, dir_entry.cluster),
+                    current_offset: 0,
+                    length: dir_entry.size,
+                    mode,
+                    entry: dir_entry,
+                };
+                match &mut volume.volume_type {
+                    VolumeType::Fat16(fat) => {
+                        fat.truncate_cluster_chain(self, file.starting_cluster)?
+                    }
+                    VolumeType::Fat32(fat) => {
+                        fat.truncate_cluster_chain(self, file.starting_cluster)?
+                    }
+                };
+                file.update_length(0);
+                // TODO update entry Timestamps
+                let fat_type = match &volume.volume_type {
+                    VolumeType::Fat16(_) => FatType::Fat16,
+                    VolumeType::Fat32(_) => FatType::Fat32,
+                };
+                self.write_entry_to_disk(fat_type, &file.entry)?;
+
+                file
+            }
+            Mode::ReadWriteCreate => {
+                if dir_entry.is_some() {
+                    return Err(Error::FileAlreadyExists);
+                }
+                let file_name =
+                    ShortFileName::create_from_str(name).map_err(|e| Error::FilenameError(e))?;
+                let att = Attributes::create_from_fat(0);
+                let entry = match &mut volume.volume_type {
+                    VolumeType::Fat16(fat) => {
+                        fat.write_new_directory_entry(self, dir, file_name, att)?
+                    }
+                    VolumeType::Fat32(fat) => {
+                        fat.write_new_directory_entry(self, dir, file_name, att)?
+                    }
+                };
+
+                File {
+                    starting_cluster: entry.cluster,
+                    current_cluster: (0, entry.cluster),
+                    current_offset: 0,
+                    length: entry.size,
+                    mode,
+                    entry,
+                }
+            }
+            _ => return Err(Error::Unsupported),
+        };
         // Remember this open file
-        self.open_files[open_files_row] = (volume.idx, dir_entry.cluster);
-        Ok(File {
-            starting_cluster: dir_entry.cluster,
-            current_cluster: (0, dir_entry.cluster),
-            current_offset: 0,
-            length: dir_entry.size,
-            mode,
-        })
+        self.open_files[open_files_row] = (volume.idx, file.starting_cluster);
+        Ok(file)
     }
 
     /// Read from an open file.
@@ -437,6 +562,95 @@ where
             file.seek_from_current(to_copy as i32).unwrap();
         }
         Ok(read)
+    }
+
+    /// Write to a open file.
+    pub fn write(
+        &mut self,
+        volume: &mut Volume,
+        file: &mut File,
+        buffer: &[u8],
+    ) -> Result<usize, Error<D::Error>> {
+        if file.mode == Mode::ReadOnly {
+            return Err(Error::ReadOnly);
+        }
+        if file.starting_cluster.0 < RESERVED_ENTRIES {
+            // file doesn't have a valid allocated cluster (possible zero-length file), allocate one
+            file.starting_cluster = match &mut volume.volume_type {
+                VolumeType::Fat16(fat) => fat.alloc_cluster(self, None, false)?,
+                VolumeType::Fat32(fat) => fat.alloc_cluster(self, None, false)?,
+            };
+            file.entry.cluster = file.starting_cluster;
+        }
+        if (file.current_cluster.1).0 < file.starting_cluster.0 {
+            file.current_cluster = (0, file.starting_cluster);
+        }
+        let bytes_until_max = usize::try_from(MAX_FILE_SIZE - file.current_offset)
+            .map_err(|_| Error::ConversionError)?;
+        let bytes_to_write = core::cmp::min(buffer.len(), bytes_until_max);
+        let mut written = 0;
+
+        while written < bytes_to_write {
+            let (block_idx, block_offset, block_avail, resume_from) =
+                match self.find_data_on_disk(volume, file.current_cluster, file.current_offset) {
+                    Ok(vars) => vars,
+                    Err(Error::EndOfFile) => match &mut volume.volume_type {
+                        VolumeType::Fat16(ref mut fat) => {
+                            match fat.alloc_cluster(self, Some(file.current_cluster.1), false) {
+                                Err(_) => return Ok(written),
+                                _ => (),
+                            }
+                            self.find_data_on_disk(
+                                volume,
+                                file.current_cluster,
+                                file.current_offset,
+                            )
+                            .map_err(|_| Error::AllocationError)?
+                        }
+                        VolumeType::Fat32(ref mut fat) => {
+                            match fat.alloc_cluster(self, Some(file.current_cluster.1), false) {
+                                Err(_) => return Ok(written),
+                                _ => (),
+                            }
+                            self.find_data_on_disk(
+                                volume,
+                                file.current_cluster,
+                                file.current_offset,
+                            )
+                            .map_err(|_| Error::AllocationError)?
+                        }
+                    },
+                    Err(e) => return Err(e),
+                };
+            let mut blocks = [Block::new()];
+            self.block_device
+                .read(&mut blocks, block_idx, "read")
+                .map_err(Error::DeviceError)?;
+            let block = &mut blocks[0];
+            let to_copy = core::cmp::min(block_avail, bytes_to_write - written);
+            block[block_offset..block_offset + to_copy]
+                .copy_from_slice(&buffer[written..written + to_copy]);
+            self.block_device
+                .write(&mut blocks, block_idx)
+                .map_err(Error::DeviceError)?;
+
+            written += to_copy;
+            file.current_cluster = resume_from;
+            let to_copy = i32::try_from(to_copy).map_err(|_| Error::ConversionError)?;
+            file.update_length(file.length + (to_copy as u32));
+            file.seek_from_current(to_copy).unwrap();
+            file.entry.attributes.set_archive(true);
+            file.entry.mtime = self.timesource.get_timestamp();
+            let fat_type = match &mut volume.volume_type {
+                VolumeType::Fat16(_) => FatType::Fat16,
+                VolumeType::Fat32(fat) => {
+                    fat.update_info_sector(self)?;
+                    FatType::Fat32
+                }
+            };
+            self.write_entry_to_disk(fat_type, &file.entry)?;
+        }
+        Ok(written)
     }
 
     /// Close a file with the given full path.
@@ -486,6 +700,27 @@ where
         let block_offset = (desired_offset % Block::LEN_U32) as usize;
         let available = Block::LEN - block_offset;
         Ok((block_idx, block_offset, available, start))
+    }
+
+    /// Writes a Directory Entry to the disk
+    fn write_entry_to_disk(
+        &mut self,
+        fat_type: FatType,
+        entry: &DirEntry,
+    ) -> Result<(), Error<D::Error>> {
+        let mut blocks = [Block::new()];
+        self.block_device
+            .read(&mut blocks, entry.entry_block, "read")
+            .map_err(Error::DeviceError)?;
+        let block = &mut blocks[0];
+
+        let start = usize::try_from(entry.entry_offset).map_err(|_| Error::ConversionError)?;
+        block[start..start + 32].copy_from_slice(&entry.serialize(fat_type)[..]);
+
+        self.block_device
+            .write(&mut blocks, entry.entry_block)
+            .map_err(Error::DeviceError)?;
+        Ok(())
     }
 }
 
@@ -541,7 +776,7 @@ mod tests {
             _reason: &str,
         ) -> Result<(), Self::Error> {
             // Actual blocks taken from an SD card, except I've changed the start and length of partition 0.
-            static BLOCKS: [Block; 2] = [
+            static BLOCKS: [Block; 3] = [
                 Block {
                     contents: [
                         0xfa, 0xb8, 0x00, 0x10, 0x8e, 0xd0, 0xbc, 0x00, 0xb0, 0xb8, 0x00, 0x00,
@@ -678,6 +913,53 @@ mod tests {
                         0x00, 0x00, 0x55, 0xaa, // 0x1F0
                     ],
                 },
+                Block {
+                    contents: [
+                        0x52, 0x52, 0x61, 0x41, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                        0x00, 0x00, 0x00, 0x00, 0x72, 0x72, 0x41, 0x61, 0xFF, 0xFF, 0xFF, 0xFF,
+                        0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x55, 0xAA,
+                    ],
+                },
             ];
             println!(
                 "Reading block {} to {}",
@@ -724,6 +1006,10 @@ mod tests {
                     name: fat::VolumeName {
                         data: *b"Pictures   "
                     },
+                    free_clusters_count: None,
+                    next_free_cluster: None,
+                    cluster_count: 965788,
+                    info_location: BlockIdx(1) + BlockCount(1),
                 })
             }
         );

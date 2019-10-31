@@ -17,6 +17,14 @@
 //
 // ****************************************************************************
 
+use core::convert::TryFrom;
+
+use crate::blockdevice::BlockIdx;
+use crate::fat::{FatType, OnDiskDirEntry};
+
+/// Maximum file size supported by this library
+pub const MAX_FILE_SIZE: u32 = core::u32::MAX;
+
 /// Things that impl this can tell you the current time.
 pub trait TimeSource {
     /// Returns the current time
@@ -43,6 +51,10 @@ pub struct DirEntry {
     pub cluster: Cluster,
     /// The size of the file in bytes.
     pub size: u32,
+    /// The disk block of this entry
+    pub entry_block: BlockIdx,
+    /// The offset on its block (in bytes)
+    pub entry_offset: u32,
 }
 
 /// An MS-DOS 8.3 filename. 7-bit ASCII only. All lower-case is converted to
@@ -74,7 +86,7 @@ pub struct Timestamp {
 /// Indicates whether a directory entry is read-only, a directory, a volume
 /// label, etc.
 #[derive(Copy, Clone, PartialOrd, Ord, PartialEq, Eq)]
-pub struct Attributes(u8);
+pub struct Attributes(pub(crate) u8);
 
 /// Represents an open file on disk.
 #[derive(Debug)]
@@ -89,6 +101,8 @@ pub struct File {
     pub(crate) length: u32,
     /// What mode the file was opened in
     pub(crate) mode: Mode,
+    /// DirEntry of this file
+    pub(crate) entry: DirEntry,
 }
 
 /// Represents an open directory on disk.
@@ -96,6 +110,8 @@ pub struct File {
 pub struct Directory {
     /// The starting point of the directory listing.
     pub(crate) cluster: Cluster,
+    /// Dir Entry of this directory, None for the root directory
+    pub(crate) entry: Option<DirEntry>,
 }
 
 /// The different ways we can open a file.
@@ -160,17 +176,93 @@ pub enum FilenameError {
 
 impl Cluster {
     /// Magic value indicating an invalid cluster value.
-    pub const INVALID: Cluster = Cluster(0xFFFF_FFFF);
+    pub const INVALID: Cluster = Cluster(0xFFFF_FFF6);
     /// Magic value indicating a bad cluster.
-    pub const BAD: Cluster = Cluster(0xFFFF_FFFE);
+    pub const BAD: Cluster = Cluster(0xFFFF_FFF7);
     /// Magic value indicating a empty cluster.
-    pub const EMPTY: Cluster = Cluster(0xFFFF_FFFD);
+    pub const EMPTY: Cluster = Cluster(0x0000_0000);
     /// Magic value indicating the cluster holding the root directory (which
     /// doesn't have a number in FAT16 as there's a reserved region).
     pub const ROOT_DIR: Cluster = Cluster(0xFFFF_FFFC);
+    /// Magic value indicating that the cluster is allocated and is the final cluster for the file
+    pub const END_OF_FILE: Cluster = Cluster(0xFFFF_FFFF);
 }
 
-// impl DirEntry
+impl core::ops::Add<u32> for Cluster {
+    type Output = Cluster;
+    fn add(self, rhs: u32) -> Cluster {
+        Cluster(self.0 + rhs)
+    }
+}
+
+impl core::ops::AddAssign<u32> for Cluster {
+    fn add_assign(&mut self, rhs: u32) {
+        self.0 += rhs;
+    }
+}
+
+impl core::ops::Add<Cluster> for Cluster {
+    type Output = Cluster;
+    fn add(self, rhs: Cluster) -> Cluster {
+        Cluster(self.0 + rhs.0)
+    }
+}
+
+impl core::ops::AddAssign<Cluster> for Cluster {
+    fn add_assign(&mut self, rhs: Cluster) {
+        self.0 += rhs.0;
+    }
+}
+
+impl DirEntry {
+    pub(crate) fn serialize(&self, fat_type: FatType) -> [u8; OnDiskDirEntry::LEN] {
+        let mut data = [0u8; OnDiskDirEntry::LEN];
+        data[0..11].copy_from_slice(&self.name.contents);
+        data[11] = self.attributes.0;
+        // 12: Reserved. Must be set to zero
+        // 13: CrtTimeTenth, not supported, set to zero
+        data[14..18].copy_from_slice(&self.ctime.serialize_to_fat()[..]);
+        // 0 + 18: LastAccDate, not supported, set to zero
+        let cluster_number = self.cluster.0;
+        let cluster_hi = if fat_type == FatType::Fat16 {
+            [0u8; 2]
+        } else {
+            // Safe due to the AND operation
+            u16::try_from((cluster_number >> 16) & 0x0000_FFFF)
+                .unwrap()
+                .to_le_bytes()
+        };
+        data[20..22].copy_from_slice(&cluster_hi[..]);
+        data[22..26].copy_from_slice(&self.mtime.serialize_to_fat()[..]);
+        // Safe due to the AND operation
+        let cluster_lo = u16::try_from(cluster_number & 0x0000_FFFF)
+            .unwrap()
+            .to_le_bytes();
+        data[26..28].copy_from_slice(&cluster_lo[..]);
+        data[28..32].copy_from_slice(&self.size.to_le_bytes()[..]);
+        data
+    }
+
+    pub(crate) fn new(
+        name: ShortFileName,
+        attributes: Attributes,
+        cluster: Cluster,
+        ctime: Timestamp,
+        entry_block: BlockIdx,
+        entry_offset: u32,
+    ) -> Self {
+        Self {
+            name,
+            mtime: ctime,
+            ctime,
+            attributes,
+            cluster,
+            size: 0,
+            entry_block,
+            entry_offset,
+        }
+    }
+}
 
 impl ShortFileName {
     const FILENAME_BASE_MAX_LEN: usize = 8;
@@ -187,7 +279,7 @@ impl ShortFileName {
         for ch in name.bytes() {
             match ch {
                 // Microsoft say these are the invalid characters
-                0x00...0x1F
+                0x00..=0x1F
                 | 0x20
                 | 0x22
                 | 0x2A
@@ -254,7 +346,7 @@ impl ShortFileName {
         for ch in name.bytes() {
             match ch {
                 // Microsoft say these are the invalid characters
-                0x00...0x1F
+                0x00..=0x1F
                 | 0x20
                 | 0x22
                 | 0x2A
@@ -358,6 +450,27 @@ impl Timestamp {
         }
     }
 
+    // TODO add tests for the method
+    /// Serialize a `Timestamp` to FAT format
+    pub fn serialize_to_fat(&self) -> [u8; 4] {
+        let mut data = [0u8; 4];
+
+        let hours = (u16::from(self.hours) << 11) & 0xF800;
+        let minutes = (u16::from(self.minutes) << 5) & 0x07E0;
+        let seconds = (u16::from(self.seconds / 2)) & 0x001F;
+        data[..2].copy_from_slice(&(hours | minutes | seconds).to_le_bytes()[..]);
+
+        let year = if self.year_since_1970 < 10 {
+            0
+        } else {
+            (u16::from(self.year_since_1970 - 10) << 9) & 0xFE00
+        };
+        let month = (u16::from(self.zero_indexed_month + 1) << 5) & 0x01E0;
+        let day = u16::from(self.zero_indexed_day + 1) & 0x001F;
+        data[2..].copy_from_slice(&(year | month | day).to_le_bytes()[..]);
+        data
+    }
+
     /// Create a `Timestamp` from year/month/day/hour/minute/second.
     ///
     /// Values should be given as you'd write then (i.e. 1980, 01, 01, 13, 30,
@@ -450,6 +563,11 @@ impl Attributes {
         Attributes(value)
     }
 
+    pub(crate) fn set_archive(&mut self, flag: bool) {
+        let archive = if flag { 0x20 } else { 0x00 };
+        self.0 |= archive;
+    }
+
     /// Does this file has the read-only attribute set?
     pub fn is_read_only(self) -> bool {
         (self.0 & Self::READ_ONLY) == Self::READ_ONLY
@@ -518,13 +636,14 @@ impl core::fmt::Debug for Attributes {
 
 impl File {
     /// Create a new file handle.
-    pub(crate) fn new(cluster: Cluster, length: u32, mode: Mode) -> File {
+    pub(crate) fn new(cluster: Cluster, length: u32, mode: Mode, entry: DirEntry) -> File {
         File {
             starting_cluster: cluster,
             current_cluster: (0, cluster),
             mode,
             length,
             current_offset: 0,
+            entry,
         }
     }
 
@@ -580,6 +699,11 @@ impl File {
     /// Amount of file left to read.
     pub fn left(&self) -> u32 {
         self.length - self.current_offset
+    }
+
+    pub(crate) fn update_length(&mut self, new: u32) {
+        self.length = new;
+        self.entry.size = new;
     }
 }
 
@@ -660,7 +784,6 @@ mod test {
         assert!(ShortFileName::create_from_str("123456789").is_err());
         assert!(ShortFileName::create_from_str("12345678.ABCD").is_err());
     }
-
 }
 
 // ****************************************************************************
