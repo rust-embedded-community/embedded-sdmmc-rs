@@ -545,9 +545,8 @@ where
         let mut space = buffer.len();
         let mut read = 0;
         while space > 0 && !file.eof() {
-            let (block_idx, block_offset, block_avail, resume_from) =
-                self.find_data_on_disk(volume, file.current_cluster, file.current_offset)?;
-            file.current_cluster = resume_from;
+            let (block_idx, block_offset, block_avail) =
+                self.find_data_on_disk(volume, &mut file.current_cluster, file.current_offset)?;
             let mut blocks = [Block::new()];
             self.block_device
                 .read(&mut blocks, block_idx, "read")
@@ -591,30 +590,31 @@ where
         let mut written = 0;
 
         while written < bytes_to_write {
-            let (block_idx, block_offset, block_avail, resume_from) =
-                match self.find_data_on_disk(volume, file.current_cluster, file.current_offset) {
+            let mut current_cluster = file.current_cluster.clone();
+            let (block_idx, block_offset, block_avail) =
+                match self.find_data_on_disk(volume, &mut current_cluster, file.current_offset) {
                     Ok(vars) => vars,
                     Err(Error::EndOfFile) => match &mut volume.volume_type {
                         VolumeType::Fat16(ref mut fat) => {
-                            match fat.alloc_cluster(self, Some(file.current_cluster.1), false) {
+                            match fat.alloc_cluster(self, Some(current_cluster.1), false) {
                                 Err(_) => return Ok(written),
                                 _ => (),
                             }
                             self.find_data_on_disk(
                                 volume,
-                                file.current_cluster,
+                                &mut current_cluster,
                                 file.current_offset,
                             )
                             .map_err(|_| Error::AllocationError)?
                         }
                         VolumeType::Fat32(ref mut fat) => {
-                            match fat.alloc_cluster(self, Some(file.current_cluster.1), false) {
+                            match fat.alloc_cluster(self, Some(current_cluster.1), false) {
                                 Err(_) => return Ok(written),
                                 _ => (),
                             }
                             self.find_data_on_disk(
                                 volume,
-                                file.current_cluster,
+                                &mut current_cluster,
                                 file.current_offset,
                             )
                             .map_err(|_| Error::AllocationError)?
@@ -633,9 +633,8 @@ where
             self.block_device
                 .write(&mut blocks, block_idx)
                 .map_err(Error::DeviceError)?;
-
             written += to_copy;
-            file.current_cluster = resume_from;
+            file.current_cluster = current_cluster;
             let to_copy = i32::try_from(to_copy).map_err(|_| Error::ConversionError)?;
             file.update_length(file.length + (to_copy as u32));
             file.seek_from_current(to_copy).unwrap();
@@ -672,9 +671,9 @@ where
     fn find_data_on_disk(
         &mut self,
         volume: &Volume,
-        mut start: (u32, Cluster),
+        start: &mut (u32, Cluster),
         desired_offset: u32,
-    ) -> Result<(BlockIdx, usize, usize, (u32, Cluster)), Error<D::Error>> {
+    ) -> Result<(BlockIdx, usize, usize), Error<D::Error>> {
         let bytes_per_cluster = match &volume.volume_type {
             VolumeType::Fat16(fat) => fat.bytes_per_cluster(),
             VolumeType::Fat32(fat) => fat.bytes_per_cluster(),
@@ -699,7 +698,7 @@ where
         } + num_blocks;
         let block_offset = (desired_offset % Block::LEN_U32) as usize;
         let available = Block::LEN - block_offset;
-        Ok((block_idx, block_offset, available, start))
+        Ok((block_idx, block_offset, available))
     }
 
     /// Writes a Directory Entry to the disk
