@@ -1141,170 +1141,76 @@ impl FatVolume {
         D: BlockDevice,
         T: TimeSource,
     {
-        match &self.fat_specific_info {
-            FatSpecificInfo::Fat16(_fat16_info) => {
-                debug!("Allocating new cluster, prev_cluster={:?}", prev_cluster);
-                let end_cluster = Cluster(self.cluster_count + RESERVED_ENTRIES);
-                let start_cluster = match self.next_free_cluster {
-                    Some(cluster) if cluster.0 < end_cluster.0 => cluster,
-                    _ => Cluster(RESERVED_ENTRIES),
-                };
-                trace!(
-                    "Finding next free between {:?}..={:?}",
-                    start_cluster,
+        debug!("Allocating new cluster, prev_cluster={:?}", prev_cluster);
+        let end_cluster = Cluster(self.cluster_count + RESERVED_ENTRIES);
+        let start_cluster = match self.next_free_cluster {
+            Some(cluster) if cluster.0 < end_cluster.0 => cluster,
+            _ => Cluster(RESERVED_ENTRIES),
+        };
+        trace!(
+            "Finding next free between {:?}..={:?}",
+            start_cluster,
+            end_cluster
+        );
+        let new_cluster = match self.find_next_free_cluster(controller, start_cluster, end_cluster)
+        {
+            Ok(cluster) => cluster,
+            Err(_) if start_cluster.0 > RESERVED_ENTRIES => {
+                debug!(
+                    "Retrying, finding next free between {:?}..={:?}",
+                    Cluster(RESERVED_ENTRIES),
                     end_cluster
                 );
-                let new_cluster =
-                    match self.find_next_free_cluster(controller, start_cluster, end_cluster) {
-                        Ok(cluster) => cluster,
-                        Err(_) if start_cluster.0 > RESERVED_ENTRIES => {
-                            debug!(
-                                "Retrying, finding next free between {:?}..={:?}",
-                                Cluster(RESERVED_ENTRIES),
-                                end_cluster
-                            );
-                            self.find_next_free_cluster(
-                                controller,
-                                Cluster(RESERVED_ENTRIES),
-                                end_cluster,
-                            )?
-                        }
-                        Err(e) => return Err(e),
-                    };
-                trace!(
-                    "Found {:?}, updating in FAT to {:?}",
-                    new_cluster,
-                    Cluster::END_OF_FILE
-                );
-                self.update_fat(controller, new_cluster, Cluster::END_OF_FILE)?;
-                if let Some(cluster) = prev_cluster {
-                    trace!(
-                        "Updating old cluster {:?} to {:?} in FAT",
-                        cluster,
-                        new_cluster
-                    );
-                    self.update_fat(controller, cluster, new_cluster)?;
-                }
-                trace!(
-                    "Finding next free between {:?}..={:?}",
-                    new_cluster,
-                    end_cluster
-                );
-                self.next_free_cluster =
-                    match self.find_next_free_cluster(controller, new_cluster, end_cluster) {
-                        Ok(cluster) => Some(cluster),
-                        Err(_) if new_cluster.0 > RESERVED_ENTRIES => {
-                            match self.find_next_free_cluster(
-                                controller,
-                                Cluster(RESERVED_ENTRIES),
-                                end_cluster,
-                            ) {
-                                Ok(cluster) => Some(cluster),
-                                Err(e) => return Err(e),
-                            }
-                        }
-                        Err(e) => return Err(e),
-                    };
-                debug!("Next free cluster is {:?}", self.next_free_cluster);
-                if let Some(ref mut number_free_cluster) = self.free_clusters_count {
-                    *number_free_cluster -= 1;
-                };
-                if zero {
-                    let blocks = [Block::new()];
-                    let first_block = self.cluster_to_block(new_cluster);
-                    let num_blocks = BlockCount(u32::from(self.blocks_per_cluster));
-                    for block in first_block.range(num_blocks) {
-                        controller
-                            .block_device
-                            .write(&blocks, block)
-                            .map_err(Error::DeviceError)?;
-                    }
-                }
-                debug!("All done, returning {:?}", new_cluster);
-                Ok(new_cluster)
+                self.find_next_free_cluster(controller, Cluster(RESERVED_ENTRIES), end_cluster)?
             }
-            FatSpecificInfo::Fat32(_fat32_info) => {
-                debug!("Allocating new cluster, prev_cluster={:?}", prev_cluster);
-                let end_cluster = Cluster(self.cluster_count + RESERVED_ENTRIES);
-                let start_cluster = match self.next_free_cluster {
-                    Some(cluster) if cluster.0 < end_cluster.0 => cluster,
-                    _ => Cluster(RESERVED_ENTRIES),
-                };
-                trace!(
-                    "Finding next free between {:?}..={:?}",
-                    start_cluster,
-                    end_cluster
-                );
-                let new_cluster =
-                    match self.find_next_free_cluster(controller, start_cluster, end_cluster) {
-                        Ok(cluster) => cluster,
-                        Err(_) if start_cluster.0 > RESERVED_ENTRIES => {
-                            debug!(
-                                "Retrying, finding next free between {:?}..={:?}",
-                                Cluster(RESERVED_ENTRIES),
-                                end_cluster
-                            );
-                            self.find_next_free_cluster(
-                                controller,
-                                Cluster(RESERVED_ENTRIES),
-                                end_cluster,
-                            )?
-                        }
-                        Err(e) => return Err(e),
-                    };
-                trace!(
-                    "Found {:?}, updating in FAT to {:?}",
-                    new_cluster,
-                    Cluster::END_OF_FILE
-                );
-                self.update_fat(controller, new_cluster, Cluster::END_OF_FILE)?;
-                if let Some(cluster) = prev_cluster {
-                    trace!(
-                        "Updating old cluster {:?} to {:?} in FAT",
-                        cluster,
-                        new_cluster
-                    );
-                    self.update_fat(controller, cluster, new_cluster)?;
-                }
-                trace!(
-                    "Finding next free between {:?}..={:?}",
-                    new_cluster,
-                    end_cluster
-                );
-                self.next_free_cluster =
-                    match self.find_next_free_cluster(controller, new_cluster, end_cluster) {
+            Err(e) => return Err(e),
+        };
+        self.update_fat(controller, new_cluster, Cluster::END_OF_FILE)?;
+        if let Some(cluster) = prev_cluster {
+            trace!(
+                "Updating old cluster {:?} to {:?} in FAT",
+                cluster,
+                new_cluster
+            );
+            self.update_fat(controller, cluster, new_cluster)?;
+        }
+        trace!(
+            "Finding next free between {:?}..={:?}",
+            new_cluster,
+            end_cluster
+        );
+        self.next_free_cluster =
+            match self.find_next_free_cluster(controller, new_cluster, end_cluster) {
+                Ok(cluster) => Some(cluster),
+                Err(_) if new_cluster.0 > RESERVED_ENTRIES => {
+                    match self.find_next_free_cluster(
+                        controller,
+                        Cluster(RESERVED_ENTRIES),
+                        end_cluster,
+                    ) {
                         Ok(cluster) => Some(cluster),
-                        Err(_) if new_cluster.0 > RESERVED_ENTRIES => {
-                            match self.find_next_free_cluster(
-                                controller,
-                                Cluster(RESERVED_ENTRIES),
-                                end_cluster,
-                            ) {
-                                Ok(cluster) => Some(cluster),
-                                Err(e) => return Err(e),
-                            }
-                        }
                         Err(e) => return Err(e),
-                    };
-                debug!("Next free cluster is {:?}", self.next_free_cluster);
-                if let Some(ref mut number_free_cluster) = self.free_clusters_count {
-                    *number_free_cluster -= 1;
-                };
-                if zero {
-                    let blocks = [Block::new()];
-                    let first_block = self.cluster_to_block(new_cluster);
-                    let num_blocks = BlockCount(u32::from(self.blocks_per_cluster));
-                    for block in first_block.range(num_blocks) {
-                        controller
-                            .block_device
-                            .write(&blocks, block)
-                            .map_err(Error::DeviceError)?;
                     }
                 }
-                debug!("All done, returning {:?}", new_cluster);
-                Ok(new_cluster)
+                Err(e) => return Err(e),
+            };
+        debug!("Next free cluster is {:?}", self.next_free_cluster);
+        if let Some(ref mut number_free_cluster) = self.free_clusters_count {
+            *number_free_cluster -= 1;
+        };
+        if zero {
+            let blocks = [Block::new()];
+            let first_block = self.cluster_to_block(new_cluster);
+            let num_blocks = BlockCount(u32::from(self.blocks_per_cluster));
+            for block in first_block.range(num_blocks) {
+                controller
+                    .block_device
+                    .write(&blocks, block)
+                    .map_err(Error::DeviceError)?;
             }
         }
+        debug!("All done, returning {:?}", new_cluster);
+        Ok(new_cluster)
     }
 
     /// Tries to allocate a chain of clusters
@@ -1328,7 +1234,7 @@ impl FatVolume {
         Ok(())
     }
 
-    /// Marks the input cluster as an EOF and the subsequents clusters in the chain as free
+    /// Marks the input cluster as an EOF and all the subsequent clusters in the chain as free
     pub(crate) fn truncate_cluster_chain<D, T>(
         &mut self,
         controller: &mut Controller<D, T>,
@@ -1338,82 +1244,40 @@ impl FatVolume {
         D: BlockDevice,
         T: TimeSource,
     {
-        match &self.fat_specific_info {
-            FatSpecificInfo::Fat16(_fat16_info) => {
-                if cluster.0 < RESERVED_ENTRIES {
-                    // file doesn't have any valid cluster allocated, there is nothing to do
-                    return Ok(());
-                }
-                let mut next = match self.next_cluster(controller, cluster) {
-                    Ok(n) => n,
-                    Err(Error::EndOfFile) => return Ok(()),
-                    Err(e) => return Err(e),
-                };
-                if let Some(ref mut next_free_cluster) = self.next_free_cluster {
-                    if next_free_cluster.0 > next.0 {
-                        *next_free_cluster = next;
-                    }
-                } else {
-                    self.next_free_cluster = Some(next);
-                }
-                self.update_fat(controller, cluster, Cluster::END_OF_FILE)?;
-
-                loop {
-                    match self.next_cluster(controller, next) {
-                        Ok(n) => {
-                            self.update_fat(controller, next, Cluster::EMPTY)?;
-                            next = n;
-                        }
-                        Err(Error::EndOfFile) => {
-                            self.update_fat(controller, next, Cluster::EMPTY)?;
-                            break;
-                        }
-                        Err(e) => return Err(e),
-                    }
-                    if let Some(ref mut number_free_cluster) = self.free_clusters_count {
-                        *number_free_cluster += 1;
-                    };
-                }
-                Ok(())
-            }
-            FatSpecificInfo::Fat32(_fat32_info) => {
-                if cluster.0 < RESERVED_ENTRIES {
-                    // file doesn't have any valid cluster allocated, there is nothing to do
-                    return Ok(());
-                }
-                let mut next = match self.next_cluster(controller, cluster) {
-                    Ok(n) => n,
-                    Err(Error::EndOfFile) => return Ok(()),
-                    Err(e) => return Err(e),
-                };
-                if let Some(ref mut next_free_cluster) = self.next_free_cluster {
-                    if next_free_cluster.0 > next.0 {
-                        *next_free_cluster = next;
-                    }
-                } else {
-                    self.next_free_cluster = Some(next);
-                }
-                self.update_fat(controller, cluster, Cluster::END_OF_FILE)?;
-
-                loop {
-                    match self.next_cluster(controller, next) {
-                        Ok(n) => {
-                            self.update_fat(controller, next, Cluster::EMPTY)?;
-                            next = n;
-                        }
-                        Err(Error::EndOfFile) => {
-                            self.update_fat(controller, next, Cluster::EMPTY)?;
-                            break;
-                        }
-                        Err(e) => return Err(e),
-                    }
-                    if let Some(ref mut number_free_cluster) = self.free_clusters_count {
-                        *number_free_cluster += 1;
-                    };
-                }
-                Ok(())
-            }
+        if cluster.0 < RESERVED_ENTRIES {
+            // file doesn't have any valid cluster allocated, there is nothing to do
+            return Ok(());
         }
+        let mut next = match self.next_cluster(controller, cluster) {
+            Ok(n) => n,
+            Err(Error::EndOfFile) => return Ok(()),
+            Err(e) => return Err(e),
+        };
+        if let Some(ref mut next_free_cluster) = self.next_free_cluster {
+            if next_free_cluster.0 > next.0 {
+                *next_free_cluster = next;
+            }
+        } else {
+            self.next_free_cluster = Some(next);
+        }
+        self.update_fat(controller, cluster, Cluster::END_OF_FILE)?;
+        loop {
+            match self.next_cluster(controller, next) {
+                Ok(n) => {
+                    self.update_fat(controller, next, Cluster::EMPTY)?;
+                    next = n;
+                }
+                Err(Error::EndOfFile) => {
+                    self.update_fat(controller, next, Cluster::EMPTY)?;
+                    break;
+                }
+                Err(e) => return Err(e),
+            }
+            if let Some(ref mut number_free_cluster) = self.free_clusters_count {
+                *number_free_cluster += 1;
+            };
+        }
+        Ok(())
     }
 }
 
