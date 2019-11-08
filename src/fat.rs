@@ -229,7 +229,7 @@ impl<'a> Bpb<'a> {
     // Magic functions that get the right FAT16/FAT32 result
 
     pub fn fat_size(&self) -> u32 {
-        let result = self.fat_size16() as u32;
+        let result = u32::from(self.fat_size16());
         if result != 0 {
             result
         } else {
@@ -238,7 +238,7 @@ impl<'a> Bpb<'a> {
     }
 
     pub fn total_blocks(&self) -> u32 {
-        let result = self.total_blocks16() as u32;
+        let result = u32::from(self.total_blocks16());
         if result != 0 {
             result
         } else {
@@ -261,9 +261,9 @@ struct InfoSector<'a> {
 }
 
 impl<'a> InfoSector<'a> {
-    const LEAD_SIG: u32 = 0x41615252;
-    const STRUC_SIG: u32 = 0x61417272;
-    const TRAIL_SIG: u32 = 0xAA550000;
+    const LEAD_SIG: u32 = 0x4161_5252;
+    const STRUC_SIG: u32 = 0x6141_7272;
+    const TRAIL_SIG: u32 = 0xAA55_0000;
 
     fn create_from_bytes(data: &[u8; 512]) -> Result<InfoSector, &'static str> {
         let info = InfoSector { data };
@@ -375,31 +375,39 @@ impl<'a> OnDiskDirEntry<'a> {
             let is_start = (self.data[0] & 0x40) != 0;
             let sequence = self.data[0] & 0x1F;
             buffer[0] =
-                core::char::from_u32(LittleEndian::read_u16(&self.data[1..=2]) as u32).unwrap();
+                core::char::from_u32(u32::from(LittleEndian::read_u16(&self.data[1..=2]))).unwrap();
             buffer[1] =
-                core::char::from_u32(LittleEndian::read_u16(&self.data[3..=4]) as u32).unwrap();
+                core::char::from_u32(u32::from(LittleEndian::read_u16(&self.data[3..=4]))).unwrap();
             buffer[2] =
-                core::char::from_u32(LittleEndian::read_u16(&self.data[5..=6]) as u32).unwrap();
+                core::char::from_u32(u32::from(LittleEndian::read_u16(&self.data[5..=6]))).unwrap();
             buffer[3] =
-                core::char::from_u32(LittleEndian::read_u16(&self.data[7..=8]) as u32).unwrap();
-            buffer[4] =
-                core::char::from_u32(LittleEndian::read_u16(&self.data[9..=10]) as u32).unwrap();
+                core::char::from_u32(u32::from(LittleEndian::read_u16(&self.data[7..=8]))).unwrap();
+            buffer[4] = core::char::from_u32(u32::from(LittleEndian::read_u16(&self.data[9..=10])))
+                .unwrap();
             buffer[5] =
-                core::char::from_u32(LittleEndian::read_u16(&self.data[14..=15]) as u32).unwrap();
+                core::char::from_u32(u32::from(LittleEndian::read_u16(&self.data[14..=15])))
+                    .unwrap();
             buffer[6] =
-                core::char::from_u32(LittleEndian::read_u16(&self.data[16..=17]) as u32).unwrap();
+                core::char::from_u32(u32::from(LittleEndian::read_u16(&self.data[16..=17])))
+                    .unwrap();
             buffer[7] =
-                core::char::from_u32(LittleEndian::read_u16(&self.data[18..=19]) as u32).unwrap();
+                core::char::from_u32(u32::from(LittleEndian::read_u16(&self.data[18..=19])))
+                    .unwrap();
             buffer[8] =
-                core::char::from_u32(LittleEndian::read_u16(&self.data[20..=21]) as u32).unwrap();
+                core::char::from_u32(u32::from(LittleEndian::read_u16(&self.data[20..=21])))
+                    .unwrap();
             buffer[9] =
-                core::char::from_u32(LittleEndian::read_u16(&self.data[22..=23]) as u32).unwrap();
+                core::char::from_u32(u32::from(LittleEndian::read_u16(&self.data[22..=23])))
+                    .unwrap();
             buffer[10] =
-                core::char::from_u32(LittleEndian::read_u16(&self.data[24..=25]) as u32).unwrap();
+                core::char::from_u32(u32::from(LittleEndian::read_u16(&self.data[24..=25])))
+                    .unwrap();
             buffer[11] =
-                core::char::from_u32(LittleEndian::read_u16(&self.data[28..=29]) as u32).unwrap();
+                core::char::from_u32(u32::from(LittleEndian::read_u16(&self.data[28..=29])))
+                    .unwrap();
             buffer[12] =
-                core::char::from_u32(LittleEndian::read_u16(&self.data[30..=31]) as u32).unwrap();
+                core::char::from_u32(u32::from(LittleEndian::read_u16(&self.data[30..=31])))
+                    .unwrap();
             Some((is_start, sequence, buffer))
         } else {
             None
@@ -412,12 +420,12 @@ impl<'a> OnDiskDirEntry<'a> {
 
     fn first_cluster_fat32(&self) -> Cluster {
         let cluster_no =
-            ((self.first_cluster_hi() as u32) << 16) | (self.first_cluster_lo() as u32);
+            (u32::from(self.first_cluster_hi()) << 16) | u32::from(self.first_cluster_lo());
         Cluster(cluster_no)
     }
 
     fn first_cluster_fat16(&self) -> Cluster {
-        let cluster_no = self.first_cluster_lo() as u32;
+        let cluster_no = u32::from(self.first_cluster_lo());
         Cluster(cluster_no)
     }
 
@@ -582,7 +590,7 @@ impl Fat16Volume {
 
         let dir_size = match dir.cluster {
             Cluster::ROOT_DIR => BlockCount(
-                ((self.root_entries_count as u32 * 32) + (Block::LEN as u32 - 1))
+                ((u32::from(self.root_entries_count) * 32) + (Block::LEN as u32 - 1))
                     / Block::LEN as u32,
             ),
             _ => BlockCount(u32::from(self.blocks_per_cluster)),
@@ -645,7 +653,7 @@ impl Fat16Volume {
 
         let dir_size = match dir.cluster {
             Cluster::ROOT_DIR => BlockCount(
-                ((self.root_entries_count as u32 * 32) + (Block::LEN as u32 - 1))
+                ((u32::from(self.root_entries_count) * 32) + (Block::LEN as u32 - 1))
                     / Block::LEN as u32,
             ),
             _ => BlockCount(u32::from(self.blocks_per_cluster)),
@@ -665,11 +673,11 @@ impl Fat16Volume {
                         let ctime = controller.timesource.get_timestamp();
                         let entry =
                             DirEntry::new(name, attributes, Cluster(0), ctime, block, start as u32);
-                        &blocks[0][start..start + 32]
+                        blocks[0][start..start + 32]
                             .copy_from_slice(&entry.serialize(FatType::Fat16)[..]);
                         controller
                             .block_device
-                            .write(&mut blocks, block)
+                            .write(&blocks, block)
                             .map_err(Error::DeviceError)?;
                         return Ok(entry);
                     }
@@ -715,7 +723,7 @@ impl Fat16Volume {
         let mut current_cluster = Some(dir.cluster);
         let dir_size = match dir.cluster {
             Cluster::ROOT_DIR => BlockCount(
-                ((self.root_entries_count as u32 * 32) + (Block::LEN as u32 - 1))
+                ((u32::from(self.root_entries_count) * 32) + (Block::LEN as u32 - 1))
                     / Block::LEN as u32,
             ),
             _ => BlockCount(u32::from(self.blocks_per_cluster)),
@@ -1063,7 +1071,7 @@ impl Fat32Volume {
             }
             f => {
                 // Seems legit
-                Ok(Cluster(u32::from(f)))
+                Ok(Cluster(f))
             }
         }
     }
@@ -1170,11 +1178,11 @@ impl Fat32Volume {
                         let ctime = controller.timesource.get_timestamp();
                         let entry =
                             DirEntry::new(name, attributes, Cluster(0), ctime, block, start as u32);
-                        &blocks[0][start..start + 32]
+                        blocks[0][start..start + 32]
                             .copy_from_slice(&entry.serialize(FatType::Fat32)[..]);
                         controller
                             .block_device
-                            .write(&mut blocks, block)
+                            .write(&blocks, block)
                             .map_err(Error::DeviceError)?;
                         return Ok(entry);
                     }
@@ -1444,7 +1452,7 @@ impl Fat32Volume {
         }
         controller
             .block_device
-            .write(&mut blocks, self.info_location)
+            .write(&blocks, self.info_location)
             .map_err(Error::DeviceError)?;
         Ok(())
     }
@@ -1542,7 +1550,7 @@ mod test {
         let mut output = Vec::new();
         for line in input.lines() {
             let line = line.trim();
-            if line.len() > 0 {
+            if !line.is_empty() {
                 // 32 bytes per line
                 for index in 0..32 {
                     let start = index * 2;
@@ -1628,8 +1636,8 @@ mod test {
             ),
             Expected::Short(DirEntry {
                 name: ShortFileName::create_from_str("OVERLAYS").unwrap(),
-                mtime: Timestamp::from_calendar(2016, 03, 01, 19, 56, 54).unwrap(),
-                ctime: Timestamp::from_calendar(2016, 03, 01, 19, 56, 54).unwrap(),
+                mtime: Timestamp::from_calendar(2016, 3, 1, 19, 56, 54).unwrap(),
+                ctime: Timestamp::from_calendar(2016, 3, 1, 19, 56, 54).unwrap(),
                 attributes: Attributes::create_from_fat(Attributes::DIRECTORY),
                 cluster: Cluster(3),
                 size: 0,
@@ -1653,8 +1661,8 @@ mod test {
             ),
             Expected::Short(DirEntry {
                 name: ShortFileName::create_from_str("BCM270~1.DTB").unwrap(),
-                mtime: Timestamp::from_calendar(2016, 03, 01, 19, 56, 34).unwrap(),
-                ctime: Timestamp::from_calendar(2016, 03, 01, 19, 56, 34).unwrap(),
+                mtime: Timestamp::from_calendar(2016, 3, 1, 19, 56, 34).unwrap(),
+                ctime: Timestamp::from_calendar(2016, 3, 1, 19, 56, 34).unwrap(),
                 attributes: Attributes::create_from_fat(Attributes::ARCHIVE),
                 cluster: Cluster(9),
                 size: 11120,
@@ -1670,8 +1678,8 @@ mod test {
             ),
             Expected::Short(DirEntry {
                 name: ShortFileName::create_from_str("COPYIN~1.LIN").unwrap(),
-                mtime: Timestamp::from_calendar(2016, 03, 01, 19, 56, 30).unwrap(),
-                ctime: Timestamp::from_calendar(2016, 03, 01, 19, 56, 30).unwrap(),
+                mtime: Timestamp::from_calendar(2016, 3, 1, 19, 56, 30).unwrap(),
+                ctime: Timestamp::from_calendar(2016, 3, 1, 19, 56, 30).unwrap(),
                 attributes: Attributes::create_from_fat(Attributes::ARCHIVE),
                 cluster: Cluster(5),
                 size: 18693,
@@ -1695,8 +1703,8 @@ mod test {
             ),
             Expected::Short(DirEntry {
                 name: ShortFileName::create_from_str("LICENC~1.BRO").unwrap(),
-                mtime: Timestamp::from_calendar(2016, 03, 01, 19, 56, 34).unwrap(),
-                ctime: Timestamp::from_calendar(2016, 03, 01, 19, 56, 34).unwrap(),
+                mtime: Timestamp::from_calendar(2016, 3, 1, 19, 56, 34).unwrap(),
+                ctime: Timestamp::from_calendar(2016, 3, 1, 19, 56, 34).unwrap(),
                 attributes: Attributes::create_from_fat(Attributes::ARCHIVE),
                 cluster: Cluster(8),
                 size: 1494,
@@ -1720,8 +1728,8 @@ mod test {
             ),
             Expected::Short(DirEntry {
                 name: ShortFileName::create_from_str("BCM270~4.DTB").unwrap(),
-                mtime: Timestamp::from_calendar(2016, 03, 01, 19, 56, 36).unwrap(),
-                ctime: Timestamp::from_calendar(2016, 03, 01, 19, 56, 36).unwrap(),
+                mtime: Timestamp::from_calendar(2016, 3, 1, 19, 56, 36).unwrap(),
+                ctime: Timestamp::from_calendar(2016, 3, 1, 19, 56, 36).unwrap(),
                 attributes: Attributes::create_from_fat(Attributes::ARCHIVE),
                 cluster: Cluster(15),
                 size: 12108,
@@ -1826,15 +1834,15 @@ mod test {
         assert_eq!(bpb.blocks_per_track(), 63);
         assert_eq!(bpb.num_heads(), 255);
         assert_eq!(bpb.hidden_blocks(), 0);
-        assert_eq!(bpb.total_blocks32(), 122880);
+        assert_eq!(bpb.total_blocks32(), 122_880);
         assert_eq!(bpb.footer(), 0xAA55);
         assert_eq!(bpb.drive_number(), 0x80);
         assert_eq!(bpb.boot_signature(), 0x29);
-        assert_eq!(bpb.volume_id(), 0x7771B0BB);
+        assert_eq!(bpb.volume_id(), 0x7771_B0BB);
         assert_eq!(bpb.volume_label(), b"boot       ");
         assert_eq!(bpb.fs_type(), b"FAT16   ");
         assert_eq!(bpb.fat_size(), 32);
-        assert_eq!(bpb.total_blocks(), 122880);
+        assert_eq!(bpb.total_blocks(), 122_880);
         assert_eq!(bpb.fat_type, FatType::Fat16);
     }
 }
