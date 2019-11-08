@@ -1,0 +1,25 @@
+name: Rust
+
+on: [push]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v1
+    - name: Build
+      run: cargo build --verbose
+    - name: Unpack Disk
+      run: gunzip -fk disk.img.gz
+    - name: Run Test Mount example
+      run: cargo run --example test_mount ./disk.img
+    - name: Unpack Disk
+      run: gunzip -fk disk.img.gz
+    - name: Run Create Test example
+      run: cargo run --example create_test ./disk.img
+    - name: Unpack Disk
+      run: gunzip -fk disk.img.gz
+    - name: Run Write Test example
+      run: cargo run --example write_test ./disk.img
+    - name: Run Unit Tests
+      run: cargo test --verbose
