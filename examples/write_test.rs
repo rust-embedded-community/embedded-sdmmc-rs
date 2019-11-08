@@ -155,7 +155,7 @@ fn main() {
             .unwrap();
 
         let buffer1 = b"\nFile Appended\n";
-        let buffer = [b'a'; 4096];
+        let buffer = [b'a'; 8192];
         println!("\nAppending to file");
         let num_written1 = controller.write(&mut volume, &mut f, &buffer1[..]).unwrap();
         let num_written = controller.write(&mut volume, &mut f, &buffer[..]).unwrap();
