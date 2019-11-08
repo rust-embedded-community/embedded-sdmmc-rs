@@ -12,6 +12,7 @@
 
 use byteorder::{ByteOrder, LittleEndian};
 use core::convert::TryFrom;
+use log::debug;
 
 #[macro_use]
 mod structure;
@@ -175,6 +176,7 @@ where
     /// controller we can open volumes (partitions) and with those we can open
     /// files.
     pub fn new(block_device: D, timesource: T) -> Controller<D, T> {
+        debug!("Creating new embedded-sdmmc::Controller");
         Controller {
             block_device,
             timesource,
@@ -570,6 +572,10 @@ where
         file: &mut File,
         buffer: &[u8],
     ) -> Result<usize, Error<D::Error>> {
+        debug!(
+            "write(volume={:?}, file={:?}, buffer={:x?}",
+            volume, file, buffer
+        );
         if file.mode == Mode::ReadOnly {
             return Err(Error::ReadOnly);
         }
@@ -580,8 +586,10 @@ where
                 VolumeType::Fat32(fat) => fat.alloc_cluster(self, None, false)?,
             };
             file.entry.cluster = file.starting_cluster;
+            debug!("Alloc first cluster {:?}", file.starting_cluster);
         }
         if (file.current_cluster.1).0 < file.starting_cluster.0 {
+            debug!("Rewinding to start");
             file.current_cluster = (0, file.starting_cluster);
         }
         let bytes_until_max = usize::try_from(MAX_FILE_SIZE - file.current_offset)
@@ -590,56 +598,87 @@ where
         let mut written = 0;
 
         while written < bytes_to_write {
-            let mut current_cluster = file.current_cluster.clone();
+            let mut current_cluster = file.current_cluster;
+            debug!(
+                "Have written bytes {}/{}, finding cluster {:?}",
+                written, bytes_to_write, current_cluster
+            );
             let (block_idx, block_offset, block_avail) =
                 match self.find_data_on_disk(volume, &mut current_cluster, file.current_offset) {
-                    Ok(vars) => vars,
-                    Err(Error::EndOfFile) => match &mut volume.volume_type {
-                        VolumeType::Fat16(ref mut fat) => {
-                            match fat.alloc_cluster(self, Some(current_cluster.1), false) {
-                                Err(_) => return Ok(written),
-                                _ => (),
+                    Ok(vars) => {
+                        debug!(
+                            "Found block_idx={:?}, block_offset={:?}, block_avail={}",
+                            vars.0, vars.1, vars.2
+                        );
+                        vars
+                    }
+                    Err(Error::EndOfFile) => {
+                        debug!("Extending file");
+                        match &mut volume.volume_type {
+                            VolumeType::Fat16(ref mut fat) => {
+                                if fat
+                                    .alloc_cluster(self, Some(current_cluster.1), false)
+                                    .is_err()
+                                {
+                                    return Ok(written);
+                                }
+                                debug!("Allocated new FAT16 cluster, finding offsets...");
+                                let new_offset = self
+                                    .find_data_on_disk(
+                                        volume,
+                                        &mut current_cluster,
+                                        file.current_offset,
+                                    )
+                                    .map_err(|_| Error::AllocationError)?;
+                                debug!("New offset {:?}", new_offset);
+                                new_offset
                             }
-                            self.find_data_on_disk(
-                                volume,
-                                &mut current_cluster,
-                                file.current_offset,
-                            )
-                            .map_err(|_| Error::AllocationError)?
-                        }
-                        VolumeType::Fat32(ref mut fat) => {
-                            match fat.alloc_cluster(self, Some(current_cluster.1), false) {
-                                Err(_) => return Ok(written),
-                                _ => (),
+                            VolumeType::Fat32(ref mut fat) => {
+                                if fat
+                                    .alloc_cluster(self, Some(current_cluster.1), false)
+                                    .is_err()
+                                {
+                                    return Ok(written);
+                                }
+                                debug!("Allocated new FAT32 cluster, finding offsets...");
+                                let new_offset = self
+                                    .find_data_on_disk(
+                                        volume,
+                                        &mut current_cluster,
+                                        file.current_offset,
+                                    )
+                                    .map_err(|_| Error::AllocationError)?;
+                                debug!("New offset {:?}", new_offset);
+                                new_offset
                             }
-                            self.find_data_on_disk(
-                                volume,
-                                &mut current_cluster,
-                                file.current_offset,
-                            )
-                            .map_err(|_| Error::AllocationError)?
                         }
-                    },
+                    }
                     Err(e) => return Err(e),
                 };
             let mut blocks = [Block::new()];
-            self.block_device
-                .read(&mut blocks, block_idx, "read")
-                .map_err(Error::DeviceError)?;
-            let block = &mut blocks[0];
             let to_copy = core::cmp::min(block_avail, bytes_to_write - written);
+            if block_offset != 0 {
+                debug!("Partial block write");
+                self.block_device
+                    .read(&mut blocks, block_idx, "read")
+                    .map_err(Error::DeviceError)?;
+            }
+            let block = &mut blocks[0];
             block[block_offset..block_offset + to_copy]
                 .copy_from_slice(&buffer[written..written + to_copy]);
+            debug!("Writing block {:?}", block_idx);
             self.block_device
-                .write(&mut blocks, block_idx)
+                .write(&blocks, block_idx)
                 .map_err(Error::DeviceError)?;
             written += to_copy;
             file.current_cluster = current_cluster;
             let to_copy = i32::try_from(to_copy).map_err(|_| Error::ConversionError)?;
+            // TODO: Should we do this once when the whole file is written?
             file.update_length(file.length + (to_copy as u32));
             file.seek_from_current(to_copy).unwrap();
             file.entry.attributes.set_archive(true);
             file.entry.mtime = self.timesource.get_timestamp();
+            debug!("Updating FAT info sector");
             let fat_type = match &mut volume.volume_type {
                 VolumeType::Fat16(_) => FatType::Fat16,
                 VolumeType::Fat32(fat) => {
@@ -647,6 +686,7 @@ where
                     FatType::Fat32
                 }
             };
+            debug!("Updating dir entry");
             self.write_entry_to_disk(fat_type, &file.entry)?;
         }
         Ok(written)
