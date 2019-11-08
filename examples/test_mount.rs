@@ -113,6 +113,7 @@ impl TimeSource for Clock {
 }
 
 fn main() {
+    env_logger::init();
     let mut args = std::env::args().skip(1);
     let filename = args.next().unwrap_or("/dev/mmcblk0".into());
     let print_blocks = args.find(|x| x == "-v").map(|_| true).unwrap_or(false);

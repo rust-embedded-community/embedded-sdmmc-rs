@@ -109,6 +109,7 @@ impl TimeSource for Clock {
 }
 
 fn main() {
+    env_logger::init();
     let mut args = std::env::args().skip(1);
     let filename = args.next().unwrap_or_else(|| "/dev/mmcblk0".into());
     println!("Opening {:?}", filename);
