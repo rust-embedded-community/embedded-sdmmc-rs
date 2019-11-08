@@ -24,8 +24,8 @@ mod sdmmc;
 mod sdmmc_proto;
 
 pub use crate::blockdevice::{Block, BlockCount, BlockDevice, BlockIdx};
+pub use crate::fat::FatVolume;
 use crate::fat::RESERVED_ENTRIES;
-pub use crate::fat::{Fat16Volume, Fat32Volume, FatType};
 pub use crate::filesystem::{
     Attributes, Cluster, DirEntry, Directory, File, FilenameError, Mode, ShortFileName, TimeSource,
     Timestamp, MAX_FILE_SIZE,
@@ -117,10 +117,8 @@ pub struct Volume {
 /// support.
 #[derive(Debug, PartialEq, Eq)]
 pub enum VolumeType {
-    /// FAT16 formatted volumes (usually HDD and SD card partitions under 2 GiB)
-    Fat16(Fat16Volume),
-    /// FAT32 formatted volumes (usually HDD and SD card partitions over 2 GiB)
-    Fat32(Fat32Volume),
+    /// FAT16/FAT32 formatted volumes.
+    Fat(FatVolume),
 }
 
 /// A `VolumeIdx` is a number which identifies a volume (or partition) on a
@@ -315,8 +313,7 @@ where
 
         // Open the directory
         let dir_entry = match &volume.volume_type {
-            VolumeType::Fat16(fat) => fat.find_directory_entry(self, parent_dir, name)?,
-            VolumeType::Fat32(fat) => fat.find_directory_entry(self, parent_dir, name)?,
+            VolumeType::Fat(fat) => fat.find_directory_entry(self, parent_dir, name)?,
         };
 
         if !dir_entry.attributes.is_directory() {
@@ -358,8 +355,7 @@ where
         name: &str,
     ) -> Result<DirEntry, Error<D::Error>> {
         match &volume.volume_type {
-            VolumeType::Fat16(fat) => fat.find_directory_entry(self, dir, name),
-            VolumeType::Fat32(fat) => fat.find_directory_entry(self, dir, name),
+            VolumeType::Fat(fat) => fat.find_directory_entry(self, dir, name),
         }
     }
 
@@ -374,8 +370,7 @@ where
         F: FnMut(&DirEntry),
     {
         match &volume.volume_type {
-            VolumeType::Fat16(fat) => fat.iterate_dir(self, dir, func),
-            VolumeType::Fat32(fat) => fat.iterate_dir(self, dir, func),
+            VolumeType::Fat(fat) => fat.iterate_dir(self, dir, func),
         }
     }
 
@@ -396,8 +391,7 @@ where
         }
         let open_files_row = open_files_row.ok_or(Error::TooManyOpenDirs)?;
         let dir_entry = match &volume.volume_type {
-            VolumeType::Fat16(fat) => fat.find_directory_entry(self, dir, name),
-            VolumeType::Fat32(fat) => fat.find_directory_entry(self, dir, name),
+            VolumeType::Fat(fat) => fat.find_directory_entry(self, dir, name),
         };
 
         let dir_entry = match dir_entry {
@@ -485,20 +479,18 @@ where
                     entry: dir_entry,
                 };
                 match &mut volume.volume_type {
-                    VolumeType::Fat16(fat) => {
-                        fat.truncate_cluster_chain(self, file.starting_cluster)?
-                    }
-                    VolumeType::Fat32(fat) => {
+                    VolumeType::Fat(fat) => {
                         fat.truncate_cluster_chain(self, file.starting_cluster)?
                     }
                 };
                 file.update_length(0);
                 // TODO update entry Timestamps
-                let fat_type = match &volume.volume_type {
-                    VolumeType::Fat16(_) => FatType::Fat16,
-                    VolumeType::Fat32(_) => FatType::Fat32,
+                match &volume.volume_type {
+                    VolumeType::Fat(fat) => {
+                        let fat_type = fat.get_fat_type();
+                        self.write_entry_to_disk(fat_type, &file.entry)?;
+                    }
                 };
-                self.write_entry_to_disk(fat_type, &file.entry)?;
 
                 file
             }
@@ -510,10 +502,7 @@ where
                     ShortFileName::create_from_str(name).map_err(Error::FilenameError)?;
                 let att = Attributes::create_from_fat(0);
                 let entry = match &mut volume.volume_type {
-                    VolumeType::Fat16(fat) => {
-                        fat.write_new_directory_entry(self, dir, file_name, att)?
-                    }
-                    VolumeType::Fat32(fat) => {
+                    VolumeType::Fat(fat) => {
                         fat.write_new_directory_entry(self, dir, file_name, att)?
                     }
                 };
@@ -582,8 +571,7 @@ where
         if file.starting_cluster.0 < RESERVED_ENTRIES {
             // file doesn't have a valid allocated cluster (possible zero-length file), allocate one
             file.starting_cluster = match &mut volume.volume_type {
-                VolumeType::Fat16(fat) => fat.alloc_cluster(self, None, false)?,
-                VolumeType::Fat32(fat) => fat.alloc_cluster(self, None, false)?,
+                VolumeType::Fat(fat) => fat.alloc_cluster(self, None, false)?,
             };
             file.entry.cluster = file.starting_cluster;
             debug!("Alloc first cluster {:?}", file.starting_cluster);
@@ -615,32 +603,14 @@ where
                     Err(Error::EndOfFile) => {
                         debug!("Extending file");
                         match &mut volume.volume_type {
-                            VolumeType::Fat16(ref mut fat) => {
+                            VolumeType::Fat(ref mut fat) => {
                                 if fat
                                     .alloc_cluster(self, Some(current_cluster.1), false)
                                     .is_err()
                                 {
                                     return Ok(written);
                                 }
-                                debug!("Allocated new FAT16 cluster, finding offsets...");
-                                let new_offset = self
-                                    .find_data_on_disk(
-                                        volume,
-                                        &mut current_cluster,
-                                        file.current_offset,
-                                    )
-                                    .map_err(|_| Error::AllocationError)?;
-                                debug!("New offset {:?}", new_offset);
-                                new_offset
-                            }
-                            VolumeType::Fat32(ref mut fat) => {
-                                if fat
-                                    .alloc_cluster(self, Some(current_cluster.1), false)
-                                    .is_err()
-                                {
-                                    return Ok(written);
-                                }
-                                debug!("Allocated new FAT32 cluster, finding offsets...");
+                                debug!("Allocated new FAT cluster, finding offsets...");
                                 let new_offset = self
                                     .find_data_on_disk(
                                         volume,
@@ -679,15 +649,13 @@ where
             file.entry.attributes.set_archive(true);
             file.entry.mtime = self.timesource.get_timestamp();
             debug!("Updating FAT info sector");
-            let fat_type = match &mut volume.volume_type {
-                VolumeType::Fat16(_) => FatType::Fat16,
-                VolumeType::Fat32(fat) => {
+            match &mut volume.volume_type {
+                VolumeType::Fat(fat) => {
                     fat.update_info_sector(self)?;
-                    FatType::Fat32
+                    debug!("Updating dir entry");
+                    self.write_entry_to_disk(fat.get_fat_type(), &file.entry)?;
                 }
-            };
-            debug!("Updating dir entry");
-            self.write_entry_to_disk(fat_type, &file.entry)?;
+            }
         }
         Ok(written)
     }
@@ -715,16 +683,14 @@ where
         desired_offset: u32,
     ) -> Result<(BlockIdx, usize, usize), Error<D::Error>> {
         let bytes_per_cluster = match &volume.volume_type {
-            VolumeType::Fat16(fat) => fat.bytes_per_cluster(),
-            VolumeType::Fat32(fat) => fat.bytes_per_cluster(),
+            VolumeType::Fat(fat) => fat.bytes_per_cluster(),
         };
         // How many clusters forward do we need to go?
         let offset_from_cluster = desired_offset - start.0;
         let num_clusters = offset_from_cluster / bytes_per_cluster;
         for _ in 0..num_clusters {
             start.1 = match &volume.volume_type {
-                VolumeType::Fat16(fat) => fat.next_cluster(self, start.1)?,
-                VolumeType::Fat32(fat) => fat.next_cluster(self, start.1)?,
+                VolumeType::Fat(fat) => fat.next_cluster(self, start.1)?,
             };
             start.0 += bytes_per_cluster;
         }
@@ -733,8 +699,7 @@ where
         assert!(offset_from_cluster < bytes_per_cluster);
         let num_blocks = BlockCount(offset_from_cluster / Block::LEN_U32);
         let block_idx = match &volume.volume_type {
-            VolumeType::Fat16(fat) => fat.cluster_to_block(start.1),
-            VolumeType::Fat32(fat) => fat.cluster_to_block(start.1),
+            VolumeType::Fat(fat) => fat.cluster_to_block(start.1),
         } + num_blocks;
         let block_offset = (desired_offset % Block::LEN_U32) as usize;
         let available = Block::LEN - block_offset;
@@ -744,7 +709,7 @@ where
     /// Writes a Directory Entry to the disk
     fn write_entry_to_disk(
         &mut self,
-        fat_type: FatType,
+        fat_type: fat::FatType,
         entry: &DirEntry,
     ) -> Result<(), Error<D::Error>> {
         let mut blocks = [Block::new()];
@@ -1035,12 +1000,11 @@ mod tests {
             v,
             Volume {
                 idx: VolumeIdx(0),
-                volume_type: VolumeType::Fat32(Fat32Volume {
+                volume_type: VolumeType::Fat(FatVolume {
                     lba_start: BlockIdx(1),
                     num_blocks: BlockCount(0x0011_2233),
                     blocks_per_cluster: 8,
                     first_data_block: BlockCount(15136),
-                    first_root_dir_cluster: Cluster(2),
                     fat_start: BlockCount(32),
                     name: fat::VolumeName {
                         data: *b"Pictures   "
@@ -1048,7 +1012,10 @@ mod tests {
                     free_clusters_count: None,
                     next_free_cluster: None,
                     cluster_count: 965_788,
-                    info_location: BlockIdx(1) + BlockCount(1),
+                    fat_specific_info: fat::FatSpecificInfo::Fat32(fat::Fat32Info {
+                        first_root_dir_cluster: Cluster(2),
+                        info_location: BlockIdx(1) + BlockCount(1),
+                    })
                 })
             }
         );
