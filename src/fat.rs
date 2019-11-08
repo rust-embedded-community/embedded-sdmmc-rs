@@ -789,7 +789,7 @@ impl Fat16Volume {
                 .read(&mut blocks, this_fat_block_num, "next_cluster")
                 .map_err(Error::DeviceError)?;
 
-            while this_fat_ent_offset < Block::LEN - 2 {
+            while this_fat_ent_offset <= Block::LEN - 2 {
                 let fat_entry = LittleEndian::read_u16(
                     &blocks[0][this_fat_ent_offset..=this_fat_ent_offset + 1],
                 );
@@ -1275,7 +1275,7 @@ impl Fat32Volume {
                 .read(&mut blocks, this_fat_block_num, "next_cluster")
                 .map_err(Error::DeviceError)?;
 
-            while this_fat_ent_offset < Block::LEN - 4 {
+            while this_fat_ent_offset <= Block::LEN - 4 {
                 let fat_entry = LittleEndian::read_u32(
                     &blocks[0][this_fat_ent_offset..=this_fat_ent_offset + 3],
                 ) & 0x0FFF_FFFF;
