@@ -23,3 +23,5 @@ jobs:
       run: cargo run --example write_test ./disk.img
     - name: Run Unit Tests
       run: cargo test --verbose
+    - name: Check formatting
+      run: cargo fmt -- --check
