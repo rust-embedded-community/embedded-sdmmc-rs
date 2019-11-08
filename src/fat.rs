@@ -9,6 +9,7 @@ use crate::{
 };
 use byteorder::{ByteOrder, LittleEndian};
 use core::convert::TryFrom;
+use log::{debug, trace, warn};
 
 pub(crate) const RESERVED_ENTRIES: u32 = 2;
 
@@ -771,16 +772,24 @@ impl Fat16Volume {
         let mut blocks = [Block::new()];
         let mut current_cluster = start_cluster;
         while current_cluster.0 < end_cluster.0 {
+            trace!(
+                "current_cluster={:?}, end_cluster={:?}",
+                current_cluster,
+                end_cluster
+            );
             let fat_offset = current_cluster.0 * 2;
+            trace!("fat_offset = {:?}", fat_offset);
             let this_fat_block_num = self.lba_start + self.fat_start.offset_bytes(fat_offset);
+            trace!("this_fat_block_num = {:?}", this_fat_block_num);
             let mut this_fat_ent_offset =
                 usize::try_from(fat_offset % Block::LEN_U32).map_err(|_| Error::ConversionError)?;
+            trace!("Reading block {:?}", this_fat_block_num);
             controller
                 .block_device
                 .read(&mut blocks, this_fat_block_num, "next_cluster")
                 .map_err(Error::DeviceError)?;
 
-            while this_fat_ent_offset < Block::LEN - 2 {
+            while this_fat_ent_offset <= Block::LEN - 2 {
                 let fat_entry = LittleEndian::read_u16(
                     &blocks[0][this_fat_ent_offset..=this_fat_ent_offset + 1],
                 );
@@ -791,6 +800,7 @@ impl Fat16Volume {
                 current_cluster += 1;
             }
         }
+        warn!("Out of space...");
         Err(Error::NotEnoughSpace)
     }
 
@@ -805,23 +815,49 @@ impl Fat16Volume {
         D: BlockDevice,
         T: TimeSource,
     {
+        debug!("Allocating new cluster, prev_cluster={:?}", prev_cluster);
         let end_cluster = Cluster(self.cluster_count + RESERVED_ENTRIES);
         let start_cluster = match self.next_free_cluster {
             Some(cluster) if cluster.0 < end_cluster.0 => cluster,
             _ => Cluster(RESERVED_ENTRIES),
         };
+        trace!(
+            "Finding next free between {:?}..={:?}",
+            start_cluster,
+            end_cluster
+        );
         let new_cluster = match self.find_next_free_cluster(controller, start_cluster, end_cluster)
         {
             Ok(cluster) => cluster,
             Err(_) if start_cluster.0 > RESERVED_ENTRIES => {
+                debug!(
+                    "Retrying, finding next free between {:?}..={:?}",
+                    Cluster(RESERVED_ENTRIES),
+                    end_cluster
+                );
                 self.find_next_free_cluster(controller, Cluster(RESERVED_ENTRIES), end_cluster)?
             }
             Err(e) => return Err(e),
         };
+        trace!(
+            "Found {:?}, updating in FAT to {:?}",
+            new_cluster,
+            Cluster::END_OF_FILE
+        );
         self.update_fat(controller, new_cluster, Cluster::END_OF_FILE)?;
         if let Some(cluster) = prev_cluster {
+            trace!(
+                "Updating old cluster {:?} to {:?} in FAT",
+                cluster,
+                new_cluster
+            );
             self.update_fat(controller, cluster, new_cluster)?;
         }
+        trace!(
+            "Finding next free between {:?}..={:?}",
+            new_cluster,
+            end_cluster
+        );
         self.next_free_cluster =
             match self.find_next_free_cluster(controller, new_cluster, end_cluster) {
                 Ok(cluster) => Some(cluster),
@@ -837,6 +873,7 @@ impl Fat16Volume {
                 }
                 Err(e) => return Err(e),
             };
+        debug!("Next free cluster is {:?}", self.next_free_cluster);
         if let Some(ref mut number_free_cluster) = self.free_clusters_count {
             *number_free_cluster -= 1;
         };
@@ -851,6 +888,7 @@ impl Fat16Volume {
                     .map_err(Error::DeviceError)?;
             }
         }
+        debug!("All done, returning {:?}", new_cluster);
         Ok(new_cluster)
     }
 
@@ -867,6 +905,7 @@ impl Fat16Volume {
         T: TimeSource,
     {
         while clusters_to_alloc > 0 {
+            debug!("Allocating clusters, left={:?}", clusters_to_alloc);
             let new_cluster = self.alloc_cluster(controller, prev_cluster, zero)?;
             prev_cluster = Some(new_cluster);
             clusters_to_alloc -= 1;
@@ -1205,7 +1244,6 @@ impl Fat32Volume {
         Ok(())
     }
 
-    // TODO write some tests
     /// Finds the next free cluster after the start_cluster and before end_cluster
     pub(crate) fn find_next_free_cluster<D, T>(
         &self,
@@ -1220,16 +1258,24 @@ impl Fat32Volume {
         let mut blocks = [Block::new()];
         let mut current_cluster = start_cluster;
         while current_cluster.0 < end_cluster.0 {
+            trace!(
+                "current_cluster={:?}, end_cluster={:?}",
+                current_cluster,
+                end_cluster
+            );
             let fat_offset = current_cluster.0 * 4;
+            trace!("fat_offset = {:?}", fat_offset);
             let this_fat_block_num = self.lba_start + self.fat_start.offset_bytes(fat_offset);
+            trace!("this_fat_block_num = {:?}", this_fat_block_num);
             let mut this_fat_ent_offset =
                 usize::try_from(fat_offset % Block::LEN_U32).map_err(|_| Error::ConversionError)?;
+            trace!("Reading block {:?}", this_fat_block_num);
             controller
                 .block_device
                 .read(&mut blocks, this_fat_block_num, "next_cluster")
                 .map_err(Error::DeviceError)?;
 
-            while this_fat_ent_offset < Block::LEN - 4 {
+            while this_fat_ent_offset <= Block::LEN - 4 {
                 let fat_entry = LittleEndian::read_u32(
                     &blocks[0][this_fat_ent_offset..=this_fat_ent_offset + 3],
                 ) & 0x0FFF_FFFF;
@@ -1240,6 +1286,7 @@ impl Fat32Volume {
                 current_cluster += 1;
             }
         }
+        warn!("Out of space...");
         Err(Error::NotEnoughSpace)
     }
 
@@ -1316,6 +1363,7 @@ impl Fat32Volume {
         T: TimeSource,
     {
         while clusters_to_alloc > 0 {
+            debug!("Allocating clusters, left={:?}", clusters_to_alloc);
             let new_cluster = self.alloc_cluster(controller, prev_cluster, zero)?;
             prev_cluster = Some(new_cluster);
             clusters_to_alloc -= 1;

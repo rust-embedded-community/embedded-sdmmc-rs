@@ -109,6 +109,7 @@ impl TimeSource for Clock {
 }
 
 fn main() {
+    env_logger::init();
     let mut args = std::env::args().skip(1);
     let filename = args.next().unwrap_or_else(|| "/dev/mmcblk0".into());
     println!("Opening {:?}", filename);
@@ -155,7 +156,7 @@ fn main() {
             .unwrap();
 
         let buffer1 = b"\nFile Appended\n";
-        let buffer = [b'a'; 4096];
+        let buffer = [b'a'; 8192];
         println!("\nAppending to file");
         let num_written1 = controller.write(&mut volume, &mut f, &buffer1[..]).unwrap();
         let num_written = controller.write(&mut volume, &mut f, &buffer[..]).unwrap();
