@@ -9,13 +9,13 @@
 //! this!
 //!
 //! ```bash
-//! zcat ./disk.img.gz > ./disk.img
+//! gunzip -kf ./disk.img.gz
 //! $ cargo run --example write_test -- ./disk.img
 //! ```
 
 extern crate embedded_sdmmc;
 
-const FILE_TO_WRITE: &'static str = "WRITE.TXT";
+const FILE_TO_WRITE: &str = "README.TXT";
 
 use embedded_sdmmc::{
     Block, BlockCount, BlockDevice, BlockIdx, Controller, Error, Mode, TimeSource, Timestamp,
@@ -110,7 +110,8 @@ impl TimeSource for Clock {
 
 fn main() {
     let mut args = std::env::args().skip(1);
-    let filename = args.next().unwrap_or("/dev/mmcblk0".into());
+    let filename = args.next().unwrap_or_else(|| "/dev/mmcblk0".into());
+    println!("Opening {:?}", filename);
     let print_blocks = args.find(|x| x == "-v").map(|_| true).unwrap_or(false);
     let lbd = LinuxBlockDevice::new(filename, print_blocks)
         .map_err(Error::DeviceError)
@@ -118,7 +119,7 @@ fn main() {
     println!("lbd: {:?}", lbd);
     let mut controller = Controller::new(lbd, Clock);
     let volume = controller.get_volume(VolumeIdx(0));
-    println!("volume {}: {:#?}", 0, volume);
+    println!("volume 0: {:#?}", volume);
     if let Ok(mut volume) = volume {
         let root_dir = controller.open_root_dir(&volume).unwrap();
         println!("\tListing root directory:");
@@ -154,14 +155,8 @@ fn main() {
             .unwrap();
 
         let buffer1 = b"\nFile Appended\n";
-        let mut buffer: Vec<u8> = vec![];
-        for _ in 0..64 {
-            for _ in 0..15 {
-                buffer.push(b'a');
-            }
-            buffer.push(b'\n');
-        }
-        println!("\nAppeding to file");
+        let buffer = [b'a'; 4096];
+        println!("\nAppending to file");
         let num_written1 = controller.write(&mut volume, &mut f, &buffer1[..]).unwrap();
         let num_written = controller.write(&mut volume, &mut f, &buffer[..]).unwrap();
         println!("Number of bytes written: {}\n", num_written + num_written1);
