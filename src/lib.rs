@@ -507,7 +507,7 @@ where
                     return Err(Error::FileAlreadyExists);
                 }
                 let file_name =
-                    ShortFileName::create_from_str(name).map_err(|e| Error::FilenameError(e))?;
+                    ShortFileName::create_from_str(name).map_err(Error::FilenameError)?;
                 let att = Attributes::create_from_fat(0);
                 let entry = match &mut volume.volume_type {
                     VolumeType::Fat16(fat) => {
@@ -757,7 +757,7 @@ where
         block[start..start + 32].copy_from_slice(&entry.serialize(fat_type)[..]);
 
         self.block_device
-            .write(&mut blocks, entry.entry_block)
+            .write(&blocks, entry.entry_block)
             .map_err(Error::DeviceError)?;
         Ok(())
     }
@@ -1037,7 +1037,7 @@ mod tests {
                 idx: VolumeIdx(0),
                 volume_type: VolumeType::Fat32(Fat32Volume {
                     lba_start: BlockIdx(1),
-                    num_blocks: BlockCount(0x00112233),
+                    num_blocks: BlockCount(0x0011_2233),
                     blocks_per_cluster: 8,
                     first_data_block: BlockCount(15136),
                     first_root_dir_cluster: Cluster(2),
@@ -1047,7 +1047,7 @@ mod tests {
                     },
                     free_clusters_count: None,
                     next_free_cluster: None,
-                    cluster_count: 965788,
+                    cluster_count: 965_788,
                     info_location: BlockIdx(1) + BlockCount(1),
                 })
             }
