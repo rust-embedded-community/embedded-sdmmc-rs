@@ -56,6 +56,7 @@ match cont.device().init() {
 * Added `Info_Sector` tracking for FAT32.
 * Change directory iteration to look in all the directory's clusters.
 * Added `write_test` and `create_test`.
+* De-duplicated FAT16 and FAT32 code (https://github.com/thejpster/embedded-sdmmc-rs/issues/10)
 
 ### Version 0.2.1
 
