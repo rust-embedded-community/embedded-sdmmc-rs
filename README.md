@@ -50,7 +50,7 @@ match cont.device().init() {
 
 ### Unreleased changes (will be 0.3.1)
 
-* None
+* Code tidy-ups and more documentation.
 
 ### Version 0.3.0
 
