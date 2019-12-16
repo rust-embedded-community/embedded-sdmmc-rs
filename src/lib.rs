@@ -151,6 +151,9 @@ const PARTITION_ID_FAT16_LBA: u8 = 0x0E;
 /// Marker for a FAT16 partition. Seen on a card formatted with the official
 /// SD-Card formatter.
 const PARTITION_ID_FAT16: u8 = 0x06;
+/// Marker for a FAT32 partition. What Macosx disk utility (and also SD-Card formatter?)
+/// use.
+const PARTITION_ID_FAT32_CHS_LBA: u8 = 0x0B;
 
 // ****************************************************************************
 //
@@ -252,7 +255,10 @@ where
             )
         };
         match part_type {
-            PARTITION_ID_FAT32_LBA | PARTITION_ID_FAT16_LBA | PARTITION_ID_FAT16 => {
+            PARTITION_ID_FAT32_CHS_LBA
+            | PARTITION_ID_FAT32_LBA
+            | PARTITION_ID_FAT16_LBA
+            | PARTITION_ID_FAT16 => {
                 let volume = fat::parse_volume(self, lba_start, num_blocks)?;
                 Ok(Volume {
                     idx: volume_idx,
