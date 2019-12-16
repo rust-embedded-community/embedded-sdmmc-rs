@@ -29,68 +29,8 @@
 
 // Possible errors the SD card can return
 
+/// Card indicates last operation was a success
 pub const ERROR_OK: u8 = 0x00;
-
-// Basic commands and switch command.
-pub const ERROR_CMD0: u8 = 0x20;
-pub const ERROR_CMD2: u8 = 0x21;
-pub const ERROR_CMD3: u8 = 0x22;
-pub const ERROR_CMD6: u8 = 0x23;
-pub const ERROR_CMD7: u8 = 0x24;
-pub const ERROR_CMD8: u8 = 0x25;
-pub const ERROR_CMD9: u8 = 0x26;
-pub const ERROR_CMD10: u8 = 0x27;
-pub const ERROR_CMD12: u8 = 0x28;
-pub const ERROR_CMD13: u8 = 0x29;
-
-// Read, write, erase, and extension commands.
-pub const ERROR_CMD17: u8 = 0x30;
-pub const ERROR_CMD18: u8 = 0x31;
-pub const ERROR_CMD24: u8 = 0x32;
-pub const ERROR_CMD25: u8 = 0x33;
-pub const ERROR_CMD32: u8 = 0x34;
-pub const ERROR_CMD33: u8 = 0x35;
-pub const ERROR_CMD38: u8 = 0x36;
-pub const ERROR_CMD58: u8 = 0x37;
-pub const ERROR_CMD59: u8 = 0x38;
-
-// Application specific commands.
-pub const ERROR_ACMD6: u8 = 0x40;
-pub const ERROR_ACMD13: u8 = 0x41;
-pub const ERROR_ACMD23: u8 = 0x42;
-pub const ERROR_ACMD41: u8 = 0x43;
-
-// Read/write errors
-pub const ERROR_READ: u8 = 0x50;
-pub const ERROR_READ_CRC: u8 = 0x51;
-pub const ERROR_READ_FIFO: u8 = 0x52;
-pub const ERROR_READ_REG: u8 = 0x53;
-pub const ERROR_READ_START: u8 = 0x54;
-pub const ERROR_READ_TIMEOUT: u8 = 0x55;
-pub const ERROR_STOP_TRAN: u8 = 0x56;
-pub const ERROR_WRITE: u8 = 0x57;
-pub const ERROR_WRITE_FIFO: u8 = 0x58;
-pub const ERROR_WRITE_START: u8 = 0x59;
-pub const ERROR_WRITE_TIMEOUT: u8 = 0x60;
-
-// Misc errors.
-pub const ERROR_DMA: u8 = 0x60;
-pub const ERROR_ERASE: u8 = 0x61;
-pub const ERROR_ERASE_SINGLE_BLOCK: u8 = 0x61;
-pub const ERROR_ERASE_TIMEOUT: u8 = 0x62;
-pub const ERROR_INIT_NOT_CALLED: u8 = 0x63;
-pub const ERROR_FUNCTION_NOT_SUPPORTED: u8 = 0x64;
-
-//==============================================================================
-
-/// Types of SD card supported
-#[derive(Debug, Copy, Clone)]
-#[repr(u8)]
-pub enum CardType {
-    SD1 = 1,
-    SD2 = 2,
-    SDHC = 3,
-}
 
 //==============================================================================
 
@@ -98,20 +38,10 @@ pub enum CardType {
 
 /// GO_IDLE_STATE - init card in spi mode if CS low
 pub const CMD0: u8 = 0x00;
-/// ALL_SEND_CID - Asks any card to send the CID.
-pub const CMD2: u8 = 0x02;
-/// SEND_RELATIVE_ADDR - Ask the card to publish a new RCA.
-pub const CMD3: u8 = 0x03;
-/// SWITCH_FUNC - Switch Function Command
-pub const CMD6: u8 = 0x06;
-/// SELECT/DESELECT_CARD - toggles between the stand-by and transfer states.
-pub const CMD7: u8 = 0x07;
 /// SEND_IF_COND - verify SD Memory Card interface operating condition.*/
 pub const CMD8: u8 = 0x08;
 /// SEND_CSD - read the Card Specific Data (CSD register)
 pub const CMD9: u8 = 0x09;
-/// SEND_CID - read the card identification information (CID register)
-pub const CMD10: u8 = 0x0A;
 /// STOP_TRANSMISSION - end multiple block read sequence
 pub const CMD12: u8 = 0x0C;
 /// SEND_STATUS - read the card status register
@@ -124,120 +54,15 @@ pub const CMD18: u8 = 0x12;
 pub const CMD24: u8 = 0x18;
 /// WRITE_MULTIPLE_BLOCK - write blocks of data until a STOP_TRANSMISSION
 pub const CMD25: u8 = 0x19;
-/// ERASE_WR_BLK_START - sets the address of the first block to be erased
-pub const CMD32: u8 = 0x20;
-/// ERASE_WR_BLK_END - sets the address of the last block of the continuous
-/// range to be erased*/
-pub const CMD33: u8 = 0x21;
-/// ERASE - erase all previously selected blocks
-pub const CMD38: u8 = 0x26;
 /// APP_CMD - escape for application specific command
 pub const CMD55: u8 = 0x37;
 /// READ_OCR - read the OCR register of a card
 pub const CMD58: u8 = 0x3A;
 /// CRC_ON_OFF - enable or disable CRC checking
 pub const CMD59: u8 = 0x3B;
-/// SET_BUS_WIDTH - Defines the data bus width for data transfer.
-pub const ACMD6: u8 = 0x06;
-/// SD_STATUS - Send the SD Status.
-pub const ACMD13: u8 = 0x0D;
-/// SET_WR_BLK_ERASE_COUNT - Set the number of write blocks to be pre-erased
-/// before writing
-pub const ACMD23: u8 = 0x17;
 /// SD_SEND_OP_COMD - Sends host capacity support information and activates
 /// the card's initialization process
 pub const ACMD41: u8 = 0x29;
-
-//==============================================================================
-
-// CARD_STATUS
-
-/// The command's argument was out of the allowed range for this card.
-pub const CARD_STATUS_OUT_OF_RANGE: u32 = 1 << 31;
-
-/// A misaligned address which did not match the block length.
-pub const CARD_STATUS_ADDRESS_ERROR: u32 = 1 << 30;
-
-/// The transferred block length is not allowed for this card.
-pub const CARD_STATUS_BLOCK_LEN_ERROR: u32 = 1 << 29;
-
-/// An error in the sequence of erase commands occurred.
-pub const CARD_STATUS_ERASE_SEQ_ERROR: u32 = 1 << 28;
-
-/// An invalid selection of write-blocks for erase occurred.
-pub const CARD_STATUS_ERASE_PARAM: u32 = 1 << 27;
-
-/// Set when the host attempts to write to a protected block.
-pub const CARD_STATUS_WP_VIOLATION: u32 = 1 << 26;
-
-/// When set, signals that the card is locked by the host.
-pub const CARD_STATUS_CARD_IS_LOCKED: u32 = 1 << 25;
-
-/// Set when a sequence or password error has been detected.
-pub const CARD_STATUS_LOCK_UNLOCK_FAILED: u32 = 1 << 24;
-
-/// The CRC check of the previous command failed.
-pub const CARD_STATUS_COM_CRC_ERROR: u32 = 1 << 23;
-
-/// Command not legal for the card state.
-pub const CARD_STATUS_ILLEGAL_COMMAND: u32 = 1 << 22;
-
-/// Card internal ECC was applied but failed to correct the data.
-pub const CARD_STATUS_CARD_ECC_FAILED: u32 = 1 << 21;
-
-/// Internal card controller error
-pub const CARD_STATUS_CC_ERROR: u32 = 1 << 20;
-
-/// A general or an unknown error occurred during the operation.
-pub const CARD_STATUS_ERROR: u32 = 1 << 19;
-
-// bits 19, 18, and 17 reserved.
-/// Permanent WP set or attempt to change read only values of  CSD.
-pub const CARD_STATUS_CSD_OVERWRITE: u32 = 1 << 16;
-
-/// partial address space was erased due to write protect.
-pub const CARD_STATUS_WP_ERASE_SKIP: u32 = 1 << 15;
-
-/// The command has been executed without using the internal ECC.
-pub const CARD_STATUS_CARD_ECC_DISABLED: u32 = 1 << 14;
-
-/// out of erase sequence command was received.
-pub const CARD_STATUS_ERASE_RESET: u32 = 1 << 13;
-
-/// The state of the card when receiving the command.
-/// * 0 = idle
-/// * 1 = ready
-/// * 2 = ident
-/// * 3 = stby
-/// * 4 = tran
-/// * 5 = data
-/// * 6 = rcv
-/// * 7 = prg
-/// * 8 = dis
-/// * 9-14 = reserved
-/// * 15 = reserved for I/O mode
-pub const CARD_STATUS_CURRENT_STATE: u32 = 0xF << 9;
-
-/// Shift for current state.
-pub const CARD_STATUS_CURRENT_STATE_SHIFT: u32 = 9;
-
-/// Corresponds to buffer empty signaling on the bus.
-pub const CARD_STATUS_READY_FOR_DATA: u32 = 1 << 8;
-
-// bit 7 reserved.
-
-/// Extension Functions may set this bit to get host to deal with events.
-pub const CARD_STATUS_FX_EVENT: u32 = 1 << 6;
-
-/// The card will expect ACMD, or the command has been interpreted as ACMD
-pub const CARD_STATUS_APP_CMD: u32 = 1 << 5;
-
-// bit 4 reserved.
-
-/// Error in the sequence of the authentication process.
-pub const CARD_STATUS_AKE_SEQ_ERROR: u32 = 1 << 3;
-
-// bits 2,1, and 0 reserved for manufacturer test mode.
 
 //==============================================================================
 
@@ -265,43 +90,32 @@ pub const DATA_RES_MASK: u8 = 0x1F;
 /// write data accepted token
 pub const DATA_RES_ACCEPTED: u8 = 0x05;
 
-/// Card Identification Register
-#[repr(packed)]
-pub struct Cid {
-    /// Manufacturer ID
-    pub mid: u8,
-    /// OAM/Application ID
-    pub oid: [u8; 2],
-    /// Product Name
-    pub pnm: [u8; 5],
-    /// Product revision
-    pub prv: u8,
-    /// Product Serial Number
-    pub psn: u32,
-    /// Manufacturing date year high digit
-    pub mdt_year_high: u8,
-    /// Manufacturing date month/year low digit
-    pub mdt_year_low_month: u8,
-    /// CRC (top bit always 1)
-    pub crc: u8,
-}
-
+/// Card Specific Data, version 1
+#[derive(Default)]
 pub struct CsdV1 {
+    /// The 16-bytes of data in this Card Specific Data block
     pub data: [u8; 16],
 }
 
+/// Card Specific Data, version 2
+#[derive(Default)]
 pub struct CsdV2 {
+    /// The 16-bytes of data in this Card Specific Data block
     pub data: [u8; 16],
 }
 
+/// Card Specific Data
 pub enum Csd {
+    /// A version 1 CSD
     V1(CsdV1),
+    /// A version 2 CSD
     V2(CsdV2),
 }
 
 impl CsdV1 {
+    /// Create a new, empty, CSD
     pub fn new() -> CsdV1 {
-        CsdV1 { data: [0u8; 16] }
+        CsdV1::default()
     }
 
     define_field!(csd_ver, u8, 0, 6, 2);
@@ -348,8 +162,9 @@ impl CsdV1 {
 }
 
 impl CsdV2 {
+    /// Create a new, empty, CSD
     pub fn new() -> CsdV2 {
-        CsdV2 { data: [0u8; 16] }
+        CsdV2::default()
     }
 
     define_field!(csd_ver, u8, 0, 6, 2);

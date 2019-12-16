@@ -266,7 +266,6 @@ impl DirEntry {
 
 impl ShortFileName {
     const FILENAME_BASE_MAX_LEN: usize = 8;
-    const FILENAME_EXT_MAX_LEN: usize = 3;
     const FILENAME_MAX_LEN: usize = 11;
 
     /// Create a new MS-DOS 8.3 space-padded file name as stored in the directory entry.
@@ -429,8 +428,6 @@ impl core::fmt::Debug for ShortFileName {
 }
 
 impl Timestamp {
-    const MONTH_LOOKUP: [u32; 12] = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334];
-
     /// Create a `Timestamp` from the 16-bit FAT date and time fields.
     pub fn from_fat(date: u16, time: u16) -> Timestamp {
         let year = (1980 + (date >> 9)) as u16;
@@ -635,18 +632,6 @@ impl core::fmt::Debug for Attributes {
 }
 
 impl File {
-    /// Create a new file handle.
-    pub(crate) fn new(cluster: Cluster, length: u32, mode: Mode, entry: DirEntry) -> File {
-        File {
-            starting_cluster: cluster,
-            current_cluster: (0, cluster),
-            mode,
-            length,
-            current_offset: 0,
-            entry,
-        }
-    }
-
     /// Are we at the end of the file?
     pub fn eof(&self) -> bool {
         self.current_offset == self.length

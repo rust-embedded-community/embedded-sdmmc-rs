@@ -63,8 +63,11 @@ pub enum Error {
 /// The possible states `SdMmcSpi` can be in.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum State {
+    /// Card is not initialised
     NoInit,
+    /// Card is in an error state
     Error,
+    /// Card is initialised and idle
     Idle,
 }
 
@@ -392,7 +395,7 @@ where
 
         for _ in 0..512 {
             let result = self.receive()?;
-            if (result & 0x80) == 0 {
+            if (result & 0x80) == ERROR_OK {
                 return Ok(result);
             }
         }

@@ -11,11 +11,12 @@ use byteorder::{ByteOrder, LittleEndian};
 use core::convert::TryFrom;
 use log::{debug, trace, warn};
 
-pub(crate) const RESERVED_ENTRIES: u32 = 2;
+/// Number of entries reserved at the start of a File Allocation Table
+pub const RESERVED_ENTRIES: u32 = 2;
 
 /// Indentifies the supported types of FAT format
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub(crate) enum FatType {
+pub enum FatType {
     /// FAT16 Format
     Fat16,
     /// FAT32 Format
@@ -24,7 +25,7 @@ pub(crate) enum FatType {
 
 /// Indentifies the supported types of FAT format
 #[derive(Debug, Eq, PartialEq)]
-pub(crate) enum FatSpecificInfo {
+pub enum FatSpecificInfo {
     /// Fat16 Format
     Fat16(Fat16Info),
     /// Fat32 Format
@@ -33,7 +34,7 @@ pub(crate) enum FatSpecificInfo {
 
 /// FAT32 specific data
 #[derive(Debug, Eq, PartialEq)]
-pub(crate) struct Fat32Info {
+pub struct Fat32Info {
     /// The root directory does not have a reserved area in FAT32. This is the
     /// cluster it starts in (nominally 2).
     pub(crate) first_root_dir_cluster: Cluster,
@@ -43,16 +44,24 @@ pub(crate) struct Fat32Info {
 
 /// FAT16 specific data
 #[derive(Debug, Eq, PartialEq)]
-pub(crate) struct Fat16Info {
+pub struct Fat16Info {
     /// The block the root directory starts in. Relative to start of partition (so add `self.lba_offset` before passing to controller)
     pub(crate) first_root_dir_block: BlockCount,
     /// Number of entries in root directory (it's reserved and not in the FAT)
     pub(crate) root_entries_count: u16,
 }
 
+/// The name given to a particular FAT formatted volume.
 #[derive(PartialEq, Eq)]
-pub(crate) struct VolumeName {
-    pub(crate) data: [u8; 11],
+pub struct VolumeName {
+    data: [u8; 11],
+}
+
+impl VolumeName {
+    /// Create a new VolumeName
+    pub fn new(data: [u8; 11]) -> VolumeName {
+        VolumeName { data }
+    }
 }
 
 /// Identifies a FAT16 Volume on the disk.
@@ -89,7 +98,10 @@ impl core::fmt::Debug for VolumeName {
     }
 }
 
-struct Bpb<'a> {
+/// Represents a Boot Parameter Block. This is the first sector of a FAT
+/// formatted partition, and it describes various properties of the FAT
+/// filesystem.
+pub struct Bpb<'a> {
     data: &'a [u8; 512],
     fat_type: FatType,
     cluster_count: u32,
@@ -98,6 +110,7 @@ struct Bpb<'a> {
 impl<'a> Bpb<'a> {
     const FOOTER_VALUE: u16 = 0xAA55;
 
+    /// Attempt to parse a Boot Parameter Block from a 512 byte sector.
     pub fn create_from_bytes(data: &[u8; 512]) -> Result<Bpb, &'static str> {
         let mut bpb = Bpb {
             data,
@@ -156,36 +169,14 @@ impl<'a> Bpb<'a> {
     define_field!(fs_info, u16, 48);
     define_field!(backup_boot_block, u16, 50);
 
+    /// Get the OEM name string for this volume
     pub fn oem_name(&self) -> &[u8] {
         &self.data[3..11]
     }
 
     // FAT16/FAT32 functions
 
-    pub fn drive_number(&self) -> u8 {
-        if self.fat_type != FatType::Fat32 {
-            self.data[36]
-        } else {
-            self.data[64]
-        }
-    }
-
-    pub fn boot_signature(&self) -> u8 {
-        if self.fat_type != FatType::Fat32 {
-            self.data[38]
-        } else {
-            self.data[66]
-        }
-    }
-
-    pub fn volume_id(&self) -> u32 {
-        if self.fat_type != FatType::Fat32 {
-            LittleEndian::read_u32(&self.data[39..=42])
-        } else {
-            LittleEndian::read_u32(&self.data[67..=70])
-        }
-    }
-
+    /// Get the Volume Label string for this volume
     pub fn volume_label(&self) -> &[u8] {
         if self.fat_type != FatType::Fat32 {
             &self.data[43..=53]
@@ -194,28 +185,10 @@ impl<'a> Bpb<'a> {
         }
     }
 
-    pub fn fs_type(&self) -> &[u8] {
-        if self.fat_type != FatType::Fat32 {
-            &self.data[54..=61]
-        } else {
-            &self.data[82..=89]
-        }
-    }
-
     // FAT32 only functions
 
-    pub fn current_fat(&self) -> u8 {
-        self.data[40] & 0x0F
-    }
-
-    pub fn use_specific_fat(&self) -> bool {
-        (self.data[40] & 0x80) != 0x00
-    }
-
-    pub fn root_cluster(&self) -> Cluster {
-        Cluster(LittleEndian::read_u32(&self.data[44..=47]))
-    }
-
+    /// On a FAT32 volume, return the free block count from the Info Block. On
+    /// a FAT16 volume, returns None.
     pub fn fs_info_block(&self) -> Option<BlockCount> {
         if self.fat_type != FatType::Fat32 {
             None
@@ -226,6 +199,7 @@ impl<'a> Bpb<'a> {
 
     // Magic functions that get the right FAT16/FAT32 result
 
+    /// Get the size of the File Allocation Table in blocks.
     pub fn fat_size(&self) -> u32 {
         let result = u32::from(self.fat_size16());
         if result != 0 {
@@ -235,6 +209,7 @@ impl<'a> Bpb<'a> {
         }
     }
 
+    /// Get the total number of blocks in this filesystem.
     pub fn total_blocks(&self) -> u32 {
         let result = u32::from(self.total_blocks16());
         if result != 0 {
@@ -244,17 +219,19 @@ impl<'a> Bpb<'a> {
         }
     }
 
+    /// Get the total number of clusters in this filesystem.
     pub fn total_clusters(&self) -> u32 {
         self.cluster_count
     }
 }
 
-/// File System Information structure is only present on FAT32 partitions. It may contain a valid
-/// number of free clusters and the number of the next free cluster.
-/// The information contained in the structure must be considered as advisory only.
-/// File system driver implementations are not required to ensure that information within the
-/// structure is kept consistent.
-struct InfoSector<'a> {
+/// File System Information structure is only present on FAT32 partitions. It
+/// may contain a valid number of free clusters and the number of the next
+/// free cluster. The information contained in the structure must be
+/// considered as advisory only. File system driver implementations are not
+/// required to ensure that information within the structure is kept
+/// consistent.
+pub struct InfoSector<'a> {
     data: &'a [u8; 512],
 }
 
@@ -263,7 +240,8 @@ impl<'a> InfoSector<'a> {
     const STRUC_SIG: u32 = 0x6141_7272;
     const TRAIL_SIG: u32 = 0xAA55_0000;
 
-    fn create_from_bytes(data: &[u8; 512]) -> Result<InfoSector, &'static str> {
+    /// Try and create a new Info Sector from a block.
+    pub fn create_from_bytes(data: &[u8; 512]) -> Result<InfoSector, &'static str> {
         let info = InfoSector { data };
         if info.lead_sig() != Self::LEAD_SIG {
             return Err("Bad lead signature on InfoSector");
@@ -283,6 +261,7 @@ impl<'a> InfoSector<'a> {
     define_field!(next_free, u32, 492);
     define_field!(trail_sig, u32, 508);
 
+    /// Return how many free clusters are left in this volume, if known.
     pub fn free_clusters_count(&self) -> Option<u32> {
         match self.free_count() {
             0xFFFF_FFFF => None,
@@ -290,6 +269,7 @@ impl<'a> InfoSector<'a> {
         }
     }
 
+    /// Return the number of the next free cluster, if known.
     pub fn next_free_cluster(&self) -> Option<Cluster> {
         match self.next_free() {
             // 0 and 1 are reserved clusters
@@ -299,7 +279,8 @@ impl<'a> InfoSector<'a> {
     }
 }
 
-pub(crate) struct OnDiskDirEntry<'a> {
+/// Represents a 32-byte directory entry as stored on-disk in a directory file.
+pub struct OnDiskDirEntry<'a> {
     data: &'a [u8],
 }
 
@@ -338,7 +319,6 @@ impl<'a> core::fmt::Debug for OnDiskDirEntry<'a> {
 impl<'a> OnDiskDirEntry<'a> {
     pub(crate) const LEN: usize = 32;
     pub(crate) const LEN_U32: u32 = 32;
-    const LFN_FRAGMENT_LEN: usize = 13;
 
     define_field!(raw_attr, u8, 11);
     define_field!(create_time, u16, 14);
@@ -350,28 +330,35 @@ impl<'a> OnDiskDirEntry<'a> {
     define_field!(first_cluster_lo, u16, 26);
     define_field!(file_size, u32, 28);
 
-    fn new(data: &[u8]) -> OnDiskDirEntry {
+    /// Create a new on-disk directory entry from a block of 32 bytes read
+    /// from a directory file.
+    pub fn new(data: &[u8]) -> OnDiskDirEntry {
         OnDiskDirEntry { data }
     }
 
-    fn is_end(&self) -> bool {
+    /// Is this the last entry in the directory?
+    pub fn is_end(&self) -> bool {
         self.data[0] == 0x00
     }
 
-    fn is_valid(&self) -> bool {
+    /// Is this a valid entry?
+    pub fn is_valid(&self) -> bool {
         !self.is_end() && (self.data[0] != 0xE5)
     }
 
-    fn is_lfn(&self) -> bool {
+    /// Is this a Long Filename entry?
+    pub fn is_lfn(&self) -> bool {
         let attributes = Attributes::create_from_fat(self.raw_attr());
         attributes.is_lfn()
     }
 
-    fn lfn_contents(&self) -> Option<(bool, u8, [char; 13])> {
+    /// If this is an LFN, get the contents so we can re-assemble the filename.
+    pub fn lfn_contents(&self) -> Option<(bool, u8, [char; 13])> {
         if self.is_lfn() {
             let mut buffer = [' '; 13];
             let is_start = (self.data[0] & 0x40) != 0;
             let sequence = self.data[0] & 0x1F;
+            // LFNs store UCS-2, so we can map from 16-bit char to 32-bit char without problem.
             buffer[0] =
                 core::char::from_u32(u32::from(LittleEndian::read_u16(&self.data[1..=2]))).unwrap();
             buffer[1] =
@@ -412,22 +399,31 @@ impl<'a> OnDiskDirEntry<'a> {
         }
     }
 
-    fn matches(&self, sfn: &ShortFileName) -> bool {
+    /// Does this on-disk entry match the given filename?
+    pub fn matches(&self, sfn: &ShortFileName) -> bool {
         self.data[0..11] == sfn.contents
     }
 
-    fn first_cluster_fat32(&self) -> Cluster {
+    /// Which cluster, if any, does this file start at? Assumes this is from a FAT32 volume.
+    pub fn first_cluster_fat32(&self) -> Cluster {
         let cluster_no =
             (u32::from(self.first_cluster_hi()) << 16) | u32::from(self.first_cluster_lo());
         Cluster(cluster_no)
     }
 
+    /// Which cluster, if any, does this file start at? Assumes this is from a FAT16 volume.
     fn first_cluster_fat16(&self) -> Cluster {
         let cluster_no = u32::from(self.first_cluster_lo());
         Cluster(cluster_no)
     }
 
-    fn get_entry(&self, fat_type: FatType, entry_block: BlockIdx, entry_offset: u32) -> DirEntry {
+    /// Convert the on-disk format into a DirEntry
+    pub fn get_entry(
+        &self,
+        fat_type: FatType,
+        entry_block: BlockIdx,
+        entry_offset: u32,
+    ) -> DirEntry {
         let mut result = DirEntry {
             name: ShortFileName {
                 contents: [0u8; 11],
@@ -492,46 +488,6 @@ impl FatVolume {
             FatSpecificInfo::Fat16(_) => FatType::Fat16,
             FatSpecificInfo::Fat32(_) => FatType::Fat32,
         }
-    }
-
-    /// Get an entry from the FAT
-    fn get_fat<D, T>(
-        &self,
-        controller: &mut Controller<D, T>,
-        cluster: Cluster,
-    ) -> Result<Cluster, Error<D::Error>>
-    where
-        D: BlockDevice,
-        T: TimeSource,
-    {
-        let mut blocks = [Block::new()];
-        let entry = match &self.fat_specific_info {
-            FatSpecificInfo::Fat16(_fat16_info) => {
-                let fat_offset = cluster.0 * 2;
-                let this_fat_block_num = self.lba_start + self.fat_start.offset_bytes(fat_offset);
-                let this_fat_ent_offset = (fat_offset % Block::LEN_U32) as usize;
-                controller
-                    .block_device
-                    .read(&mut blocks, this_fat_block_num, "read_fat")
-                    .map_err(Error::DeviceError)?;
-                u32::from(LittleEndian::read_u16(
-                    &blocks[0][this_fat_ent_offset..=this_fat_ent_offset + 1],
-                ))
-            }
-            FatSpecificInfo::Fat32(_fat32_info) => {
-                // FAT32 => 4 bytes per entry
-                let fat_offset = cluster.0 as u32 * 4;
-                let this_fat_block_num = self.lba_start + self.fat_start.offset_bytes(fat_offset);
-                let this_fat_ent_offset = (fat_offset % Block::LEN_U32) as usize;
-                controller
-                    .block_device
-                    .read(&mut blocks, this_fat_block_num, "read_fat")
-                    .map_err(Error::DeviceError)?;
-                LittleEndian::read_u32(&blocks[0][this_fat_ent_offset..=this_fat_ent_offset + 3])
-                    & 0x0FFF_FFFF
-            }
-        };
-        Ok(Cluster(entry))
     }
 
     /// Write a new entry in the FAT
@@ -1213,27 +1169,6 @@ impl FatVolume {
         Ok(new_cluster)
     }
 
-    /// Tries to allocate a chain of clusters
-    pub(crate) fn alloc_clusters<D, T>(
-        &mut self,
-        controller: &mut Controller<D, T>,
-        mut prev_cluster: Option<Cluster>,
-        mut clusters_to_alloc: u32,
-        zero: bool,
-    ) -> Result<(), Error<D::Error>>
-    where
-        D: BlockDevice,
-        T: TimeSource,
-    {
-        while clusters_to_alloc > 0 {
-            debug!("Allocating clusters, left={:?}", clusters_to_alloc);
-            let new_cluster = self.alloc_cluster(controller, prev_cluster, zero)?;
-            prev_cluster = Some(new_cluster);
-            clusters_to_alloc -= 1;
-        }
-        Ok(())
-    }
-
     /// Marks the input cluster as an EOF and all the subsequent clusters in the chain as free
     pub(crate) fn truncate_cluster_chain<D, T>(
         &mut self,
@@ -1302,6 +1237,9 @@ where
     let bpb = Bpb::create_from_bytes(&block).map_err(Error::FormatError)?;
     match bpb.fat_type {
         FatType::Fat16 => {
+            if bpb.bytes_per_block() as usize != Block::LEN {
+                return Err(Error::BadBlockSize(bpb.bytes_per_block()));
+            }
             // FirstDataSector = BPB_ResvdSecCnt + (BPB_NumFATs * FATSz) + RootDirSectors;
             let root_dir_blocks = ((u32::from(bpb.root_entries_count()) * OnDiskDirEntry::LEN_U32)
                 + (Block::LEN_U32 - 1))
@@ -1656,18 +1594,10 @@ mod test {
         assert_eq!(bpb.num_fats(), 2);
         assert_eq!(bpb.root_entries_count(), 512);
         assert_eq!(bpb.total_blocks16(), 0);
-        assert!((bpb.media() & 0xF0) == 0xF0);
         assert_eq!(bpb.fat_size16(), 32);
-        assert_eq!(bpb.blocks_per_track(), 63);
-        assert_eq!(bpb.num_heads(), 255);
-        assert_eq!(bpb.hidden_blocks(), 0);
         assert_eq!(bpb.total_blocks32(), 122_880);
         assert_eq!(bpb.footer(), 0xAA55);
-        assert_eq!(bpb.drive_number(), 0x80);
-        assert_eq!(bpb.boot_signature(), 0x29);
-        assert_eq!(bpb.volume_id(), 0x7771_B0BB);
         assert_eq!(bpb.volume_label(), b"boot       ");
-        assert_eq!(bpb.fs_type(), b"FAT16   ");
         assert_eq!(bpb.fat_size(), 32);
         assert_eq!(bpb.total_blocks(), 122_880);
         assert_eq!(bpb.fat_type, FatType::Fat16);
