@@ -119,103 +119,105 @@ fn main() {
         .unwrap();
     println!("lbd: {:?}", lbd);
     let mut controller = Controller::new(lbd, Clock);
-    let volume = controller.get_volume(VolumeIdx(0));
-    println!("volume 0: {:#?}", volume);
-    if let Ok(mut volume) = volume {
-        let root_dir = controller.open_root_dir(&volume).unwrap();
-        println!("\tListing root directory:");
-        controller
-            .iterate_dir(&volume, &root_dir, |x| {
-                println!("\t\tFound: {:?}", x);
-            })
-            .unwrap();
+    for volume_idx in 0..=3 {
+        let volume = controller.get_volume(VolumeIdx(volume_idx));
+        println!("volume {}: {:#?}", volume_idx, volume);
+        if let Ok(mut volume) = volume {
+            let root_dir = controller.open_root_dir(&volume).unwrap();
+            println!("\tListing root directory:");
+            controller
+                .iterate_dir(&volume, &root_dir, |x| {
+                    println!("\t\tFound: {:?}", x);
+                })
+                .unwrap();
 
-        // This will panic if the file doesn't exist, use ReadWriteCreateOrTruncate or
-        // ReadWriteCreateOrAppend instead. ReadWriteCreate also creates a file, but it returns an
-        // error if the file already exists
-        let mut f = controller
-            .open_file_in_dir(&mut volume, &root_dir, FILE_TO_WRITE, Mode::ReadOnly)
-            .unwrap();
-        println!("\nReading from file {}\n", FILE_TO_WRITE);
-        println!("FILE STARTS:");
-        while !f.eof() {
-            let mut buffer = [0u8; 32];
-            let num_read = controller.read(&volume, &mut f, &mut buffer).unwrap();
-            for b in &buffer[0..num_read] {
-                if *b == 10 {
-                    print!("\\n");
+            // This will panic if the file doesn't exist, use ReadWriteCreateOrTruncate or
+            // ReadWriteCreateOrAppend instead. ReadWriteCreate also creates a file, but it returns an
+            // error if the file already exists
+            let mut f = controller
+                .open_file_in_dir(&mut volume, &root_dir, FILE_TO_WRITE, Mode::ReadOnly)
+                .unwrap();
+            println!("\nReading from file {}\n", FILE_TO_WRITE);
+            println!("FILE STARTS:");
+            while !f.eof() {
+                let mut buffer = [0u8; 32];
+                let num_read = controller.read(&volume, &mut f, &mut buffer).unwrap();
+                for b in &buffer[0..num_read] {
+                    if *b == 10 {
+                        print!("\\n");
+                    }
+                    print!("{}", *b as char);
                 }
-                print!("{}", *b as char);
             }
-        }
-        println!("EOF\n");
-        controller.close_file(&volume, f).unwrap();
+            println!("EOF\n");
+            controller.close_file(&volume, f).unwrap();
 
-        let mut f = controller
-            .open_file_in_dir(&mut volume, &root_dir, FILE_TO_WRITE, Mode::ReadWriteAppend)
-            .unwrap();
+            let mut f = controller
+                .open_file_in_dir(&mut volume, &root_dir, FILE_TO_WRITE, Mode::ReadWriteAppend)
+                .unwrap();
 
-        let buffer1 = b"\nFile Appended\n";
-        let buffer = [b'a'; 8192];
-        println!("\nAppending to file");
-        let num_written1 = controller.write(&mut volume, &mut f, &buffer1[..]).unwrap();
-        let num_written = controller.write(&mut volume, &mut f, &buffer[..]).unwrap();
-        println!("Number of bytes written: {}\n", num_written + num_written1);
+            let buffer1 = b"\nFile Appended\n";
+            let buffer = [b'a'; 8192];
+            println!("\nAppending to file");
+            let num_written1 = controller.write(&mut volume, &mut f, &buffer1[..]).unwrap();
+            let num_written = controller.write(&mut volume, &mut f, &buffer[..]).unwrap();
+            println!("Number of bytes written: {}\n", num_written + num_written1);
 
-        f.seek_from_start(0).unwrap();
-        println!("\tFinding {}...", FILE_TO_WRITE);
-        println!(
-            "\tFound {}?: {:?}",
-            FILE_TO_WRITE,
-            controller.find_directory_entry(&volume, &root_dir, FILE_TO_WRITE)
-        );
-        println!("\nFILE STARTS:");
-        while !f.eof() {
-            let mut buffer = [0u8; 32];
-            let num_read = controller.read(&volume, &mut f, &mut buffer).unwrap();
-            for b in &buffer[0..num_read] {
-                if *b == 10 {
-                    print!("\\n");
-                }
-                print!("{}", *b as char);
-            }
-        }
-        println!("EOF");
-        controller.close_file(&volume, f).unwrap();
-
-        println!("\nTruncating file");
-        let mut f = controller
-            .open_file_in_dir(
-                &mut volume,
-                &root_dir,
+            f.seek_from_start(0).unwrap();
+            println!("\tFinding {}...", FILE_TO_WRITE);
+            println!(
+                "\tFound {}?: {:?}",
                 FILE_TO_WRITE,
-                Mode::ReadWriteTruncate,
-            )
-            .unwrap();
-
-        let buffer = b"Hello\n";
-        let num_written = controller.write(&mut volume, &mut f, &buffer[..]).unwrap();
-        println!("\nNumber of bytes written: {}\n", num_written);
-
-        println!("\tFinding {}...", FILE_TO_WRITE);
-        println!(
-            "\tFound {}?: {:?}",
-            FILE_TO_WRITE,
-            controller.find_directory_entry(&volume, &root_dir, FILE_TO_WRITE)
-        );
-        f.seek_from_start(0).unwrap();
-        println!("\nFILE STARTS:");
-        while !f.eof() {
-            let mut buffer = [0u8; 32];
-            let num_read = controller.read(&volume, &mut f, &mut buffer).unwrap();
-            for b in &buffer[0..num_read] {
-                if *b == 10 {
-                    print!("\\n");
+                controller.find_directory_entry(&volume, &root_dir, FILE_TO_WRITE)
+            );
+            println!("\nFILE STARTS:");
+            while !f.eof() {
+                let mut buffer = [0u8; 32];
+                let num_read = controller.read(&volume, &mut f, &mut buffer).unwrap();
+                for b in &buffer[0..num_read] {
+                    if *b == 10 {
+                        print!("\\n");
+                    }
+                    print!("{}", *b as char);
                 }
-                print!("{}", *b as char);
             }
+            println!("EOF");
+            controller.close_file(&volume, f).unwrap();
+
+            println!("\nTruncating file");
+            let mut f = controller
+                .open_file_in_dir(
+                    &mut volume,
+                    &root_dir,
+                    FILE_TO_WRITE,
+                    Mode::ReadWriteTruncate,
+                )
+                .unwrap();
+
+            let buffer = b"Hello\n";
+            let num_written = controller.write(&mut volume, &mut f, &buffer[..]).unwrap();
+            println!("\nNumber of bytes written: {}\n", num_written);
+
+            println!("\tFinding {}...", FILE_TO_WRITE);
+            println!(
+                "\tFound {}?: {:?}",
+                FILE_TO_WRITE,
+                controller.find_directory_entry(&volume, &root_dir, FILE_TO_WRITE)
+            );
+            f.seek_from_start(0).unwrap();
+            println!("\nFILE STARTS:");
+            while !f.eof() {
+                let mut buffer = [0u8; 32];
+                let num_read = controller.read(&volume, &mut f, &mut buffer).unwrap();
+                for b in &buffer[0..num_read] {
+                    if *b == 10 {
+                        print!("\\n");
+                    }
+                    print!("{}", *b as char);
+                }
+            }
+            println!("EOF");
+            controller.close_file(&volume, f).unwrap();
         }
-        println!("EOF");
-        controller.close_file(&volume, f).unwrap();
     }
 }
