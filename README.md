@@ -48,7 +48,11 @@ match cont.device().init() {
 
 ## Changelog
 
-### Unreleased changes (will be 0.3.0)
+### Unreleased changes (will be 0.3.1)
+
+* None
+
+### Version 0.3.0
 
 * Updated to `v2` embedded-hal traits.
 * Added open support for all modes.
