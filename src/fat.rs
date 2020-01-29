@@ -670,7 +670,7 @@ impl FatVolume {
         dir: &Directory,
         name: ShortFileName,
         attributes: Attributes,
-    ) -> Result<(DirEntry), Error<D::Error>>
+    ) -> Result<DirEntry, Error<D::Error>>
     where
         D: BlockDevice,
         T: TimeSource,
