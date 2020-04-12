@@ -143,7 +143,7 @@ pub enum FilenameError {
     /// Can't start a file with a period, or after 8 characters.
     MisplacedPeriod,
     /// Can't extract utf8 from file name
-    Uf8Error,
+    Utf8Error,
 }
 
 // ****************************************************************************
@@ -273,13 +273,13 @@ impl ShortFileName {
     /// Get base name (name without extension) of file name
     pub fn base_name(&self) -> Result<&str, FilenameError> {
         core::str::from_utf8(&self.contents[..Self::FILENAME_BASE_MAX_LEN])
-            .map_err(|_| FilenameError::Uf8Error)
+            .map_err(|_| FilenameError::Utf8Error)
     }
 
     /// Get base name (name without extension) of file name
     pub fn extension(&self) -> Result<&str, FilenameError> {
         core::str::from_utf8(&self.contents[Self::FILENAME_BASE_MAX_LEN..])
-            .map_err(|_| FilenameError::Uf8Error)
+            .map_err(|_| FilenameError::Utf8Error)
     }
     /// Create a new MS-DOS 8.3 space-padded file name as stored in the directory entry.
     pub fn create_from_str(name: &str) -> Result<ShortFileName, FilenameError> {

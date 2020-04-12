@@ -436,86 +436,38 @@ where
         }
     }
 
-    /// Open a file with the given full path. A file can only be opened once.
-    pub fn open_file_in_dir(
+    /// Open a file from DirEntry. This is obtained by calling iterate_dir. A file can only be opened once.
+    pub fn open_dir_entry(
         &mut self,
         volume: &mut Volume,
-        dir: &Directory,
-        name: &str,
+        dir_entry: DirEntry,
         mode: Mode,
     ) -> Result<File, Error<D::Error>> {
-        // Find a free directory entry
-        let mut open_files_row = None;
-        for (i, d) in self.open_files.iter().enumerate() {
-            if d.1 == Cluster::INVALID {
-                open_files_row = Some(i);
+        let open_files_row = self.get_open_files_row()?;
+        // Check it's not already open
+        for dir_table_row in self.open_files.iter() {
+            if *dir_table_row == (volume.idx, dir_entry.cluster) {
+                return Err(Error::DirAlreadyOpen);
             }
         }
-        let open_files_row = open_files_row.ok_or(Error::TooManyOpenDirs)?;
-        let dir_entry = match &volume.volume_type {
-            VolumeType::Fat(fat) => fat.find_directory_entry(self, dir, name),
-        };
-
-        let dir_entry = match dir_entry {
-            Ok(entry) => Some(entry),
-            Err(_)
-                if (mode == Mode::ReadWriteCreate)
-                    | (mode == Mode::ReadWriteCreateOrTruncate)
-                    | (mode == Mode::ReadWriteCreateOrAppend) =>
-            {
-                None
-            }
-            _ => return Err(Error::FileNotFound),
-        };
-
-        if let Some(entry) = &dir_entry {
-            // Check it's not already open
-            for dir_table_row in self.open_files.iter() {
-                if *dir_table_row == (volume.idx, entry.cluster) {
-                    return Err(Error::DirAlreadyOpen);
-                }
-            }
-            if entry.attributes.is_directory() {
-                return Err(Error::OpenedDirAsFile);
-            }
-            if entry.attributes.is_read_only() && mode != Mode::ReadOnly {
-                return Err(Error::ReadOnly);
-            }
-        };
-
-        let mut mode = mode;
-        if mode == Mode::ReadWriteCreateOrAppend {
-            if dir_entry.is_some() {
-                mode = Mode::ReadWriteAppend;
-            } else {
-                mode = Mode::ReadWriteCreate;
-            }
-        } else if mode == Mode::ReadWriteCreateOrTruncate {
-            if dir_entry.is_some() {
-                mode = Mode::ReadWriteTruncate;
-            } else {
-                mode = Mode::ReadWriteCreate;
-            }
+        if dir_entry.attributes.is_directory() {
+            return Err(Error::OpenedDirAsFile);
+        }
+        if dir_entry.attributes.is_read_only() && mode != Mode::ReadOnly {
+            return Err(Error::ReadOnly);
         }
 
+        let mode = solve_mode_variant(mode, true);
         let file = match mode {
-            Mode::ReadOnly => {
-                // Safe to unwrap, since we actually have an entry if we got here
-                let dir_entry = dir_entry.unwrap();
-
-                File {
-                    starting_cluster: dir_entry.cluster,
-                    current_cluster: (0, dir_entry.cluster),
-                    current_offset: 0,
-                    length: dir_entry.size,
-                    mode,
-                    entry: dir_entry,
-                }
-            }
+            Mode::ReadOnly => File {
+                starting_cluster: dir_entry.cluster,
+                current_cluster: (0, dir_entry.cluster),
+                current_offset: 0,
+                length: dir_entry.size,
+                mode,
+                entry: dir_entry,
+            },
             Mode::ReadWriteAppend => {
-                // Safe to unwrap, since we actually have an entry if we got here
-                let dir_entry = dir_entry.unwrap();
-
                 let mut file = File {
                     starting_cluster: dir_entry.cluster,
                     current_cluster: (0, dir_entry.cluster),
@@ -529,9 +481,6 @@ where
                 file
             }
             Mode::ReadWriteTruncate => {
-                // Safe to unwrap, since we actually have an entry if we got here
-                let dir_entry = dir_entry.unwrap();
-
                 let mut file = File {
                     starting_cluster: dir_entry.cluster,
                     current_cluster: (0, dir_entry.cluster),
@@ -556,6 +505,41 @@ where
 
                 file
             }
+            _ => return Err(Error::Unsupported),
+        };
+        // Remember this open file
+        self.open_files[open_files_row] = (volume.idx, file.starting_cluster);
+        Ok(file)
+    }
+
+    /// Open a file with the given full path. A file can only be opened once.
+    pub fn open_file_in_dir(
+        &mut self,
+        volume: &mut Volume,
+        dir: &Directory,
+        name: &str,
+        mode: Mode,
+    ) -> Result<File, Error<D::Error>> {
+        let dir_entry = match &volume.volume_type {
+            VolumeType::Fat(fat) => fat.find_directory_entry(self, dir, name),
+        };
+
+        let open_files_row = self.get_open_files_row()?;
+        let dir_entry = match dir_entry {
+            Ok(entry) => Some(entry),
+            Err(_)
+                if (mode == Mode::ReadWriteCreate)
+                    | (mode == Mode::ReadWriteCreateOrTruncate)
+                    | (mode == Mode::ReadWriteCreateOrAppend) =>
+            {
+                None
+            }
+            _ => return Err(Error::FileNotFound),
+        };
+
+        let mode = solve_mode_variant(mode, dir_entry.is_some());
+
+        match mode {
             Mode::ReadWriteCreate => {
                 if dir_entry.is_some() {
                     return Err(Error::FileAlreadyExists);
@@ -569,20 +553,36 @@ where
                     }
                 };
 
-                File {
+                let file = File {
                     starting_cluster: entry.cluster,
                     current_cluster: (0, entry.cluster),
                     current_offset: 0,
                     length: entry.size,
                     mode,
                     entry,
-                }
+                };
+                // Remember this open file
+                self.open_files[open_files_row] = (volume.idx, file.starting_cluster);
+                Ok(file)
             }
-            _ => return Err(Error::Unsupported),
-        };
-        // Remember this open file
-        self.open_files[open_files_row] = (volume.idx, file.starting_cluster);
-        Ok(file)
+            _ => {
+                // Safe to unwrap, since we actually have an entry if we got here
+                let dir_entry = dir_entry.unwrap();
+                self.open_dir_entry(volume, dir_entry, mode)
+            }
+        }
+    }
+
+    /// Get the next entry in open_files list
+    fn get_open_files_row(&self) -> Result<usize, Error<D::Error>> {
+        // Find a free directory entry
+        let mut open_files_row = None;
+        for (i, d) in self.open_files.iter().enumerate() {
+            if d.1 == Cluster::INVALID {
+                open_files_row = Some(i);
+            }
+        }
+        open_files_row.ok_or(Error::TooManyOpenDirs)
     }
 
     /// Read from an open file.
@@ -796,7 +796,24 @@ where
 //
 // ****************************************************************************
 
-// None
+/// Transform mode variants (ReadWriteCreate_Or_Append) to simple modes ReadWriteAppend
+fn solve_mode_variant(mode: Mode, dir_entry_is_some: bool) -> Mode {
+    let mut mode = mode;
+    if mode == Mode::ReadWriteCreateOrAppend {
+        if dir_entry_is_some {
+            mode = Mode::ReadWriteAppend;
+        } else {
+            mode = Mode::ReadWriteCreate;
+        }
+    } else if mode == Mode::ReadWriteCreateOrTruncate {
+        if dir_entry_is_some {
+            mode = Mode::ReadWriteTruncate;
+        } else {
+            mode = Mode::ReadWriteCreate;
+        }
+    }
+    mode
+}
 
 // ****************************************************************************
 //
