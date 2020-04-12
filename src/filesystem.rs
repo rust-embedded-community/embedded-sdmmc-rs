@@ -142,6 +142,8 @@ pub enum FilenameError {
     NameTooLong,
     /// Can't start a file with a period, or after 8 characters.
     MisplacedPeriod,
+    /// Can't extract utf8 from file name
+    Uf8Error,
 }
 
 // ****************************************************************************
@@ -268,6 +270,17 @@ impl ShortFileName {
     const FILENAME_BASE_MAX_LEN: usize = 8;
     const FILENAME_MAX_LEN: usize = 11;
 
+    /// Get base name (name without extension) of file name
+    pub fn base_name(&self) -> Result<&str, FilenameError> {
+        core::str::from_utf8(&self.contents[..Self::FILENAME_BASE_MAX_LEN])
+            .map_err(|_| FilenameError::Uf8Error)
+    }
+
+    /// Get base name (name without extension) of file name
+    pub fn extension(&self) -> Result<&str, FilenameError> {
+        core::str::from_utf8(&self.contents[Self::FILENAME_BASE_MAX_LEN..])
+            .map_err(|_| FilenameError::Uf8Error)
+    }
     /// Create a new MS-DOS 8.3 space-padded file name as stored in the directory entry.
     pub fn create_from_str(name: &str) -> Result<ShortFileName, FilenameError> {
         let mut sfn = ShortFileName {
@@ -733,6 +746,20 @@ mod test {
         };
         assert_eq!(format!("{}", &sfn), "HELLO.TXT");
         assert_eq!(sfn, ShortFileName::create_from_str("HELLO.TXT").unwrap());
+    }
+
+    #[test]
+    fn filename_get_extension() {
+        let mut sfn = ShortFileName::create_from_str("hello.txt").unwrap();
+        assert_eq!(sfn.extension().unwrap(), "TXT");
+        sfn = ShortFileName::create_from_str("hello").unwrap();
+        assert_eq!(sfn.extension().unwrap(), "   ");
+    }
+
+    #[test]
+    fn filename_get_base_name() {
+        let sfn = ShortFileName::create_from_str("hello.txt").unwrap();
+        assert_eq!(sfn.base_name().unwrap(), "HELLO   ");
     }
 
     #[test]
