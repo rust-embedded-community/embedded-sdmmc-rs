@@ -796,7 +796,8 @@ where
 //
 // ****************************************************************************
 
-/// Transform mode variants (ReadWriteCreate_Or_Append) to simple modes ReadWriteAppend
+/// Transform mode variants (ReadWriteCreate_Or_Append) to simple modes ReadWriteAppend or
+/// ReadWriteCreate
 fn solve_mode_variant(mode: Mode, dir_entry_is_some: bool) -> Mode {
     let mut mode = mode;
     if mode == Mode::ReadWriteCreateOrAppend {
