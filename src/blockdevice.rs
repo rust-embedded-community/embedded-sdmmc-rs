@@ -169,7 +169,7 @@ impl BlockIdx {
     /// Create an iterator from the current `BlockIdx` through the given
     /// number of blocks.
     pub fn range(self, num: BlockCount) -> BlockIter {
-        BlockIter::new(self, self + BlockCount(num.0 - 1))
+        BlockIter::new(self, self + BlockCount(num.0))
     }
 }
 
@@ -199,7 +199,7 @@ impl core::iter::Iterator for BlockIter {
             None
         } else {
             let this = self.current;
-            self.current = self.current + BlockCount(1);
+            self.current += BlockCount(1);
             Some(this)
         }
     }

@@ -1,4 +1,6 @@
-
+//! embedded-sdmmc-rs - SDMMC Protocol implementation
+//!
+//! Implements the SDMMC protocol over SPI and SDIO transport layers.
 
 mod sdio;
 mod spi;
@@ -8,10 +10,13 @@ use crate::sdmmc_proto::*;
 
 pub use spi::SdMmcSpi;
 
+/// Defines the functionality of a transport mechanism over which the SDMMC protocol
+/// is executed. Implemented for SPI and SDIO transports.
 pub trait Transport {
-
+    /// Initialize the transport layer.
     fn init(&mut self) -> Result<(), Error>;
 
+    /// Send a command to the card.
     fn card_command(&self, command: u8, arg: u32) -> Result<u8, Error>;
 
     /// Receive a byte from the SD card
@@ -59,7 +64,7 @@ pub trait Transport {
         for &b in buffer.iter() {
             self.send(b)?;
         }
-        self.send((calc_crc >> 16) as u8)?;
+        self.send((calc_crc >> 8) as u8)?;
         self.send(calc_crc as u8)?;
         let status = self.receive()?;
         if (status & DATA_RES_MASK) != DATA_RES_ACCEPTED {
@@ -69,6 +74,7 @@ pub trait Transport {
         }
     }
     
+    /// Send an application-specific command to the card.
     fn card_acmd(&self, command: u8, arg: u32) -> Result<u8, Error> {
         self.card_command(CMD55, 0)?;
         self.card_command(command, arg)
@@ -76,11 +82,13 @@ pub trait Transport {
 }
 
 const DEFAULT_DELAY_COUNT: u32 = 32_000;
+
 /// A terrible hack for busy-waiting the CPU while we wait for the card to
 /// sort itself out.
 ///
 /// @TODO replace this!
 struct Delay(u32);
+
 impl Delay {
     fn new() -> Delay {
         Delay(DEFAULT_DELAY_COUNT)
@@ -129,13 +137,18 @@ pub enum Error {
     BadState,
     /// Couldn't find the card
     CardNotFound,
+    /// Couldn't set a GPIO pin
+    GpioError,
 }
 
 /// The possible states `SdMmcSpi` can be in.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum State {
+    /// Card is not initialised
     NoInit,
+    /// Card is in an error state
     Error,
+    /// Card is initialised and idle
     Idle,
 }
 

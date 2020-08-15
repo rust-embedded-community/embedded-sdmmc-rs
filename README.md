@@ -11,7 +11,7 @@ designed for readability and simplicity over performance.
 You will need something that implements the `BlockDevice` trait, which can read and write the 512-byte blocks (or sectors) from your card. If you were to implement this over USB Mass Storage, there's no reason this crate couldn't work with a USB Thumb Drive, but we only supply a `BlockDevice` suitable for reading SD and SDHC cards over SPI.
 
 ```rust
-let mut cont = embedded_sdmmc::Controller::new(embedded_sdmmc::SdMmcSpi::new(sdmmc_spi, sdmmc_cs));
+let mut cont = embedded_sdmmc::Controller::new(embedded_sdmmc::SdMmcSpi::new(sdmmc_spi, sdmmc_cs), time_source);
 write!(uart, "Init SD card...").unwrap();
 match cont.device().init() {
     Ok(_) => {
@@ -21,7 +21,7 @@ match cont.device().init() {
             Err(e) => writeln!(uart, "Err: {:?}", e).unwrap(),
         }
         write!(uart, "Volume 0...").unwrap();
-        match cont.get_volume(0) {
+        match cont.get_volume(embedded_sdmmc::VolumeIdx(0)) {
             Ok(v) => writeln!(uart, "{:?}", v).unwrap(),
             Err(e) => writeln!(uart, "Err: {:?}", e).unwrap(),
         }
@@ -32,29 +32,35 @@ match cont.device().init() {
 
 ## Supported features
 
-* Open files read-only from an open directory
+* Open files in all supported methods from an open directory
 * Read data from open files
+* Write data to open files
 * Close files
 * Iterate root directory
 * Iterate sub-directories
 
 ## Todo List (PRs welcome!)
 
-* Open non-root dirs
-* Iterate non-root dirs
-* Open files for append
-* Append to files
 * Create new dirs
-* Create new files
 * Delete files
 * Delete (empty) directories
 * Handle MS-DOS `/path/foo/bar.txt` style paths.
 
 ## Changelog
 
-### Unreleased changes (will be 0.3.0)
+### Unreleased changes (will be 0.3.1)
 
-* No changes
+* Code tidy-ups and more documentation.
+
+### Version 0.3.0
+
+* Updated to `v2` embedded-hal traits.
+* Added open support for all modes.
+* Added write support for files.
+* Added `Info_Sector` tracking for FAT32.
+* Change directory iteration to look in all the directory's clusters.
+* Added `write_test` and `create_test`.
+* De-duplicated FAT16 and FAT32 code (https://github.com/thejpster/embedded-sdmmc-rs/issues/10)
 
 ### Version 0.2.1
 

@@ -1,7 +1,62 @@
-//! embedded-sdmmc-rs - A SD/MMC Library written in Embedded Rust
+//! # embedded-sdmmc
+//!
+//! > An SD/MMC Library written in Embedded Rust
+//!
+//! This crate is intended to allow you to read/write files on a FAT formatted SD
+//! card on your Rust Embedded device, as easily as using the `SdFat` Arduino
+//! library. It is written in pure-Rust, is `#![no_std]` and does not use `alloc`
+//! or `collections` to keep the memory footprint low. In the first instance it is
+//! designed for readability and simplicity over performance.
+//!
+//! ## Using the crate
+//!
+//! You will need something that implements the `BlockDevice` trait, which can read and write the 512-byte blocks (or sectors) from your card. If you were to implement this over USB Mass Storage, there's no reason this crate couldn't work with a USB Thumb Drive, but we only supply a `BlockDevice` suitable for reading SD and SDHC cards over SPI.
+//!
+//! ```rust
+//! # struct DummySpi;
+//! # struct DummyCsPin;
+//! # struct DummyUart;
+//! # struct DummyTimeSource;
+//! # impl embedded_hal::spi::FullDuplex<u8> for  DummySpi {
+//! #   type Error = ();
+//! #   fn read(&mut self) -> nb::Result<u8, ()> { Ok(0) }
+//! #   fn send(&mut self, byte: u8) -> nb::Result<(), ()> { Ok(()) }
+//! # }
+//! # impl embedded_hal::digital::v2::OutputPin for DummyCsPin {
+//! #   type Error = ();
+//! #   fn set_low(&mut self) -> Result<(), ()> { Ok(()) }
+//! #   fn set_high(&mut self) -> Result<(), ()> { Ok(()) }
+//! # }
+//! # impl embedded_sdmmc::TimeSource for DummyTimeSource {
+//! #   fn get_timestamp(&self) -> embedded_sdmmc::Timestamp { embedded_sdmmc::Timestamp::from_fat(0, 0) }
+//! # }
+//! # impl std::fmt::Write for DummyUart { fn write_str(&mut self, s: &str) -> std::fmt::Result { Ok(()) } }
+//! # use std::fmt::Write;
+//! # let mut uart = DummyUart;
+//! # let mut sdmmc_spi = DummySpi;
+//! # let mut sdmmc_cs = DummyCsPin;
+//! # let time_source = DummyTimeSource;
+//! use embedded_sdmmc::sdmmc::Transport;
+//! let mut cont = embedded_sdmmc::Controller::new(embedded_sdmmc::SdMmcSpi::new(sdmmc_spi, sdmmc_cs), time_source);
+//! write!(uart, "Init SD card...").unwrap();
+//! match cont.device().init() {
+//!     Ok(_) => {
+//!         write!(uart, "OK!\nCard size...").unwrap();
+//!         match cont.device().card_size_bytes() {
+//!             Ok(size) => writeln!(uart, "{}", size).unwrap(),
+//!             Err(e) => writeln!(uart, "Err: {:?}", e).unwrap(),
+//!         }
+//!         write!(uart, "Volume 0...").unwrap();
+//!         match cont.get_volume(embedded_sdmmc::VolumeIdx(0)) {
+//!             Ok(v) => writeln!(uart, "{:?}", v).unwrap(),
+//!             Err(e) => writeln!(uart, "Err: {:?}", e).unwrap(),
+//!         }
+//!     }
+//!     Err(e) => writeln!(uart, "{:?}!", e).unwrap(),
+//! }
+//! ```
 
 #![cfg_attr(not(test), no_std)]
-#![allow(dead_code)]
 #![deny(missing_docs)]
 
 // ****************************************************************************
@@ -11,21 +66,24 @@
 // ****************************************************************************
 
 use byteorder::{ByteOrder, LittleEndian};
+use core::convert::TryFrom;
+use log::debug;
 
 #[macro_use]
 mod structure;
 
-mod blockdevice;
-mod fat;
-mod filesystem;
-mod sdmmc;
-mod sdmmc_proto;
+pub mod blockdevice;
+pub mod fat;
+pub mod filesystem;
+pub mod sdmmc;
+pub mod sdmmc_proto;
 
 pub use crate::blockdevice::{Block, BlockCount, BlockDevice, BlockIdx};
-pub use crate::fat::{Fat16Volume, Fat32Volume};
+pub use crate::fat::FatVolume;
+use crate::fat::RESERVED_ENTRIES;
 pub use crate::filesystem::{
     Attributes, Cluster, DirEntry, Directory, File, FilenameError, Mode, ShortFileName, TimeSource,
-    Timestamp,
+    Timestamp, MAX_FILE_SIZE,
 };
 pub use crate::sdmmc::Error as SdMmcError;
 pub use crate::sdmmc::SdMmcSpi;
@@ -68,6 +126,20 @@ where
     EndOfFile,
     /// Found a bad cluster
     BadCluster,
+    /// Error while converting types
+    ConversionError,
+    /// The device does not have enough space for the operation
+    NotEnoughSpace,
+    /// Cluster was not properly allocated by the library
+    AllocationError,
+    /// Jumped to free space during fat traversing
+    JumpedFree,
+    /// Tried to open Read-Only file with write mode
+    ReadOnly,
+    /// Tried to create an existing file
+    FileAlreadyExists,
+    /// Bad block size - only 512 byte blocks supported
+    BadBlockSize(u16),
 }
 
 /// We have to track what directories are open to prevent users from modifying
@@ -102,10 +174,8 @@ pub struct Volume {
 /// support.
 #[derive(Debug, PartialEq, Eq)]
 pub enum VolumeType {
-    /// FAT16 formatted volumes (usually HDD and SD card partitions under 2 GiB)
-    Fat16(Fat16Volume),
-    /// FAT32 formatted volumes (usually HDD and SD card partitions over 2 GiB)
-    Fat32(Fat32Volume),
+    /// FAT16/FAT32 formatted volumes.
+    Fat(FatVolume),
 }
 
 /// A `VolumeIdx` is a number which identifies a volume (or partition) on a
@@ -136,6 +206,9 @@ const PARTITION_ID_FAT16_LBA: u8 = 0x0E;
 /// Marker for a FAT16 partition. Seen on a card formatted with the official
 /// SD-Card formatter.
 const PARTITION_ID_FAT16: u8 = 0x06;
+/// Marker for a FAT32 partition. What Macosx disk utility (and also SD-Card formatter?)
+/// use.
+const PARTITION_ID_FAT32_CHS_LBA: u8 = 0x0B;
 
 // ****************************************************************************
 //
@@ -161,6 +234,7 @@ where
     /// controller we can open volumes (partitions) and with those we can open
     /// files.
     pub fn new(block_device: D, timesource: T) -> Controller<D, T> {
+        debug!("Creating new embedded-sdmmc::Controller");
         Controller {
             block_device,
             timesource,
@@ -236,7 +310,10 @@ where
             )
         };
         match part_type {
-            PARTITION_ID_FAT32_LBA | PARTITION_ID_FAT16_LBA | PARTITION_ID_FAT16 => {
+            PARTITION_ID_FAT32_CHS_LBA
+            | PARTITION_ID_FAT32_LBA
+            | PARTITION_ID_FAT16_LBA
+            | PARTITION_ID_FAT16 => {
                 let volume = fat::parse_volume(self, lba_start, num_blocks)?;
                 Ok(Volume {
                     idx: volume_idx,
@@ -272,6 +349,7 @@ where
         self.open_dirs[open_dirs_row] = (volume.idx, Cluster::ROOT_DIR);
         Ok(Directory {
             cluster: Cluster::ROOT_DIR,
+            entry: None,
         })
     }
 
@@ -298,8 +376,7 @@ where
 
         // Open the directory
         let dir_entry = match &volume.volume_type {
-            VolumeType::Fat16(fat) => fat.find_directory_entry(self, parent_dir, name)?,
-            VolumeType::Fat32(fat) => fat.find_directory_entry(self, parent_dir, name)?,
+            VolumeType::Fat(fat) => fat.find_directory_entry(self, parent_dir, name)?,
         };
 
         if !dir_entry.attributes.is_directory() {
@@ -316,6 +393,7 @@ where
         self.open_dirs[open_dirs_row] = (volume.idx, dir_entry.cluster);
         Ok(Directory {
             cluster: dir_entry.cluster,
+            entry: Some(dir_entry),
         })
     }
 
@@ -340,8 +418,7 @@ where
         name: &str,
     ) -> Result<DirEntry, Error<D::Error>> {
         match &volume.volume_type {
-            VolumeType::Fat16(fat) => fat.find_directory_entry(self, dir, name),
-            VolumeType::Fat32(fat) => fat.find_directory_entry(self, dir, name),
+            VolumeType::Fat(fat) => fat.find_directory_entry(self, dir, name),
         }
     }
 
@@ -356,23 +433,18 @@ where
         F: FnMut(&DirEntry),
     {
         match &volume.volume_type {
-            VolumeType::Fat16(fat) => fat.iterate_dir(self, dir, func),
-            VolumeType::Fat32(fat) => fat.iterate_dir(self, dir, func),
+            VolumeType::Fat(fat) => fat.iterate_dir(self, dir, func),
         }
     }
 
     /// Open a file with the given full path. A file can only be opened once.
     pub fn open_file_in_dir(
         &mut self,
-        volume: &Volume,
+        volume: &mut Volume,
         dir: &Directory,
         name: &str,
         mode: Mode,
     ) -> Result<File, Error<D::Error>> {
-        if mode != Mode::ReadOnly {
-            // Only read-only for now
-            return Err(Error::Unsupported);
-        }
         // Find a free directory entry
         let mut open_files_row = None;
         for (i, d) in self.open_files.iter().enumerate() {
@@ -382,29 +454,136 @@ where
         }
         let open_files_row = open_files_row.ok_or(Error::TooManyOpenDirs)?;
         let dir_entry = match &volume.volume_type {
-            VolumeType::Fat16(fat) => fat.find_directory_entry(self, dir, name)?,
-            VolumeType::Fat32(fat) => fat.find_directory_entry(self, dir, name)?,
+            VolumeType::Fat(fat) => fat.find_directory_entry(self, dir, name),
         };
 
-        if dir_entry.attributes.is_directory() {
-            return Err(Error::OpenedDirAsFile);
-        }
+        let dir_entry = match dir_entry {
+            Ok(entry) => Some(entry),
+            Err(_)
+                if (mode == Mode::ReadWriteCreate)
+                    | (mode == Mode::ReadWriteCreateOrTruncate)
+                    | (mode == Mode::ReadWriteCreateOrAppend) =>
+            {
+                None
+            }
+            _ => return Err(Error::FileNotFound),
+        };
 
-        // Check it's not already open
-        for dir_table_row in self.open_files.iter() {
-            if *dir_table_row == (volume.idx, dir_entry.cluster) {
-                return Err(Error::DirAlreadyOpen);
+        if let Some(entry) = &dir_entry {
+            // Check it's not already open
+            for dir_table_row in self.open_files.iter() {
+                if *dir_table_row == (volume.idx, entry.cluster) {
+                    return Err(Error::DirAlreadyOpen);
+                }
+            }
+            if entry.attributes.is_directory() {
+                return Err(Error::OpenedDirAsFile);
+            }
+            if entry.attributes.is_read_only() && mode != Mode::ReadOnly {
+                return Err(Error::ReadOnly);
+            }
+        };
+
+        let mut mode = mode;
+        if mode == Mode::ReadWriteCreateOrAppend {
+            if dir_entry.is_some() {
+                mode = Mode::ReadWriteAppend;
+            } else {
+                mode = Mode::ReadWriteCreate;
+            }
+        } else if mode == Mode::ReadWriteCreateOrTruncate {
+            if dir_entry.is_some() {
+                mode = Mode::ReadWriteTruncate;
+            } else {
+                mode = Mode::ReadWriteCreate;
             }
         }
+
+        let file = match mode {
+            Mode::ReadOnly => {
+                // Safe to unwrap, since we actually have an entry if we got here
+                let dir_entry = dir_entry.unwrap();
+
+                File {
+                    starting_cluster: dir_entry.cluster,
+                    current_cluster: (0, dir_entry.cluster),
+                    current_offset: 0,
+                    length: dir_entry.size,
+                    mode,
+                    entry: dir_entry,
+                }
+            }
+            Mode::ReadWriteAppend => {
+                // Safe to unwrap, since we actually have an entry if we got here
+                let dir_entry = dir_entry.unwrap();
+
+                let mut file = File {
+                    starting_cluster: dir_entry.cluster,
+                    current_cluster: (0, dir_entry.cluster),
+                    current_offset: 0,
+                    length: dir_entry.size,
+                    mode,
+                    entry: dir_entry,
+                };
+                // seek_from_end with 0 can't fail
+                file.seek_from_end(0).ok();
+                file
+            }
+            Mode::ReadWriteTruncate => {
+                // Safe to unwrap, since we actually have an entry if we got here
+                let dir_entry = dir_entry.unwrap();
+
+                let mut file = File {
+                    starting_cluster: dir_entry.cluster,
+                    current_cluster: (0, dir_entry.cluster),
+                    current_offset: 0,
+                    length: dir_entry.size,
+                    mode,
+                    entry: dir_entry,
+                };
+                match &mut volume.volume_type {
+                    VolumeType::Fat(fat) => {
+                        fat.truncate_cluster_chain(self, file.starting_cluster)?
+                    }
+                };
+                file.update_length(0);
+                // TODO update entry Timestamps
+                match &volume.volume_type {
+                    VolumeType::Fat(fat) => {
+                        let fat_type = fat.get_fat_type();
+                        self.write_entry_to_disk(fat_type, &file.entry)?;
+                    }
+                };
+
+                file
+            }
+            Mode::ReadWriteCreate => {
+                if dir_entry.is_some() {
+                    return Err(Error::FileAlreadyExists);
+                }
+                let file_name =
+                    ShortFileName::create_from_str(name).map_err(Error::FilenameError)?;
+                let att = Attributes::create_from_fat(0);
+                let entry = match &mut volume.volume_type {
+                    VolumeType::Fat(fat) => {
+                        fat.write_new_directory_entry(self, dir, file_name, att)?
+                    }
+                };
+
+                File {
+                    starting_cluster: entry.cluster,
+                    current_cluster: (0, entry.cluster),
+                    current_offset: 0,
+                    length: entry.size,
+                    mode,
+                    entry,
+                }
+            }
+            _ => return Err(Error::Unsupported),
+        };
         // Remember this open file
-        self.open_files[open_files_row] = (volume.idx, dir_entry.cluster);
-        Ok(File {
-            starting_cluster: dir_entry.cluster,
-            current_cluster: (0, dir_entry.cluster),
-            current_offset: 0,
-            length: dir_entry.size,
-            mode,
-        })
+        self.open_files[open_files_row] = (volume.idx, file.starting_cluster);
+        Ok(file)
     }
 
     /// Read from an open file.
@@ -420,9 +599,8 @@ where
         let mut space = buffer.len();
         let mut read = 0;
         while space > 0 && !file.eof() {
-            let (block_idx, block_offset, block_avail, resume_from) =
-                self.find_data_on_disk(volume, file.current_cluster, file.current_offset)?;
-            file.current_cluster = resume_from;
+            let (block_idx, block_offset, block_avail) =
+                self.find_data_on_disk(volume, &mut file.current_cluster, file.current_offset)?;
             let mut blocks = [Block::new()];
             self.block_device
                 .read(&mut blocks, block_idx, "read")
@@ -437,6 +615,112 @@ where
             file.seek_from_current(to_copy as i32).unwrap();
         }
         Ok(read)
+    }
+
+    /// Write to a open file.
+    pub fn write(
+        &mut self,
+        volume: &mut Volume,
+        file: &mut File,
+        buffer: &[u8],
+    ) -> Result<usize, Error<D::Error>> {
+        debug!(
+            "write(volume={:?}, file={:?}, buffer={:x?}",
+            volume, file, buffer
+        );
+        if file.mode == Mode::ReadOnly {
+            return Err(Error::ReadOnly);
+        }
+        if file.starting_cluster.0 < RESERVED_ENTRIES {
+            // file doesn't have a valid allocated cluster (possible zero-length file), allocate one
+            file.starting_cluster = match &mut volume.volume_type {
+                VolumeType::Fat(fat) => fat.alloc_cluster(self, None, false)?,
+            };
+            file.entry.cluster = file.starting_cluster;
+            debug!("Alloc first cluster {:?}", file.starting_cluster);
+        }
+        if (file.current_cluster.1).0 < file.starting_cluster.0 {
+            debug!("Rewinding to start");
+            file.current_cluster = (0, file.starting_cluster);
+        }
+        let bytes_until_max = usize::try_from(MAX_FILE_SIZE - file.current_offset)
+            .map_err(|_| Error::ConversionError)?;
+        let bytes_to_write = core::cmp::min(buffer.len(), bytes_until_max);
+        let mut written = 0;
+
+        while written < bytes_to_write {
+            let mut current_cluster = file.current_cluster;
+            debug!(
+                "Have written bytes {}/{}, finding cluster {:?}",
+                written, bytes_to_write, current_cluster
+            );
+            let (block_idx, block_offset, block_avail) =
+                match self.find_data_on_disk(volume, &mut current_cluster, file.current_offset) {
+                    Ok(vars) => {
+                        debug!(
+                            "Found block_idx={:?}, block_offset={:?}, block_avail={}",
+                            vars.0, vars.1, vars.2
+                        );
+                        vars
+                    }
+                    Err(Error::EndOfFile) => {
+                        debug!("Extending file");
+                        match &mut volume.volume_type {
+                            VolumeType::Fat(ref mut fat) => {
+                                if fat
+                                    .alloc_cluster(self, Some(current_cluster.1), false)
+                                    .is_err()
+                                {
+                                    return Ok(written);
+                                }
+                                debug!("Allocated new FAT cluster, finding offsets...");
+                                let new_offset = self
+                                    .find_data_on_disk(
+                                        volume,
+                                        &mut current_cluster,
+                                        file.current_offset,
+                                    )
+                                    .map_err(|_| Error::AllocationError)?;
+                                debug!("New offset {:?}", new_offset);
+                                new_offset
+                            }
+                        }
+                    }
+                    Err(e) => return Err(e),
+                };
+            let mut blocks = [Block::new()];
+            let to_copy = core::cmp::min(block_avail, bytes_to_write - written);
+            if block_offset != 0 {
+                debug!("Partial block write");
+                self.block_device
+                    .read(&mut blocks, block_idx, "read")
+                    .map_err(Error::DeviceError)?;
+            }
+            let block = &mut blocks[0];
+            block[block_offset..block_offset + to_copy]
+                .copy_from_slice(&buffer[written..written + to_copy]);
+            debug!("Writing block {:?}", block_idx);
+            self.block_device
+                .write(&blocks, block_idx)
+                .map_err(Error::DeviceError)?;
+            written += to_copy;
+            file.current_cluster = current_cluster;
+            let to_copy = i32::try_from(to_copy).map_err(|_| Error::ConversionError)?;
+            // TODO: Should we do this once when the whole file is written?
+            file.update_length(file.length + (to_copy as u32));
+            file.seek_from_current(to_copy).unwrap();
+            file.entry.attributes.set_archive(true);
+            file.entry.mtime = self.timesource.get_timestamp();
+            debug!("Updating FAT info sector");
+            match &mut volume.volume_type {
+                VolumeType::Fat(fat) => {
+                    fat.update_info_sector(self)?;
+                    debug!("Updating dir entry");
+                    self.write_entry_to_disk(fat.get_fat_type(), &file.entry)?;
+                }
+            }
+        }
+        Ok(written)
     }
 
     /// Close a file with the given full path.
@@ -458,20 +742,18 @@ where
     fn find_data_on_disk(
         &mut self,
         volume: &Volume,
-        mut start: (u32, Cluster),
+        start: &mut (u32, Cluster),
         desired_offset: u32,
-    ) -> Result<(BlockIdx, usize, usize, (u32, Cluster)), Error<D::Error>> {
+    ) -> Result<(BlockIdx, usize, usize), Error<D::Error>> {
         let bytes_per_cluster = match &volume.volume_type {
-            VolumeType::Fat16(fat) => fat.bytes_per_cluster(),
-            VolumeType::Fat32(fat) => fat.bytes_per_cluster(),
+            VolumeType::Fat(fat) => fat.bytes_per_cluster(),
         };
         // How many clusters forward do we need to go?
         let offset_from_cluster = desired_offset - start.0;
         let num_clusters = offset_from_cluster / bytes_per_cluster;
         for _ in 0..num_clusters {
             start.1 = match &volume.volume_type {
-                VolumeType::Fat16(fat) => fat.next_cluster(self, start.1)?,
-                VolumeType::Fat32(fat) => fat.next_cluster(self, start.1)?,
+                VolumeType::Fat(fat) => fat.next_cluster(self, start.1)?,
             };
             start.0 += bytes_per_cluster;
         }
@@ -480,12 +762,32 @@ where
         assert!(offset_from_cluster < bytes_per_cluster);
         let num_blocks = BlockCount(offset_from_cluster / Block::LEN_U32);
         let block_idx = match &volume.volume_type {
-            VolumeType::Fat16(fat) => fat.cluster_to_block(start.1),
-            VolumeType::Fat32(fat) => fat.cluster_to_block(start.1),
+            VolumeType::Fat(fat) => fat.cluster_to_block(start.1),
         } + num_blocks;
         let block_offset = (desired_offset % Block::LEN_U32) as usize;
         let available = Block::LEN - block_offset;
-        Ok((block_idx, block_offset, available, start))
+        Ok((block_idx, block_offset, available))
+    }
+
+    /// Writes a Directory Entry to the disk
+    fn write_entry_to_disk(
+        &mut self,
+        fat_type: fat::FatType,
+        entry: &DirEntry,
+    ) -> Result<(), Error<D::Error>> {
+        let mut blocks = [Block::new()];
+        self.block_device
+            .read(&mut blocks, entry.entry_block, "read")
+            .map_err(Error::DeviceError)?;
+        let block = &mut blocks[0];
+
+        let start = usize::try_from(entry.entry_offset).map_err(|_| Error::ConversionError)?;
+        block[start..start + 32].copy_from_slice(&entry.serialize(fat_type)[..]);
+
+        self.block_device
+            .write(&blocks, entry.entry_block)
+            .map_err(Error::DeviceError)?;
+        Ok(())
     }
 }
 
@@ -541,7 +843,7 @@ mod tests {
             _reason: &str,
         ) -> Result<(), Self::Error> {
             // Actual blocks taken from an SD card, except I've changed the start and length of partition 0.
-            static BLOCKS: [Block; 2] = [
+            static BLOCKS: [Block; 3] = [
                 Block {
                     contents: [
                         0xfa, 0xb8, 0x00, 0x10, 0x8e, 0xd0, 0xbc, 0x00, 0xb0, 0xb8, 0x00, 0x00,
@@ -678,6 +980,53 @@ mod tests {
                         0x00, 0x00, 0x55, 0xaa, // 0x1F0
                     ],
                 },
+                Block {
+                    contents: [
+                        0x52, 0x52, 0x61, 0x41, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                        0x00, 0x00, 0x00, 0x00, 0x72, 0x72, 0x41, 0x61, 0xFF, 0xFF, 0xFF, 0xFF,
+                        0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x55, 0xAA,
+                    ],
+                },
             ];
             println!(
                 "Reading block {} to {}",
@@ -714,16 +1063,20 @@ mod tests {
             v,
             Volume {
                 idx: VolumeIdx(0),
-                volume_type: VolumeType::Fat32(Fat32Volume {
+                volume_type: VolumeType::Fat(FatVolume {
                     lba_start: BlockIdx(1),
-                    num_blocks: BlockCount(0x00112233),
+                    num_blocks: BlockCount(0x0011_2233),
                     blocks_per_cluster: 8,
                     first_data_block: BlockCount(15136),
-                    first_root_dir_cluster: Cluster(2),
                     fat_start: BlockCount(32),
-                    name: fat::VolumeName {
-                        data: *b"Pictures   "
-                    },
+                    name: fat::VolumeName::new(*b"Pictures   "),
+                    free_clusters_count: None,
+                    next_free_cluster: None,
+                    cluster_count: 965_788,
+                    fat_specific_info: fat::FatSpecificInfo::Fat32(fat::Fat32Info {
+                        first_root_dir_cluster: Cluster(2),
+                        info_location: BlockIdx(1) + BlockCount(1),
+                    })
                 })
             }
         );

@@ -1,37 +1,28 @@
 //! # Tests the Embedded SDMMC Library
-//!
-//! This example should be given a file or block device as the first and only
-//! argument. It will attempt to mount all four possible primary MBR
-//! partitions, one at a time, prints the root directory and will print a file
-//! called "README.TXT". It will then list the contents of the "TEST"
-//! sub-directory.
-//!
 //! ```bash
-//! $ cargo run --example test_mount -- /dev/mmcblk0
-//! $ cargo run --example test_mount -- /dev/sda
+//! $ cargo run --example write_test -- /dev/mmcblk0
+//! $ cargo run --example write_test -- /dev/sda
 //! ```
 //!
 //! If you pass a block device it should be unmounted. No testing has been
 //! performed with Windows raw block devices - please report back if you try
-//! this! There is a gzipped example disk image which you can gunzip and test
-//! with if you don't have a suitable block device.
+//! this!
 //!
 //! ```bash
-//! zcat ./disk.img.gz > ./disk.img
-//! $ cargo run --example test_mount -- ./disk.img
+//! gunzip -kf ./disk.img.gz
+//! $ cargo run --example write_test -- ./disk.img
 //! ```
 
 extern crate embedded_sdmmc;
 
-const FILE_TO_PRINT: &'static str = "README.TXT";
-const FILE_TO_CHECKSUM: &'static str = "64MB.DAT";
+const FILE_TO_WRITE: &str = "README.TXT";
 
 use embedded_sdmmc::{
     Block, BlockCount, BlockDevice, BlockIdx, Controller, Error, Mode, TimeSource, Timestamp,
     VolumeIdx,
 };
 use std::cell::RefCell;
-use std::fs::File;
+use std::fs::{File, OpenOptions};
 use std::io::prelude::*;
 use std::io::SeekFrom;
 use std::path::Path;
@@ -48,7 +39,12 @@ impl LinuxBlockDevice {
         P: AsRef<Path>,
     {
         Ok(LinuxBlockDevice {
-            file: RefCell::new(File::open(device_name)?),
+            file: RefCell::new(
+                OpenOptions::new()
+                    .read(true)
+                    .write(true)
+                    .open(device_name)?,
+            ),
             print_blocks,
         })
     }
@@ -115,16 +111,17 @@ impl TimeSource for Clock {
 fn main() {
     env_logger::init();
     let mut args = std::env::args().skip(1);
-    let filename = args.next().unwrap_or("/dev/mmcblk0".into());
+    let filename = args.next().unwrap_or_else(|| "/dev/mmcblk0".into());
+    println!("Opening {:?}", filename);
     let print_blocks = args.find(|x| x == "-v").map(|_| true).unwrap_or(false);
     let lbd = LinuxBlockDevice::new(filename, print_blocks)
         .map_err(Error::DeviceError)
         .unwrap();
     println!("lbd: {:?}", lbd);
     let mut controller = Controller::new(lbd, Clock);
-    for i in 0..=3 {
-        let volume = controller.get_volume(VolumeIdx(i));
-        println!("volume {}: {:#?}", i, volume);
+    for volume_idx in 0..=3 {
+        let volume = controller.get_volume(VolumeIdx(volume_idx));
+        println!("volume {}: {:#?}", volume_idx, volume);
         if let Ok(mut volume) = volume {
             let root_dir = controller.open_root_dir(&volume).unwrap();
             println!("\tListing root directory:");
@@ -133,15 +130,14 @@ fn main() {
                     println!("\t\tFound: {:?}", x);
                 })
                 .unwrap();
-            println!("\tFinding {}...", FILE_TO_PRINT);
-            println!(
-                "\tFound {}?: {:?}",
-                FILE_TO_PRINT,
-                controller.find_directory_entry(&volume, &root_dir, FILE_TO_PRINT)
-            );
+
+            // This will panic if the file doesn't exist, use ReadWriteCreateOrTruncate or
+            // ReadWriteCreateOrAppend instead. ReadWriteCreate also creates a file, but it returns an
+            // error if the file already exists
             let mut f = controller
-                .open_file_in_dir(&mut volume, &root_dir, FILE_TO_PRINT, Mode::ReadOnly)
+                .open_file_in_dir(&mut volume, &root_dir, FILE_TO_WRITE, Mode::ReadOnly)
                 .unwrap();
+            println!("\nReading from file {}\n", FILE_TO_WRITE);
             println!("FILE STARTS:");
             while !f.eof() {
                 let mut buffer = [0u8; 32];
@@ -153,45 +149,75 @@ fn main() {
                     print!("{}", *b as char);
                 }
             }
-            println!("EOF");
-            // Can't open file twice
-            assert!(controller
-                .open_file_in_dir(&mut volume, &root_dir, FILE_TO_PRINT, Mode::ReadOnly)
-                .is_err());
+            println!("EOF\n");
             controller.close_file(&volume, f).unwrap();
 
-            let test_dir = controller.open_dir(&volume, &root_dir, "TEST").unwrap();
-            // Check we can't open it twice
-            assert!(controller.open_dir(&volume, &root_dir, "TEST").is_err());
-            // Print the contents
-            println!("\tListing TEST directory:");
-            controller
-                .iterate_dir(&volume, &test_dir, |x| {
-                    println!("\t\tFound: {:?}", x);
-                })
-                .unwrap();
-            controller.close_dir(&volume, test_dir);
-
-            // Checksum example file. We just sum the bytes, as a quick and dirty checksum.
-            // We also read in a weird block size, just to exercise the offset calculation code.
             let mut f = controller
-                .open_file_in_dir(&mut volume, &root_dir, FILE_TO_CHECKSUM, Mode::ReadOnly)
+                .open_file_in_dir(&mut volume, &root_dir, FILE_TO_WRITE, Mode::ReadWriteAppend)
                 .unwrap();
-            println!("Checksuming {} bytes of {}", f.length(), FILE_TO_CHECKSUM);
-            let mut csum = 0u32;
+
+            let buffer1 = b"\nFile Appended\n";
+            let buffer = [b'a'; 8192];
+            println!("\nAppending to file");
+            let num_written1 = controller.write(&mut volume, &mut f, &buffer1[..]).unwrap();
+            let num_written = controller.write(&mut volume, &mut f, &buffer[..]).unwrap();
+            println!("Number of bytes written: {}\n", num_written + num_written1);
+
+            f.seek_from_start(0).unwrap();
+            println!("\tFinding {}...", FILE_TO_WRITE);
+            println!(
+                "\tFound {}?: {:?}",
+                FILE_TO_WRITE,
+                controller.find_directory_entry(&volume, &root_dir, FILE_TO_WRITE)
+            );
+            println!("\nFILE STARTS:");
             while !f.eof() {
-                let mut buffer = [0u8; 2047];
+                let mut buffer = [0u8; 32];
                 let num_read = controller.read(&volume, &mut f, &mut buffer).unwrap();
                 for b in &buffer[0..num_read] {
-                    csum += u32::from(*b);
+                    if *b == 10 {
+                        print!("\\n");
+                    }
+                    print!("{}", *b as char);
                 }
             }
-            println!("Checksum over {} bytes: {}", f.length(), csum);
+            println!("EOF");
             controller.close_file(&volume, f).unwrap();
 
-            assert!(controller.open_root_dir(&volume).is_err());
-            controller.close_dir(&volume, root_dir);
-            assert!(controller.open_root_dir(&volume).is_ok());
+            println!("\nTruncating file");
+            let mut f = controller
+                .open_file_in_dir(
+                    &mut volume,
+                    &root_dir,
+                    FILE_TO_WRITE,
+                    Mode::ReadWriteTruncate,
+                )
+                .unwrap();
+
+            let buffer = b"Hello\n";
+            let num_written = controller.write(&mut volume, &mut f, &buffer[..]).unwrap();
+            println!("\nNumber of bytes written: {}\n", num_written);
+
+            println!("\tFinding {}...", FILE_TO_WRITE);
+            println!(
+                "\tFound {}?: {:?}",
+                FILE_TO_WRITE,
+                controller.find_directory_entry(&volume, &root_dir, FILE_TO_WRITE)
+            );
+            f.seek_from_start(0).unwrap();
+            println!("\nFILE STARTS:");
+            while !f.eof() {
+                let mut buffer = [0u8; 32];
+                let num_read = controller.read(&volume, &mut f, &mut buffer).unwrap();
+                for b in &buffer[0..num_read] {
+                    if *b == 10 {
+                        print!("\\n");
+                    }
+                    print!("{}", *b as char);
+                }
+            }
+            println!("EOF");
+            controller.close_file(&volume, f).unwrap();
         }
     }
 }
