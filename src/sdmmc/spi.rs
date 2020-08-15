@@ -5,11 +5,11 @@
 //! This is currently optimised for readability and debugability, not
 //! performance.
 
+use crate::sdmmc::{CardType, Delay, Error, State, Transport};
 use crate::sdmmc_proto::*;
 use crate::{Block, BlockCount, BlockDevice, BlockIdx};
 use core::cell::RefCell;
 use nb::block;
-use crate::sdmmc::{Error, State, Delay, Transport, CardType};
 
 /// Represents an SD Card interface built from an SPI peripheral and a Chip
 /// Select pin. We need Chip Select to be separate so we can clock out some

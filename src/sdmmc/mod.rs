@@ -5,7 +5,6 @@
 mod sdio;
 mod spi;
 
-
 use crate::sdmmc_proto::*;
 
 pub use spi::SdMmcSpi;
@@ -73,7 +72,7 @@ pub trait Transport {
             Ok(())
         }
     }
-    
+
     /// Send an application-specific command to the card.
     fn card_acmd(&self, command: u8, arg: u32) -> Result<u8, Error> {
         self.card_command(CMD55, 0)?;
