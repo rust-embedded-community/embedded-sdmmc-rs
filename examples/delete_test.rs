@@ -133,7 +133,7 @@ fn main() {
             println!("\nCreating file {}...", FILE_TO_DELETE);
             // This will panic if the file already exists, use ReadWriteCreateOrAppend or
             // ReadWriteCreateOrTruncate instead
-            let mut f = controller
+            let f = controller
                 .open_file_in_dir(
                     &mut volume,
                     &root_dir,
@@ -148,10 +148,18 @@ fn main() {
                 FILE_TO_DELETE,
                 controller.find_directory_entry(&volume, &root_dir, FILE_TO_DELETE)
             );
+
+            match controller.delete_file_in_dir(&volume, &root_dir, FILE_TO_DELETE) {
+                Ok(()) => (),
+                Err(error) => println!("\tCannot delete file: {:?}", error),
+            }
+            println!("\tClosing {}...", FILE_TO_DELETE);
             controller.close_file(&volume, f).unwrap();
-            
-            controller.delete_file_in_dir(&volume, &root_dir, FILE_TO_DELETE).unwrap();
-            
+
+            match controller.delete_file_in_dir(&volume, &root_dir, FILE_TO_DELETE) {
+                Ok(()) => println!("\tDeleted {}.", FILE_TO_DELETE),
+                Err(error) => println!("\tCannot delete {}: {:?}", FILE_TO_DELETE, error),
+            }
             println!("\tFinding {}...", FILE_TO_DELETE);
             println!(
                 "\tFound {}?: {:?}",

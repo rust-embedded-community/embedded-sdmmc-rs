@@ -143,6 +143,8 @@ where
     FileAlreadyExists,
     /// Bad block size - only 512 byte blocks supported
     BadBlockSize(u16),
+    /// Entry not found in the block
+    NotInBlock,
 }
 
 /// We have to track what directories are open to prevent users from modifying
@@ -602,12 +604,7 @@ where
         );
         let dir_entry = match &volume.volume_type {
             VolumeType::Fat(fat) => fat.find_directory_entry(self, dir, name),
-        };
-
-        let dir_entry = match dir_entry {
-            Ok(entry) => entry,
-            _ => return Err(Error::FileNotFound),
-        };
+        }?;
 
         if dir_entry.attributes.is_directory() {
             return Err(Error::DeleteDirAsFile);
