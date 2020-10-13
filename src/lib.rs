@@ -17,6 +17,8 @@
 //! # struct DummyCsPin;
 //! # struct DummyUart;
 //! # struct DummyTimeSource;
+//! # impl embedded_hal::blocking::spi::write::Default<u8> for DummySpi {}
+//! # impl embedded_hal::blocking::spi::transfer::Default<u8> for DummySpi {}
 //! # impl embedded_hal::spi::FullDuplex<u8> for  DummySpi {
 //! #   type Error = ();
 //! #   fn read(&mut self) -> nb::Result<u8, ()> { Ok(0) }

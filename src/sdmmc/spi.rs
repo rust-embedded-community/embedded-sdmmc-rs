@@ -16,9 +16,10 @@ use nb::block;
 /// bytes without Chip Select asserted (which puts the card into SPI mode).
 pub struct SdMmcSpi<SPI, CS>
 where
-    SPI: embedded_hal::spi::FullDuplex<u8>,
+    SPI: embedded_hal::spi::FullDuplex<u8>
+        + embedded_hal::blocking::spi::Write<u8>
+        + embedded_hal::blocking::spi::Transfer<u8>,
     CS: embedded_hal::digital::v2::OutputPin,
-    <SPI as embedded_hal::spi::FullDuplex<u8>>::Error: core::fmt::Debug,
 {
     spi: RefCell<SPI>,
     cs: RefCell<CS>,
@@ -26,11 +27,13 @@ where
     state: State,
 }
 
-impl<SPI, CS> SdMmcSpi<SPI, CS>
+impl<SPI, CS, E> SdMmcSpi<SPI, CS>
 where
-    SPI: embedded_hal::spi::FullDuplex<u8>,
+    SPI: embedded_hal::spi::FullDuplex<u8, Error = E>
+        + embedded_hal::blocking::spi::Write<u8, Error = E>
+        + embedded_hal::blocking::spi::Transfer<u8, Error = E>,
+    E: core::fmt::Debug,
     CS: embedded_hal::digital::v2::OutputPin,
-    <SPI as embedded_hal::spi::FullDuplex<u8>>::Error: core::fmt::Debug,
 {
     /// Create a new SD/MMC controller using a raw SPI interface.
     pub fn new(spi: SPI, cs: CS) -> SdMmcSpi<SPI, CS> {
@@ -157,6 +160,16 @@ where
         block!(spi.read()).map_err(|_e| Error::Transport)
     }
 
+    fn transfer_buf<'w>(&self, buf: &'w mut [u8]) -> Result<&'w [u8], Error> {
+        let mut spi = self.spi.borrow_mut();
+        spi.transfer(buf).map_err(|_e| Error::Transport)
+    }
+
+    fn write_buf(&self, buf: &[u8]) -> Result<(), Error> {
+        let mut spi = self.spi.borrow_mut();
+        spi.write(buf).map_err(|_e| Error::Transport)
+    }
+
     /// Spin until the card returns 0xFF, or we spin too many times and
     /// timeout.
     fn wait_not_busy(&self) -> Result<(), Error> {
@@ -172,10 +185,12 @@ where
     }
 }
 
-impl<SPI, CS> Transport for SdMmcSpi<SPI, CS>
+impl<SPI, CS, E> Transport for SdMmcSpi<SPI, CS>
 where
-    SPI: embedded_hal::spi::FullDuplex<u8>,
-    <SPI as embedded_hal::spi::FullDuplex<u8>>::Error: core::fmt::Debug,
+    SPI: embedded_hal::spi::FullDuplex<u8, Error = E>
+        + embedded_hal::blocking::spi::Write<u8, Error = E>
+        + embedded_hal::blocking::spi::Transfer<u8, Error = E>,
+    E: core::fmt::Debug,
     CS: embedded_hal::digital::v2::OutputPin,
 {
     /// This routine must be performed with an SPI clock speed of around 100 - 400 kHz.
@@ -278,10 +293,7 @@ where
             0,
         ];
         buf[5] = crc7(&buf[0..5]);
-
-        for b in buf.iter() {
-            self.send(*b)?;
-        }
+        self.write_buf(&buf)?;
 
         // skip stuff byte for stop read
         if command == CMD12 {
@@ -308,12 +320,58 @@ where
         let _ = self.transfer(out)?;
         Ok(())
     }
+
+    /// Read an arbitrary number of bytes from the card. Always fills the
+    /// given buffer, so make sure it's the right size.
+    fn read_data(&self, buffer: &mut [u8]) -> Result<(), Error> {
+        // Get first non-FF byte.
+        let mut delay = Delay::new();
+        let status = loop {
+            let s = self.receive()?;
+            if s != 0xFF {
+                break s;
+            }
+            delay.delay(Error::TimeoutReadBuffer)?;
+        };
+        if status != DATA_START_BLOCK {
+            return Err(Error::ReadError);
+        }
+
+        self.transfer_buf(buffer)?;
+
+        let mut crc = u16::from(self.receive()?);
+        crc <<= 8;
+        crc |= u16::from(self.receive()?);
+
+        let calc_crc = crc16(buffer);
+        if crc != calc_crc {
+            return Err(Error::CrcError(crc, calc_crc));
+        }
+
+        Ok(())
+    }
+
+    /// Write an arbitrary number of bytes to the card.
+    fn write_data(&self, token: u8, buffer: &[u8]) -> Result<(), Error> {
+        let calc_crc = crc16(buffer);
+
+        self.send(token)?;
+        self.write_buf(buffer)?;
+        self.send((calc_crc >> 8) as u8)?;
+        self.send(calc_crc as u8)?;
+        let status = self.receive()?;
+        if (status & DATA_RES_MASK) != DATA_RES_ACCEPTED {
+            Err(Error::WriteError)
+        } else {
+            Ok(())
+        }
+    }
 }
 
-impl<SPI, CS> BlockDevice for SdMmcSpi<SPI, CS>
+impl<SPI, CS, E> BlockDevice for SdMmcSpi<SPI, CS>
 where
-    SPI: embedded_hal::spi::FullDuplex<u8>,
-    <SPI as embedded_hal::spi::FullDuplex<u8>>::Error: core::fmt::Debug,
+    SPI: embedded_hal::spi::FullDuplex<u8, Error = E> + embedded_hal::blocking::spi::Write<u8, Error = E> + embedded_hal::blocking::spi::Transfer<u8, Error = E>,
+    E: core::fmt::Debug,
     CS: embedded_hal::digital::v2::OutputPin,
 {
     type Error = Error;
