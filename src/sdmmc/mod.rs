@@ -2,7 +2,6 @@
 //!
 //! Implements the SDMMC protocol over SPI and SDIO transport layers.
 
-mod sdio;
 mod spi;
 
 use crate::sdmmc_proto::*;
