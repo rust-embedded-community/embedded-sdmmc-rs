@@ -929,7 +929,12 @@ impl FatVolume {
 
                 while let Some(cluster) = current_cluster {
                     for block in first_dir_block_num.range(dir_size) {
-                        match self.find_entry_in_block(controller, &match_name, block) {
+                        match self.find_entry_in_block(
+                            controller,
+                            FatType::Fat16,
+                            &match_name,
+                            block,
+                        ) {
                             Err(Error::NotInBlock) => continue,
                             x => return x,
                         }
@@ -956,7 +961,12 @@ impl FatVolume {
                 while let Some(cluster) = current_cluster {
                     let block_idx = self.cluster_to_block(cluster);
                     for block in block_idx.range(BlockCount(u32::from(self.blocks_per_cluster))) {
-                        match self.find_entry_in_block(controller, &match_name, block) {
+                        match self.find_entry_in_block(
+                            controller,
+                            FatType::Fat32,
+                            &match_name,
+                            block,
+                        ) {
                             Err(Error::NotInBlock) => continue,
                             x => return x,
                         }
@@ -975,6 +985,7 @@ impl FatVolume {
     fn find_entry_in_block<D, T>(
         &self,
         controller: &mut Controller<D, T>,
+        fat_type: FatType,
         match_name: &ShortFileName,
         block: BlockIdx,
     ) -> Result<DirEntry, Error<D::Error>>
@@ -998,7 +1009,7 @@ impl FatVolume {
                 // Found it
                 // Safe, since Block::LEN always fits on a u32
                 let start = u32::try_from(start).unwrap();
-                return Ok(dir_entry.get_entry(FatType::Fat16, block, start));
+                return Ok(dir_entry.get_entry(fat_type, block, start));
             }
         }
         Err(Error::NotInBlock)
