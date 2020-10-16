@@ -237,30 +237,21 @@ mod test {
 
     #[test]
     fn test_crc7() {
-        const DATA: [u8; 15] = [
-            0x00, 0x26, 0x00, 0x32, 0x5f, 0x59, 0x83, 0xc8, 0xad, 0xdb, 0xcf, 0xff, 0xd2, 0x40,
-            0x40,
-        ];
+        const DATA: [u8; 15] = hex!("00 26 00 32 5F 59 83 C8 AD DB CF FF D2 40 40");
         assert_eq!(crc7(&DATA), 0xA5);
     }
 
     #[test]
     fn test_crc16() {
         // An actual CSD read from an SD card
-        const DATA: [u8; 16] = [
-            0x00, 0x26, 0x00, 0x32, 0x5f, 0x5a, 0x83, 0xae, 0xfe, 0xfb, 0xcf, 0xff, 0x92, 0x80,
-            0x40, 0xdf,
-        ];
+        const DATA: [u8; 16] = hex!("00 26 00 32 5F 5A 83 AE FE FB CF FF 92 80 40 DF");
         assert_eq!(crc16(&DATA), 0x9fc5);
     }
 
     #[test]
     fn test_csdv1b() {
         const EXAMPLE: CsdV1 = CsdV1 {
-            data: [
-                0x00, 0x26, 0x00, 0x32, 0x5f, 0x59, 0x83, 0xc8, 0xad, 0xdb, 0xcf, 0xff, 0xd2, 0x40,
-                0x40, 0xa5,
-            ],
+            data: hex!("00 26 00 32 5F 59 83 C8 AD DB CF FF D2 40 40 A5"),
         };
 
         // CSD Structure: describes version of CSD structure
@@ -389,10 +380,7 @@ mod test {
     #[test]
     fn test_csdv1() {
         const EXAMPLE: CsdV1 = CsdV1 {
-            data: [
-                0x00, 0x7f, 0x00, 0x32, 0x5b, 0x5a, 0x83, 0xaf, 0x7f, 0xff, 0xcf, 0x80, 0x16, 0x80,
-                0x00, 0x6f,
-            ],
+            data: hex!("00 7F 00 32 5B 5A 83 AF 7F FF CF 80 16 80 00 6F"),
         };
         // CSD Structure: describes version of CSD structure
         // 0b00 [Interpreted: Version 1.0]
@@ -518,10 +506,7 @@ mod test {
     #[test]
     fn test_csdv2() {
         const EXAMPLE: CsdV2 = CsdV2 {
-            data: [
-                0x40, 0x0e, 0x00, 0x32, 0x5b, 0x59, 0x00, 0x00, 0x1d, 0x69, 0x7f, 0x80, 0x0a, 0x40,
-                0x00, 0x8b,
-            ],
+            data: hex!("40 0E 00 32 5B 59 00 00 1D 69 7F 80 0A 40 00 8B"),
         };
         // CSD Structure: describes version of CSD structure
         // 0b01 [Interpreted: Version 2.0 SDHC]
@@ -627,10 +612,7 @@ mod test {
     #[test]
     fn test_csdv2b() {
         const EXAMPLE: CsdV2 = CsdV2 {
-            data: [
-                0x40, 0x0e, 0x00, 0x32, 0x5b, 0x59, 0x00, 0x00, 0x3a, 0x91, 0x7f, 0x80, 0x0a, 0x40,
-                0x00, 0x05,
-            ],
+            data: hex!("40 0E 00 32 5B 59 00 00 3A 91 7F 80 0A 40 00 05"),
         };
         // CSD Structure: describes version of CSD structure
         // 0b01 [Interpreted: Version 2.0 SDHC]
