@@ -142,6 +142,8 @@ pub enum FilenameError {
     NameTooLong,
     /// Can't start a file with a period, or after 8 characters.
     MisplacedPeriod,
+    /// Can't extract utf8 from file name
+    Utf8Error,
 }
 
 // ****************************************************************************
@@ -267,6 +269,20 @@ impl DirEntry {
 impl ShortFileName {
     const FILENAME_BASE_MAX_LEN: usize = 8;
     const FILENAME_MAX_LEN: usize = 11;
+
+    /// Get base name (name without extension) of file name
+    pub fn base_name(&self) -> &[u8] {
+        Self::bytes_before_space(&self.contents[..Self::FILENAME_BASE_MAX_LEN])
+    }
+
+    /// Get base name (name without extension) of file name
+    pub fn extension(&self) -> &[u8] {
+        Self::bytes_before_space(&self.contents[Self::FILENAME_BASE_MAX_LEN..])
+    }
+
+    fn bytes_before_space(bytes: &[u8]) -> &[u8] {
+        bytes.split(|b| *b == b' ').next().unwrap_or(&bytes[0..0])
+    }
 
     /// Create a new MS-DOS 8.3 space-padded file name as stored in the directory entry.
     pub fn create_from_str(name: &str) -> Result<ShortFileName, FilenameError> {
@@ -733,6 +749,26 @@ mod test {
         };
         assert_eq!(format!("{}", &sfn), "HELLO.TXT");
         assert_eq!(sfn, ShortFileName::create_from_str("HELLO.TXT").unwrap());
+    }
+
+    #[test]
+    fn filename_get_extension() {
+        let mut sfn = ShortFileName::create_from_str("hello.txt").unwrap();
+        assert_eq!(sfn.extension(), "TXT".as_bytes());
+        sfn = ShortFileName::create_from_str("hello").unwrap();
+        assert_eq!(sfn.extension(), "".as_bytes());
+        sfn = ShortFileName::create_from_str("hello.a").unwrap();
+        assert_eq!(sfn.extension(), "A".as_bytes());
+    }
+
+    #[test]
+    fn filename_get_base_name() {
+        let mut sfn = ShortFileName::create_from_str("hello.txt").unwrap();
+        assert_eq!(sfn.base_name(), "HELLO".as_bytes());
+        sfn = ShortFileName::create_from_str("12345678").unwrap();
+        assert_eq!(sfn.base_name(), "12345678".as_bytes());
+        sfn = ShortFileName::create_from_str("1").unwrap();
+        assert_eq!(sfn.base_name(), "1".as_bytes());
     }
 
     #[test]
