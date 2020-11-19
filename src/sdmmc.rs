@@ -8,7 +8,6 @@
 use super::sdmmc_proto::*;
 use super::{Block, BlockCount, BlockDevice, BlockIdx};
 use core::cell::RefCell;
-use nb::block;
 
 const DEFAULT_DELAY_COUNT: u32 = 32_000;
 
@@ -17,9 +16,9 @@ const DEFAULT_DELAY_COUNT: u32 = 32_000;
 /// bytes without Chip Select asserted (which puts the card into SPI mode).
 pub struct SdMmcSpi<SPI, CS>
 where
-    SPI: embedded_hal::spi::FullDuplex<u8>,
+    SPI: embedded_hal::blocking::spi::Transfer<u8>,
     CS: embedded_hal::digital::v2::OutputPin,
-    <SPI as embedded_hal::spi::FullDuplex<u8>>::Error: core::fmt::Debug,
+    <SPI as embedded_hal::blocking::spi::Transfer<u8>>::Error: core::fmt::Debug,
 {
     spi: RefCell<SPI>,
     cs: RefCell<CS>,
@@ -106,9 +105,9 @@ impl Delay {
 
 impl<SPI, CS> SdMmcSpi<SPI, CS>
 where
-    SPI: embedded_hal::spi::FullDuplex<u8>,
+    SPI: embedded_hal::blocking::spi::Transfer<u8>,
     CS: embedded_hal::digital::v2::OutputPin,
-    <SPI as embedded_hal::spi::FullDuplex<u8>>::Error: core::fmt::Debug,
+    <SPI as embedded_hal::blocking::spi::Transfer<u8>>::Error: core::fmt::Debug,
 {
     /// Create a new SD/MMC controller using a raw SPI interface.
     pub fn new(spi: SPI, cs: CS) -> SdMmcSpi<SPI, CS> {
@@ -417,8 +416,9 @@ where
     /// Send one byte and receive one byte.
     fn transfer(&self, out: u8) -> Result<u8, Error> {
         let mut spi = self.spi.borrow_mut();
-        block!(spi.send(out)).map_err(|_e| Error::Transport)?;
-        block!(spi.read()).map_err(|_e| Error::Transport)
+        spi.transfer(&mut [out])
+            .map(|b| b[0])
+            .map_err(|_e| Error::Transport)
     }
 
     /// Spin until the card returns 0xFF, or we spin too many times and
@@ -438,8 +438,8 @@ where
 
 impl<SPI, CS> BlockDevice for SdMmcSpi<SPI, CS>
 where
-    SPI: embedded_hal::spi::FullDuplex<u8>,
-    <SPI as embedded_hal::spi::FullDuplex<u8>>::Error: core::fmt::Debug,
+    SPI: embedded_hal::blocking::spi::Transfer<u8>,
+    <SPI as embedded_hal::blocking::spi::Transfer<u8>>::Error: core::fmt::Debug,
     CS: embedded_hal::digital::v2::OutputPin,
 {
     type Error = Error;
