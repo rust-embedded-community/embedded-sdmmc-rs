@@ -17,10 +17,9 @@
 //! # struct DummyCsPin;
 //! # struct DummyUart;
 //! # struct DummyTimeSource;
-//! # impl embedded_hal::spi::FullDuplex<u8> for  DummySpi {
+//! # impl embedded_hal::blocking::spi::Transfer<u8> for  DummySpi {
 //! #   type Error = ();
-//! #   fn read(&mut self) -> nb::Result<u8, ()> { Ok(0) }
-//! #   fn send(&mut self, byte: u8) -> nb::Result<(), ()> { Ok(()) }
+//! #   fn transfer<'w>(&mut self, data: &'w mut [u8]) -> Result<&'w [u8], ()> { Ok(&[0]) }
 //! # }
 //! # impl embedded_hal::digital::v2::OutputPin for DummyCsPin {
 //! #   type Error = ();
