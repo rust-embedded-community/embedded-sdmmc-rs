@@ -123,6 +123,10 @@ where
     DirAlreadyOpen,
     /// You can't open a directory as a file
     OpenedDirAsFile,
+    /// You can't delete a directory as a file
+    DeleteDirAsFile,
+    /// You can't delete an open file
+    FileIsOpen,
     /// We can't do that yet
     Unsupported,
     /// Tried to read beyond end of file
@@ -143,6 +147,8 @@ where
     FileAlreadyExists,
     /// Bad block size - only 512 byte blocks supported
     BadBlockSize(u16),
+    /// Entry not found in the block
+    NotInBlock,
 }
 
 /// We have to track what directories are open to prevent users from modifying
@@ -587,6 +593,37 @@ where
             }
         }
         open_files_row.ok_or(Error::TooManyOpenDirs)
+    }
+
+    /// Delete a closed file with the given full path, if exists.
+    pub fn delete_file_in_dir(
+        &mut self,
+        volume: &Volume,
+        dir: &Directory,
+        name: &str,
+    ) -> Result<(), Error<D::Error>> {
+        debug!(
+            "delete_file(volume={:?}, dir={:?}, filename={:?}",
+            volume, dir, name
+        );
+        let dir_entry = match &volume.volume_type {
+            VolumeType::Fat(fat) => fat.find_directory_entry(self, dir, name),
+        }?;
+
+        if dir_entry.attributes.is_directory() {
+            return Err(Error::DeleteDirAsFile);
+        }
+
+        let target = (volume.idx, dir_entry.cluster);
+        for d in self.open_files.iter_mut() {
+            if *d == target {
+                return Err(Error::FileIsOpen);
+            }
+        }
+
+        match &volume.volume_type {
+            VolumeType::Fat(fat) => return fat.delete_directory_entry(self, dir, name),
+        };
     }
 
     /// Read from an open file.
