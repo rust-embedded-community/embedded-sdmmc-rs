@@ -372,7 +372,11 @@ where
 
     /// Perform a command.
     fn card_command(&self, command: u8, arg: u32) -> Result<u8, Error> {
-        self.wait_not_busy()?;
+        // this is needed to make sure CMD0 is really the first command
+        // in the init sequence (and not 0xFF)
+        if command != CMD0 {
+            self.wait_not_busy()?;
+        }
         let mut buf = [
             0x40 | command,
             (arg >> 24) as u8,
