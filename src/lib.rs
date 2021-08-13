@@ -35,10 +35,11 @@
 //! # let mut sdmmc_spi = DummySpi;
 //! # let mut sdmmc_cs = DummyCsPin;
 //! # let time_source = DummyTimeSource;
-//! let mut cont = embedded_sdmmc::Controller::new(embedded_sdmmc::SdMmcSpi::new(sdmmc_spi, sdmmc_cs), time_source);
+//! let mut spi_dev = embedded_sdmmc::SdMmcSpi::new(sdmmc_spi, sdmmc_cs);
 //! write!(uart, "Init SD card...").unwrap();
-//! match cont.device().init() {
-//!     Ok(_) => {
+//! match spi_dev.acquire() {
+//!     Ok(block) => {
+//!         let mut cont = embedded_sdmmc::Controller::new(block, time_source);
 //!         write!(uart, "OK!\nCard size...").unwrap();
 //!         match cont.device().card_size_bytes() {
 //!             Ok(size) => writeln!(uart, "{}", size).unwrap(),
@@ -51,7 +52,7 @@
 //!         }
 //!     }
 //!     Err(e) => writeln!(uart, "{:?}!", e).unwrap(),
-//! }
+//! };
 //! ```
 
 #![cfg_attr(not(test), no_std)]
@@ -88,7 +89,7 @@ pub use crate::filesystem::{
     Timestamp, MAX_FILE_SIZE,
 };
 pub use crate::sdmmc::Error as SdMmcError;
-pub use crate::sdmmc::SdMmcSpi;
+pub use crate::sdmmc::{BlockSpi, SdMmcSpi};
 
 // ****************************************************************************
 //
