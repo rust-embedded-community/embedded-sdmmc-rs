@@ -103,6 +103,19 @@ impl Delay {
     }
 }
 
+/// Options for acquiring the card.
+#[derive(Debug)]
+pub struct AcquireOpts {
+    /// Some cards don't support CRC mode. At least a 512MiB Transcend one.
+    pub require_crc: bool,
+}
+
+impl Default for AcquireOpts {
+    fn default() -> Self {
+        AcquireOpts { require_crc: true }
+    }
+}
+
 impl<SPI, CS> SdMmcSpi<SPI, CS>
 where
     SPI: embedded_hal::blocking::spi::Transfer<u8>,
@@ -139,6 +152,16 @@ where
     /// This routine must be performed with an SPI clock speed of around 100 - 400 kHz.
     /// Afterwards you may increase the SPI clock speed.
     pub fn init(&mut self) -> Result<(), Error> {
+        self.init_with_opts(Default::default())
+    }
+
+    /// De-init the card so it can't be used
+    pub fn deinit(&mut self) {
+        self.state = State::NoInit;
+    }
+
+    /// Initializes the card into a known state
+    pub fn init_with_opts(&mut self, options: AcquireOpts) -> Result<(), Error> {
         let f = |s: &mut Self| {
             // Assume it hasn't worked
             s.state = State::Error;
@@ -172,7 +195,7 @@ where
                 return Err(Error::CardNotFound);
             }
             // Enable CRC
-            if s.card_command(CMD59, 1)? != R1_IDLE_STATE {
+            if s.card_command(CMD59, 1)? != R1_IDLE_STATE && options.require_crc {
                 return Err(Error::CantEnableCRC);
             }
             // Check card version
@@ -222,11 +245,6 @@ where
         self.cs_high()?;
         let _ = self.receive();
         result
-    }
-
-    /// De-init the card so it can't be used
-    pub fn deinit(&mut self) {
-        self.state = State::NoInit;
     }
 
     /// Return the usable size of this SD card in bytes.
