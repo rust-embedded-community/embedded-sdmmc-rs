@@ -885,7 +885,7 @@ impl FatVolume {
                             } else if dir_entry.is_valid() && !dir_entry.is_lfn() {
                                 // Safe, since Block::LEN always fits on a u32
                                 let start = u32::try_from(start).unwrap();
-                                let entry = dir_entry.get_entry(FatType::Fat16, block, start);
+                                let entry = dir_entry.get_entry(FatType::Fat32, block, start);
                                 func(&entry);
                             }
                         }
