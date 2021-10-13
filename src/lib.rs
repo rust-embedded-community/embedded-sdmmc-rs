@@ -785,8 +785,6 @@ where
     }
 
     /// Consume self and return BlockDevice and TimeSource
-    /// This is may corrupt your device/files if not all
-    /// file handles are closed.
     pub fn free(self) -> (D, T) {
         (self.block_device, self.timesource)
     }
