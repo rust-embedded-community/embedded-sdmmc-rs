@@ -775,6 +775,22 @@ where
         Ok(())
     }
 
+    /// Check if any files or folders are open.
+    pub fn has_open_handles(&self) -> bool {
+        !self
+            .open_dirs
+            .iter()
+            .chain(self.open_files.iter())
+            .all(|(_, c)| c == &Cluster::INVALID)
+    }
+
+    /// Consume self and return BlockDevice and TimeSource
+    /// This is may corrupt your device/files if not all
+    /// file handles are closed.
+    pub fn free(self) -> (D, T) {
+        (self.block_device, self.timesource)
+    }
+
     /// This function turns `desired_offset` into an appropriate block to be
     /// read. It either calculates this based on the start of the file, or
     /// from the last cluster we read - whichever is better.
