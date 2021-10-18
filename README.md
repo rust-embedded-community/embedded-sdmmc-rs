@@ -48,34 +48,7 @@ match cont.device().init() {
 
 ## Changelog
 
-### Unreleased changes (will be 0.3.1)
-
-* Code tidy-ups and more documentation.
-
-### Version 0.3.0
-
-* Updated to `v2` embedded-hal traits.
-* Added open support for all modes.
-* Added write support for files.
-* Added `Info_Sector` tracking for FAT32.
-* Change directory iteration to look in all the directory's clusters.
-* Added `write_test` and `create_test`.
-* De-duplicated FAT16 and FAT32 code (https://github.com/thejpster/embedded-sdmmc-rs/issues/10)
-
-### Version 0.2.1
-
-* Added `readme=README.md` to `Cargo.toml`
-
-### Version 0.2.0
-
-* Reduce delay waiting for response. Big speed improvements.
-
-### Version 0.1.0
-
-* Can read blocks from an SD Card using an `embedded_hal::SPI` device and a
-  `embedded_hal::OutputPin` for Chip Select.
-* Can read partition tables and open a FAT32 or FAT16 formatted partition.
-* Can open and iterate the root directory of a FAT16 formatted partition.
+The changelog has moved to [CHANGELOG.md](/CHANGELOG.md)
 
 ## License
 
