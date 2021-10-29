@@ -12,7 +12,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 - [breaking-change] Use SPI blocking traits instead to ease SPI peripheral sharing.
   See: https://github.com/rust-embedded-community/embedded-sdmmc-rs/issues/28
 - Added `Controller::has_open_handles` and `Controller::free` methods.
-- [breaking-change] Enforce correct SD state at compilation
+- [breaking-change] Changed interface to enforce correct SD state at compile time.
 
 [Unreleased]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/compare/v0.3.0...develop
 
