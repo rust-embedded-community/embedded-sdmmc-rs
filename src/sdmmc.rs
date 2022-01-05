@@ -9,6 +9,12 @@ use super::sdmmc_proto::*;
 use super::{Block, BlockCount, BlockDevice, BlockIdx};
 use core::cell::RefCell;
 
+#[cfg(feature = "log")]
+use log::debug;
+
+#[cfg(feature = "defmt-log")]
+use defmt::debug;
+
 const DEFAULT_DELAY_COUNT: u32 = 32_000;
 
 /// Represents an inactive SD Card interface.
@@ -114,6 +120,7 @@ impl Delay {
 }
 
 /// Options for acquiring the card.
+#[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
 #[derive(Debug)]
 pub struct AcquireOpts {
     /// Some cards don't support CRC mode. At least a 512MiB Transcend one.
@@ -160,6 +167,7 @@ where
 
     /// Initializes the card into a known state
     pub fn acquire_with_opts(&mut self, options: AcquireOpts) -> Result<BlockSpi<SPI, CS>, Error> {
+        debug!("acquiring card with opts: {:?}", options);
         let f = |s: &mut Self| {
             // Assume it hasn't worked
             s.state = State::Error;
