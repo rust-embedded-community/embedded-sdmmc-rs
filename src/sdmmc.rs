@@ -10,10 +10,10 @@ use super::{Block, BlockCount, BlockDevice, BlockIdx};
 use core::cell::RefCell;
 
 #[cfg(feature = "log")]
-use log::debug;
+use log::{debug, trace, warn};
 
 #[cfg(feature = "defmt-log")]
-use defmt::debug;
+use defmt::{debug, trace, warn};
 
 const DEFAULT_DELAY_COUNT: u32 = 32_000;
 
@@ -87,6 +87,7 @@ pub enum State {
 }
 
 /// The different types of card we support.
+#[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
 #[derive(Debug, Copy, Clone, PartialEq)]
 enum CardType {
     SD1,
@@ -171,6 +172,7 @@ where
         let f = |s: &mut Self| {
             // Assume it hasn't worked
             s.state = State::Error;
+            trace!("Reset card..");
             // Supply minimum of 74 clock cycles without CS asserted.
             s.cs_high()?;
             for _ in 0..10 {
@@ -179,11 +181,15 @@ where
             // Assert CS
             s.cs_low()?;
             // Enter SPI mode
+            let mut delay = Delay::new();
             let mut attempts = 32;
             while attempts > 0 {
+                trace!("Enter SPI mode, attempt: {}..", 32i32-attempts);
+
                 match s.card_command(CMD0, 0) {
                     Err(Error::TimeoutCommand(0)) => {
                         // Try again?
+                        warn!("Timed out, trying again..");
                         attempts -= 1;
                     }
                     Err(e) => {
@@ -192,15 +198,19 @@ where
                     Ok(R1_IDLE_STATE) => {
                         break;
                     }
-                    Ok(_) => {
+                    Ok(r) => {
                         // Try again
+                        warn!("Got response: {:x}, trying again..", r);
                     }
                 }
+
+                delay.delay(Error::TimeoutCommand(CMD0))?;
             }
             if attempts == 0 {
                 return Err(Error::CardNotFound);
             }
             // Enable CRC
+            debug!("Enable CRC: {}", options.require_crc);
             if s.card_command(CMD59, 1)? != R1_IDLE_STATE && options.require_crc {
                 return Err(Error::CantEnableCRC);
             }
@@ -221,6 +231,7 @@ where
                 }
                 delay.delay(Error::TimeoutCommand(CMD8))?;
             }
+            debug!("Card version: {}", s.card_type);
 
             let arg = match s.card_type {
                 CardType::SD1 => 0,
