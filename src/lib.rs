@@ -627,7 +627,7 @@ where
         };
     }
 
-    /// Return the number of contiguos clusters. If the next cluster in the sequence isn't contiguous
+    /// Return the number of contiguous clusters. If the next cluster in the sequence isn't contiguous
     /// (i.e. is fragmented), it returns `1`
     fn check_contiguous_cluster_count(
         &self,
@@ -665,7 +665,7 @@ where
         Ok(contiguous_cluster_count)
     }
 
-    /// Read from an open file. It has the same effect as the [`Self::read`] method but reduces read times
+    /// Read from an open file. It has the same effect as the [`Self::read`] method but reduces `read time`
     /// by more than 50%, especially in the case of large files (i.e. > 1Mb)
     /// 
     /// `read_multi` reads multiple contiguous blocks of a file in a single read operation,
