@@ -333,8 +333,9 @@ where
         }
     }
 
-    /// Open a directory. You can then read the directory entries in a random
-    /// order using `get_directory_entry`.
+    /// Open a directory.
+    ///
+    /// You can then read the directory entries with `iterate_dir` and `open_file_in_dir`.
     ///
     /// TODO: Work out how to prevent damage occuring to the file system while
     /// this directory handle is open. In particular, stop this directory
@@ -362,8 +363,9 @@ where
         })
     }
 
-    /// Open a directory. You can then read the directory entries in a random
-    /// order using `get_directory_entry`.
+    /// Open a directory.
+    ///
+    /// You can then read the directory entries with `iterate_dir` and `open_file_in_dir`.
     ///
     /// TODO: Work out how to prevent damage occuring to the file system while
     /// this directory handle is open. In particular, stop this directory
