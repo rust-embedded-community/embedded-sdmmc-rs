@@ -54,9 +54,9 @@
 //!     Err(e) => writeln!(uart, "{:?}!", e).unwrap(),
 //! };
 //! ```
-
+//! 
+#![cfg_attr(feature = "unstable", feature(slice_as_chunks))]
 #![cfg_attr(not(test), no_std)]
-#![feature(slice_as_chunks)]
 #![deny(missing_docs)]
 
 // ****************************************************************************
@@ -673,12 +673,13 @@ where
     /// 
     /// NOTE: The buffer argument must be a multiple of 512 bytes. This impl assumes the underlying
     /// emmc driver (and consequently the EMMC device) features support for multi-block reads.
+    #[cfg(feature = "unstable")]
     pub fn read_multi(
         &mut self,
         volume: &Volume,
         file: &mut File,
         buffer: &mut [u8],
-    ) -> Result<usize, Error<D::Error>> {
+    ) -> Result<usize, Error<D::Error>> {        
         let blocks_per_cluster = match &volume.volume_type {
             VolumeType::Fat(fat) => fat.blocks_per_cluster,
         };
@@ -686,9 +687,9 @@ where
         let mut bytes_read = 0;
         let mut block_read_counter = 0;
         let mut starting_cluster = file.starting_cluster;
-        let mut file_blocks = 0u32;
+        let mut file_blocks;
         if (file.length % Block::LEN as u32) == 0 {
-            file_blocks = (file.length / Block::LEN as u32);
+            file_blocks = file.length / Block::LEN as u32;
         } else {
             file_blocks = (file.length / Block::LEN as u32) + 1;
         }
@@ -698,7 +699,7 @@ where
             let contiguous_cluster_count =
                 self.check_contiguous_cluster_count(volume, starting_cluster)?;
 
-            let blocks_to_read = (contiguous_cluster_count * blocks_per_cluster as u32);
+            let blocks_to_read = contiguous_cluster_count * blocks_per_cluster as u32;
             let bytes_to_read = Block::LEN * blocks_to_read as usize;
             let (blocks, _) = buffer[block_read_counter..block_read_counter + bytes_to_read]
                 .as_chunks_mut::<{ Block::LEN }>();
@@ -720,7 +721,7 @@ where
             let bytes = bytes_to_read.min(file.left() as usize);
             bytes_read += bytes;
             file.seek_from_current(bytes as i32).unwrap();
-            block_read_counter += (Block::LEN * blocks_to_read as usize);
+            block_read_counter += Block::LEN * blocks_to_read as usize;
         }
         Ok(bytes_read)
     }

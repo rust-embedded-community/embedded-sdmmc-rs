@@ -34,7 +34,7 @@ match spi_dev.acquire() {
 ## Supported features
 
 * Open files in all supported methods from an open directory
-* Read data from open files
+* Read data from open files. Note: you can speed up data-reads by enabling the `unstable` feature (requires rust nightly).
 * Write data to open files
 * Close files
 * Iterate root directory
