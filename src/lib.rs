@@ -54,7 +54,6 @@
 //!     Err(e) => writeln!(uart, "{:?}!", e).unwrap(),
 //! };
 //! ```
-//! 
 #![cfg_attr(feature = "unstable", feature(slice_as_chunks))]
 #![cfg_attr(not(test), no_std)]
 #![deny(missing_docs)]
@@ -667,10 +666,10 @@ where
 
     /// Read from an open file. It has the same effect as the [`Self::read`] method but reduces `read time`
     /// by more than 50%, especially in the case of large files (i.e. > 1Mb)
-    /// 
+    ///
     /// `read_multi` reads multiple contiguous blocks of a file in a single read operation,
     /// without the extra overhead of additional `data-copying`.
-    /// 
+    ///
     /// NOTE: The buffer argument must be a multiple of 512 bytes. This impl assumes the underlying
     /// emmc driver (and consequently the EMMC device) features support for multi-block reads.
     #[cfg(feature = "unstable")]
@@ -679,7 +678,7 @@ where
         volume: &Volume,
         file: &mut File,
         buffer: &mut [u8],
-    ) -> Result<usize, Error<D::Error>> {        
+    ) -> Result<usize, Error<D::Error>> {
         let blocks_per_cluster = match &volume.volume_type {
             VolumeType::Fat(fat) => fat.blocks_per_cluster,
         };
@@ -707,12 +706,12 @@ where
             let block_idx = match &volume.volume_type {
                 VolumeType::Fat(fat) => fat.cluster_to_block(starting_cluster),
             };
-            
+
             self.block_device
                 .read(Block::from_array_slice(blocks), block_idx, "read")
                 .map_err(Error::DeviceError)?;
-
-            file_blocks = match file_blocks.checked_sub(blocks_to_read) { // checked integer subtraction
+            // checked integer subtraction
+            file_blocks = match file_blocks.checked_sub(blocks_to_read) {
                 Some(val) => val,
                 None => 0,
             };
