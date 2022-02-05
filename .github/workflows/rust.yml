@@ -9,6 +9,8 @@ jobs:
     - uses: actions/checkout@v1
     - name: Build
       run: cargo build --verbose
+    - name: Nightly Build
+      run: cargo +nightly build --verbose && cargo +nightly build --verbose --features unstable
     - name: Unpack Disk
       run: gunzip -fk disk.img.gz
     - name: Run Test Mount example
