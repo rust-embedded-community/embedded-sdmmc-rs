@@ -670,13 +670,13 @@ where
     /// `read_multi` reads multiple contiguous blocks of a file in a single read operation,
     /// without the extra overhead of additional `data-copying`.
     ///
-    /// NOTE: 
-    /// - This impl assumes the underlying block-device driver (and consequently the block-device) features support 
+    /// NOTE:
+    /// - This impl assumes the underlying block-device driver (and consequently the block-device) features support
     /// for multi-block reads.
     /// - The following 2 invariants must hold
-    ///     - Length of buffer argument must be `>=` to the file length and 
-    ///     - the buffer must be a multiple of `block-size` bytes. 
-    /// - Providing a buffer that isn't a multiple of `block-size` bytes and is less-than file-length will result 
+    ///     - Length of buffer argument must be `>=` to the file length and
+    ///     - the buffer must be a multiple of `block-size` bytes.
+    /// - Providing a buffer that isn't a multiple of `block-size` bytes and is less-than file-length will result
     /// in an `out of bounds` error. In other words, for files that aren't exactly multiples of `block-size` bytes,
     /// a buffer of length (block-size * (file length/ block size)) + 1 must be provided.
     #[cfg(feature = "unstable")]
