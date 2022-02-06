@@ -65,16 +65,14 @@ impl Block {
         }
     }
 
-    /// Converts a [[u8; 512]] slice into a slice of `Block`s,
+    /// Converts a [[u8; 512]] slice into a slice of `Block`'s,
     /// assuming that there's no remainder.
-    ///
-    /// # Safety
-    ///
-    /// This may only be called when
-    /// - The slice splits exactly into `N`-element chunks (aka `self.len() % N == 0`).
-    /// - `N != 0`.
     pub fn from_array_slice(blocks: &mut [[u8; Self::LEN]]) -> &mut [Block] {
         let len = blocks.len();
+        // # Safety
+        //
+        // - The slice splits exactly into `N`-element chunks (aka `self.len() % N == 0`).
+        // - `N != 0`.
         unsafe { core::slice::from_raw_parts_mut(blocks.as_mut_ptr().cast::<Block>(), len) }
     }
 }
