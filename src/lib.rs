@@ -646,7 +646,7 @@ where
                 },
             },
         };
-        while (next_cluster.0 - cluster.0) == 1 {
+        while next_cluster.0.wrapping_sub(cluster.0) == 1 {
             cluster = next_cluster;
             next_cluster = match &volume.volume_type {
                 VolumeType::Fat(fat) => match fat.next_cluster(self, cluster) {
