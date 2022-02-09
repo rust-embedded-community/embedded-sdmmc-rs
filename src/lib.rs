@@ -54,6 +54,13 @@
 //!     Err(e) => writeln!(uart, "{:?}!", e).unwrap(),
 //! };
 //! ```
+//!
+//! ## Features
+//!
+//! * `defmt-log`: By turning off the default features and enabling the `defmt-log` feature you can
+//! configure this crate to log messages over defmt instead.
+//!
+//! Make sure that either the `log` feature or the `defmt-log` feature is enabled.
 
 #![cfg_attr(not(test), no_std)]
 #![deny(missing_docs)]

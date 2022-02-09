@@ -39,6 +39,7 @@ match spi_dev.acquire() {
 * Close files
 * Iterate root directory
 * Iterate sub-directories
+* Log over defmt or the common log interface (feature flags).
 
 ## Todo List (PRs welcome!)
 
