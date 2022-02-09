@@ -184,7 +184,7 @@ where
             let mut delay = Delay::new();
             let mut attempts = 32;
             while attempts > 0 {
-                trace!("Enter SPI mode, attempt: {}..", 32i32-attempts);
+                trace!("Enter SPI mode, attempt: {}..", 32i32 - attempts);
 
                 match s.card_command(CMD0, 0) {
                     Err(Error::TimeoutCommand(0)) => {
