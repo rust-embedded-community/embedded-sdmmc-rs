@@ -672,10 +672,18 @@ where
         file: &mut File,
         buffer: &[u8],
     ) -> Result<usize, Error<D::Error>> {
+        #[cfg(feature = "defmt-log")]
         debug!(
             "write(volume={:?}, file={:?}, buffer={:x}",
             volume, file, buffer
         );
+
+        #[cfg(feature = "log")]
+        debug!(
+            "write(volume={:?}, file={:?}, buffer={:x?}",
+            volume, file, buffer
+        );
+
         if file.mode == Mode::ReadOnly {
             return Err(Error::ReadOnly);
         }

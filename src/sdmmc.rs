@@ -231,7 +231,7 @@ where
                 }
                 delay.delay(Error::TimeoutCommand(CMD8))?;
             }
-            debug!("Card version: {}", s.card_type);
+            debug!("Card version: {:?}", s.card_type);
 
             let arg = match s.card_type {
                 CardType::SD1 => 0,
