@@ -165,14 +165,18 @@ where
 
 /// We have to track what directories are open to prevent users from modifying
 /// open directories (like creating a file when we have an open iterator).
-pub const MAX_OPEN_DIRS: usize = 4;
+pub const DEFAULT_MAX_OPEN_DIRS: usize = 4;
 
 /// We have to track what files and directories are open to prevent users from
 /// deleting open files (like Windows does).
-pub const MAX_OPEN_FILES: usize = 4;
+pub const DEFAULT_MAX_OPEN_FILES: usize = 4;
 
+/// Controller with default handler count.
+pub type DefaultController<D, T> = Controller<D, T, DEFAULT_MAX_OPEN_DIRS, DEFAULT_MAX_OPEN_FILES>;
+
+// TODO: When [feature(const_generics_defaults)] lands in stable, specify defaults here.
 /// A `Controller` wraps a block device and gives access to the volumes within it.
-pub struct Controller<D, T>
+pub struct Controller<D, T, const MAX_OPEN_DIRS: usize, const MAX_OPEN_FILES: usize>
 where
     D: BlockDevice,
     T: TimeSource,
@@ -181,7 +185,7 @@ where
     block_device: D,
     timesource: T,
     open_dirs: [(VolumeIdx, Cluster); MAX_OPEN_DIRS],
-    open_files: [(VolumeIdx, Cluster); MAX_OPEN_DIRS],
+    open_files: [(VolumeIdx, Cluster); MAX_OPEN_FILES],
 }
 
 /// Represents a partition with a filesystem within it.
@@ -248,7 +252,8 @@ const PARTITION_ID_FAT32_CHS_LBA: u8 = 0x0B;
 //
 // ****************************************************************************
 
-impl<D, T> Controller<D, T>
+impl<D, T, const MAX_OPEN_DIRS: usize, const MAX_OPEN_FILES: usize>
+    Controller<D, T, MAX_OPEN_DIRS, MAX_OPEN_FILES>
 where
     D: BlockDevice,
     T: TimeSource,
@@ -257,13 +262,13 @@ where
     /// Create a new Disk Controller using a generic `BlockDevice`. From this
     /// controller we can open volumes (partitions) and with those we can open
     /// files.
-    pub fn new(block_device: D, timesource: T) -> Controller<D, T> {
+    pub fn new(block_device: D, timesource: T) -> Controller<D, T, MAX_OPEN_DIRS, MAX_OPEN_FILES> {
         debug!("Creating new embedded-sdmmc::Controller");
         Controller {
             block_device,
             timesource,
-            open_dirs: [(VolumeIdx(0), Cluster::INVALID); 4],
-            open_files: [(VolumeIdx(0), Cluster::INVALID); 4],
+            open_dirs: [(VolumeIdx(0), Cluster::INVALID); MAX_OPEN_DIRS],
+            open_files: [(VolumeIdx(0), Cluster::INVALID); MAX_OPEN_FILES],
         }
     }
 
@@ -1141,7 +1146,10 @@ mod tests {
 
     #[test]
     fn partition0() {
-        let mut c = Controller::new(DummyBlockDevice, Clock);
+        let mut c = Controller::<_, _, DEFAULT_MAX_OPEN_DIRS, DEFAULT_MAX_OPEN_FILES>::new(
+            DummyBlockDevice,
+            Clock,
+        );
         let v = c.get_volume(VolumeIdx(0)).unwrap();
         assert_eq!(
             v,

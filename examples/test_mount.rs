@@ -28,7 +28,7 @@ const FILE_TO_CHECKSUM: &'static str = "64MB.DAT";
 
 use embedded_sdmmc::{
     Block, BlockCount, BlockDevice, BlockIdx, Controller, Error, Mode, TimeSource, Timestamp,
-    VolumeIdx,
+    VolumeIdx, DEFAULT_MAX_OPEN_DIRS, DEFAULT_MAX_OPEN_FILES,
 };
 use std::cell::RefCell;
 use std::fs::File;
@@ -121,7 +121,8 @@ fn main() {
         .map_err(Error::DeviceError)
         .unwrap();
     println!("lbd: {:?}", lbd);
-    let mut controller = Controller::new(lbd, Clock);
+    let mut controller =
+        Controller::<_, _, DEFAULT_MAX_OPEN_DIRS, DEFAULT_MAX_OPEN_FILES>::new(lbd, Clock);
     for i in 0..=3 {
         let volume = controller.get_volume(VolumeIdx(i));
         println!("volume {}: {:#?}", i, volume);

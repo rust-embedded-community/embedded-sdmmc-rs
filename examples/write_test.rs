@@ -19,7 +19,7 @@ const FILE_TO_WRITE: &str = "README.TXT";
 
 use embedded_sdmmc::{
     Block, BlockCount, BlockDevice, BlockIdx, Controller, Error, Mode, TimeSource, Timestamp,
-    VolumeIdx,
+    VolumeIdx, DEFAULT_MAX_OPEN_DIRS, DEFAULT_MAX_OPEN_FILES,
 };
 use std::cell::RefCell;
 use std::fs::{File, OpenOptions};
@@ -118,7 +118,8 @@ fn main() {
         .map_err(Error::DeviceError)
         .unwrap();
     println!("lbd: {:?}", lbd);
-    let mut controller = Controller::new(lbd, Clock);
+    let mut controller =
+        Controller::<_, _, DEFAULT_MAX_OPEN_DIRS, DEFAULT_MAX_OPEN_FILES>::new(lbd, Clock);
     for volume_idx in 0..=3 {
         let volume = controller.get_volume(VolumeIdx(volume_idx));
         println!("volume {}: {:#?}", volume_idx, volume);
