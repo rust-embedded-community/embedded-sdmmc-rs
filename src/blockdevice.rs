@@ -17,11 +17,13 @@ pub struct Block {
 /// Represents the linear numeric address of a block (or sector). The first
 /// block on a disk gets `BlockIdx(0)` (which usually contains the Master Boot
 /// Record).
+#[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct BlockIdx(pub u32);
 
 /// Represents the a number of blocks (or sectors). Add this to a `BlockIdx`
 /// to get an actual address on disk.
+#[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct BlockCount(pub u32);
 

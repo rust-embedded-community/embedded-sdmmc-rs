@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- Optionally use [defmt](https://github.com/knurling-rs/defmt) for logging.
+    Controlled by `defmt-log` feature flag.
 
 ### Changes
 - Code tidy-ups and more documentation.
