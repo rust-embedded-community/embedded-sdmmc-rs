@@ -18,10 +18,13 @@ jobs:
     steps:
     - uses: actions/checkout@v1
     - name: Build
+<<<<<<< HEAD
       run: cargo build --verbose
     - name: Nightly Build
       run: rustup install nightly && cargo +nightly build --verbose && cargo +nightly build --verbose --features unstable
+=======
       run: cargo build --no-default-features --features ${{matrix.features}} --verbose
+>>>>>>> upstream/develop
     - name: Unpack Disk
       run: gunzip -fk disk.img.gz
     - name: Run Test Mount example

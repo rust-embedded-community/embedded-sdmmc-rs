@@ -32,11 +32,13 @@ pub trait TimeSource {
 }
 
 /// Represents a cluster on disk.
+#[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct Cluster(pub(crate) u32);
 
 /// Represents a directory entry, which tells you about
 /// other files and directories.
+#[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct DirEntry {
     /// The name of the file
@@ -59,6 +61,7 @@ pub struct DirEntry {
 
 /// An MS-DOS 8.3 filename. 7-bit ASCII only. All lower-case is converted to
 /// upper-case by default.
+#[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
 #[derive(PartialEq, Eq, Clone)]
 pub struct ShortFileName {
     pub(crate) contents: [u8; 11],
@@ -67,6 +70,7 @@ pub struct ShortFileName {
 /// Represents an instant in time, in the local time zone. TODO: Consider
 /// replacing this with POSIX time as a `u32`, which would save two bytes at
 /// the expense of some maths.
+#[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
 #[derive(Copy, Clone, PartialOrd, Ord, PartialEq, Eq)]
 pub struct Timestamp {
     /// Add 1970 to this file to get the calendar year
@@ -85,10 +89,12 @@ pub struct Timestamp {
 
 /// Indicates whether a directory entry is read-only, a directory, a volume
 /// label, etc.
+#[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
 #[derive(Copy, Clone, PartialOrd, Ord, PartialEq, Eq)]
 pub struct Attributes(pub(crate) u8);
 
 /// Represents an open file on disk.
+#[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
 #[derive(Debug)]
 pub struct File {
     /// The starting point of the file.
@@ -106,6 +112,7 @@ pub struct File {
 }
 
 /// Represents an open directory on disk.
+#[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
 #[derive(Debug)]
 pub struct Directory {
     /// The starting point of the directory listing.
@@ -115,6 +122,7 @@ pub struct Directory {
 }
 
 /// The different ways we can open a file.
+#[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub enum Mode {
     /// Open a file for reading, if it exists.
@@ -132,6 +140,7 @@ pub enum Mode {
 }
 
 /// Various filename related errors that can occur.
+#[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
 #[derive(Debug, Clone)]
 pub enum FilenameError {
     /// Tried to create a file with an invalid character.

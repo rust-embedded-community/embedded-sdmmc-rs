@@ -9,7 +9,12 @@ use crate::{
 };
 use byteorder::{ByteOrder, LittleEndian};
 use core::convert::TryFrom;
+
+#[cfg(feature = "log")]
 use log::{debug, trace, warn};
+
+#[cfg(feature = "defmt-log")]
+use defmt::{debug, trace, warn};
 
 /// Number of entries reserved at the start of a File Allocation Table
 pub const RESERVED_ENTRIES: u32 = 2;
@@ -24,6 +29,7 @@ pub enum FatType {
 }
 
 /// Indentifies the supported types of FAT format
+#[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
 #[derive(Debug, Eq, PartialEq)]
 pub enum FatSpecificInfo {
     /// Fat16 Format
@@ -33,6 +39,7 @@ pub enum FatSpecificInfo {
 }
 
 /// FAT32 specific data
+#[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
 #[derive(Debug, Eq, PartialEq)]
 pub struct Fat32Info {
     /// The root directory does not have a reserved area in FAT32. This is the
@@ -43,6 +50,7 @@ pub struct Fat32Info {
 }
 
 /// FAT16 specific data
+#[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
 #[derive(Debug, Eq, PartialEq)]
 pub struct Fat16Info {
     /// The block the root directory starts in. Relative to start of partition (so add `self.lba_offset` before passing to controller)
@@ -52,6 +60,7 @@ pub struct Fat16Info {
 }
 
 /// The name given to a particular FAT formatted volume.
+#[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
 #[derive(PartialEq, Eq)]
 pub struct VolumeName {
     data: [u8; 11],
@@ -65,6 +74,7 @@ impl VolumeName {
 }
 
 /// Identifies a FAT16 Volume on the disk.
+#[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
 #[derive(PartialEq, Eq, Debug)]
 pub struct FatVolume {
     /// The block number of the start of the partition. All other BlockIdx values are relative to this.

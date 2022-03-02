@@ -21,7 +21,5 @@ hex-literal = "0.3"
 env_logger = "0.8"
 
 [features]
-# Enables an unstable feature i.e. allows multiple contiguous block-reads of a file via a single read operation.
-unstable = []
 defmt-log = [ "defmt" ]
 default = [ "log" ]

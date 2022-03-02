@@ -55,6 +55,14 @@
 //! };
 //! ```
 #![cfg_attr(feature = "unstable", feature(slice_as_chunks))]
+//!
+//! ## Features
+//!
+//! * `defmt-log`: By turning off the default features and enabling the `defmt-log` feature you can
+//! configure this crate to log messages over defmt instead.
+//!
+//! Make sure that either the `log` feature or the `defmt-log` feature is enabled.
+
 #![cfg_attr(not(test), no_std)]
 #![deny(missing_docs)]
 
@@ -70,7 +78,12 @@ extern crate hex_literal;
 
 use byteorder::{ByteOrder, LittleEndian};
 use core::convert::TryFrom;
+
+#[cfg(feature = "log")]
 use log::debug;
+
+#[cfg(feature = "defmt-log")]
+use defmt::debug;
 
 #[macro_use]
 mod structure;
@@ -173,6 +186,7 @@ where
 }
 
 /// Represents a partition with a filesystem within it.
+#[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
 #[derive(Debug, PartialEq, Eq)]
 pub struct Volume {
     idx: VolumeIdx,
@@ -181,6 +195,7 @@ pub struct Volume {
 
 /// This enum holds the data for the various different types of filesystems we
 /// support.
+#[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
 #[derive(Debug, PartialEq, Eq)]
 pub enum VolumeType {
     /// FAT16/FAT32 formatted volumes.
@@ -190,6 +205,7 @@ pub enum VolumeType {
 /// A `VolumeIdx` is a number which identifies a volume (or partition) on a
 /// disk. `VolumeIdx(0)` is the first primary partition on an MBR partitioned
 /// disk.
+#[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub struct VolumeIdx(pub usize);
 
@@ -770,10 +786,18 @@ where
         file: &mut File,
         buffer: &[u8],
     ) -> Result<usize, Error<D::Error>> {
+        #[cfg(feature = "defmt-log")]
+        debug!(
+            "write(volume={:?}, file={:?}, buffer={:x}",
+            volume, file, buffer
+        );
+
+        #[cfg(feature = "log")]
         debug!(
             "write(volume={:?}, file={:?}, buffer={:x?}",
             volume, file, buffer
         );
+
         if file.mode == Mode::ReadOnly {
             return Err(Error::ReadOnly);
         }

@@ -13,15 +13,8 @@ readme = "README.md"
 [dependencies]
 embedded-hal = "0.2.3"
 byteorder = { version = "1", default-features = false }
-log = { version = "0.4", default-features = false, optional = true }
-defmt = { version = "0.3", optional = true }
+log = "0.4"
 
 [dev-dependencies]
 hex-literal = "0.3"
 env_logger = "0.8"
-
-[features]
-# Enables an unstable feature i.e. allows multiple contiguous block-reads of a file via a single read operation.
-unstable = []
-defmt-log = [ "defmt" ]
-default = [ "log" ]
