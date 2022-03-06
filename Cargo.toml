@@ -18,7 +18,7 @@ defmt = { version = "0.3", optional = true }
 
 [dev-dependencies]
 hex-literal = "0.3"
-env_logger = "0.8"
+env_logger = "0.9"
 
 [features]
 defmt-log = [ "defmt" ]

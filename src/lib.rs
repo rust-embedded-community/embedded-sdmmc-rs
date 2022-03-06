@@ -39,7 +39,7 @@
 //! write!(uart, "Init SD card...").unwrap();
 //! match spi_dev.acquire() {
 //!     Ok(block) => {
-//!         let mut cont = embedded_sdmmc::DefaultController::new(block, time_source);
+//!         let mut cont: embedded_sdmmc::Controller<_, _> = embedded_sdmmc::Controller::new(block, time_source);
 //!         write!(uart, "OK!\nCard size...").unwrap();
 //!         match cont.device().card_size_bytes() {
 //!             Ok(size) => writeln!(uart, "{}", size).unwrap(),
@@ -171,13 +171,13 @@ pub const DEFAULT_MAX_OPEN_DIRS: usize = 4;
 /// deleting open files (like Windows does).
 pub const DEFAULT_MAX_OPEN_FILES: usize = 4;
 
-/// Controller with default handler count.
-pub type DefaultController<D, T> = Controller<D, T, DEFAULT_MAX_OPEN_DIRS, DEFAULT_MAX_OPEN_FILES>;
-
-// TODO: When [feature(const_generics_defaults)] lands in stable, specify defaults here.
 /// A `Controller` wraps a block device and gives access to the volumes within it.
-pub struct Controller<D, T, const MAX_OPEN_DIRS: usize, const MAX_OPEN_FILES: usize>
-where
+pub struct Controller<
+    D,
+    T,
+    const MAX_OPEN_DIRS: usize = DEFAULT_MAX_OPEN_DIRS,
+    const MAX_OPEN_FILES: usize = DEFAULT_MAX_OPEN_FILES,
+> where
     D: BlockDevice,
     T: TimeSource,
     <D as BlockDevice>::Error: core::fmt::Debug,
