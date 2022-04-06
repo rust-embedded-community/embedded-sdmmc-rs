@@ -696,7 +696,8 @@ where
     /// - Providing a buffer that isn't a multiple of `block-size` bytes and is less-than file-length will result
     /// in an `out of bounds` error. In other words, for files that aren't exactly multiples of `block-size` bytes,
     /// a buffer of length (block-size * (file length/ block size)) + 1 must be provided.
-    /// 
+    ///
+    #[cfg(feature = "unstable")] 
     pub fn read_multi(
         &mut self,
         volume: &Volume,
@@ -732,7 +733,7 @@ where
             };
 
             self.block_device
-                .read(Block::from_array_slice(blocks), block_idx, "read")
+                .read(Block::from_array_slice(blocks), block_idx, "read_multi")
                 .map_err(Error::DeviceError)?;
 
             file_blocks = match file_blocks.checked_sub(blocks_to_read) {
