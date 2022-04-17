@@ -44,6 +44,7 @@ where
 
 /// The possible errors `SdMmcSpi` can generate.
 #[derive(Debug, Copy, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
     /// We got an error from the SPI peripheral
     Transport,
