@@ -110,6 +110,7 @@ pub use crate::sdmmc::{BlockSpi, SdMmcSpi};
 // ****************************************************************************
 
 /// Represents all the ways the functions in this crate can fail.
+#[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
 #[derive(Debug, Clone)]
 pub enum Error<E>
 where

@@ -43,6 +43,7 @@ where
     <SPI as embedded_hal::blocking::spi::Transfer<u8>>::Error: core::fmt::Debug;
 
 /// The possible errors `SdMmcSpi` can generate.
+#[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
 #[derive(Debug, Copy, Clone)]
 pub enum Error {
     /// We got an error from the SPI peripheral
@@ -76,6 +77,7 @@ pub enum Error {
 }
 
 /// The possible states `SdMmcSpi` can be in.
+#[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum State {
     /// Card is not initialised
