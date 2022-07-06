@@ -155,6 +155,14 @@ pub enum FilenameError {
     Utf8Error,
 }
 
+/// Errors related to file operations
+#[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FileError {
+    /// Tried to use an invalid offset.
+    InvalidOffset,
+}
+
 // ****************************************************************************
 //
 // Public Data
@@ -668,7 +676,7 @@ impl File {
     }
 
     /// Seek to a new position in the file, relative to the start of the file.
-    pub fn seek_from_start(&mut self, offset: u32) -> Result<(), ()> {
+    pub fn seek_from_start(&mut self, offset: u32) -> Result<(), FileError> {
         if offset <= self.length {
             self.current_offset = offset;
             if offset < self.current_cluster.0 {
@@ -677,12 +685,12 @@ impl File {
             }
             Ok(())
         } else {
-            Err(())
+            Err(FileError::InvalidOffset)
         }
     }
 
     /// Seek to a new position in the file, relative to the end of the file.
-    pub fn seek_from_end(&mut self, offset: u32) -> Result<(), ()> {
+    pub fn seek_from_end(&mut self, offset: u32) -> Result<(), FileError> {
         if offset <= self.length {
             self.current_offset = self.length - offset;
             if offset < self.current_cluster.0 {
@@ -691,18 +699,18 @@ impl File {
             }
             Ok(())
         } else {
-            Err(())
+            Err(FileError::InvalidOffset)
         }
     }
 
     /// Seek to a new position in the file, relative to the current position.
-    pub fn seek_from_current(&mut self, offset: i32) -> Result<(), ()> {
+    pub fn seek_from_current(&mut self, offset: i32) -> Result<(), FileError> {
         let new_offset = i64::from(self.current_offset) + i64::from(offset);
         if new_offset >= 0 && new_offset <= i64::from(self.length) {
             self.current_offset = new_offset as u32;
             Ok(())
         } else {
-            Err(())
+            Err(FileError::InvalidOffset)
         }
     }
 
