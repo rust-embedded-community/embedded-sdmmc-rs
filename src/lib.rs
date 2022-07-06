@@ -215,7 +215,6 @@ const PARTITION_ID_FAT16: u8 = 0x06;
 /// use.
 const PARTITION_ID_FAT32_CHS_LBA: u8 = 0x0B;
 
-
 // ****************************************************************************
 //
 // Unit Tests
