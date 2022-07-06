@@ -6,7 +6,7 @@ description = "A basic SD/MMC driver for Embedded Rust."
 keywords = ["sdcard", "mmc", "embedded", "fat32"]
 categories = ["embedded", "no-std"]
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/thejpster/embedded-sdmmc-rs"
+repository = "https://github.com/rust-embedded-community/embedded-sdmmc-rs"
 edition = "2018"
 readme = "README.md"
 
