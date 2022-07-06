@@ -640,8 +640,8 @@ where
         }
 
         match &volume.volume_type {
-            VolumeType::Fat(fat) => return fat.delete_directory_entry(self, dir, name),
-        };
+            VolumeType::Fat(fat) => fat.delete_directory_entry(self, dir, name),
+        }
     }
 
     /// Read from an open file.
