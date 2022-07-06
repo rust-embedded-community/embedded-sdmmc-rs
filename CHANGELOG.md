@@ -6,11 +6,10 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
-- Optionally use [defmt](https://github.com/knurling-rs/defmt) for logging.
-    Controlled by `defmt-log` feature flag.
 
 ### Changes
-- Code tidy-ups and more documentation.
+- Optionally use [defmt](https://github.com/knurling-rs/defmt) for logging.
+    Controlled by `defmt-log` feature flag.
 - [breaking-change] Use SPI blocking traits instead to ease SPI peripheral sharing.
   See: https://github.com/rust-embedded-community/embedded-sdmmc-rs/issues/28
 - Added `Controller::has_open_handles` and `Controller::free` methods.
@@ -52,4 +51,3 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
   `embedded_hal::OutputPin` for Chip Select.
 * Can read partition tables and open a FAT32 or FAT16 formatted partition.
 * Can open and iterate the root directory of a FAT16 formatted partition.
-
