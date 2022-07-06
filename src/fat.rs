@@ -1015,7 +1015,7 @@ impl FatVolume {
             if dir_entry.is_end() {
                 // Can quit early
                 return Err(Error::FileNotFound);
-            } else if dir_entry.matches(&match_name) {
+            } else if dir_entry.matches(match_name) {
                 // Found it
                 // Safe, since Block::LEN always fits on a u32
                 let start = u32::try_from(start).unwrap();
@@ -1119,7 +1119,7 @@ impl FatVolume {
             if dir_entry.is_end() {
                 // Can quit early
                 return Err(Error::FileNotFound);
-            } else if dir_entry.matches(&match_name) {
+            } else if dir_entry.matches(match_name) {
                 let mut blocks = blocks;
                 blocks[0].contents[start] = 0xE5;
                 controller
@@ -1363,7 +1363,7 @@ where
         .read(&mut blocks, lba_start, "read_bpb")
         .map_err(Error::DeviceError)?;
     let block = &blocks[0];
-    let bpb = Bpb::create_from_bytes(&block).map_err(Error::FormatError)?;
+    let bpb = Bpb::create_from_bytes(block).map_err(Error::FormatError)?;
     match bpb.fat_type {
         FatType::Fat16 => {
             if bpb.bytes_per_block() as usize != Block::LEN {
@@ -1413,7 +1413,7 @@ where
                 .map_err(Error::DeviceError)?;
             let info_block = &info_blocks[0];
             let info_sector =
-                InfoSector::create_from_bytes(&info_block).map_err(Error::FormatError)?;
+                InfoSector::create_from_bytes(info_block).map_err(Error::FormatError)?;
 
             let mut volume = FatVolume {
                 lba_start,

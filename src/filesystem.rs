@@ -332,7 +332,7 @@ impl ShortFileName {
                 }
                 // Denotes the start of the file extension
                 b'.' => {
-                    if idx >= 1 && idx <= Self::FILENAME_BASE_MAX_LEN {
+                    if (1..=Self::FILENAME_BASE_MAX_LEN).contains(&idx) {
                         idx = Self::FILENAME_BASE_MAX_LEN;
                         seen_dot = true;
                     } else {
@@ -340,14 +340,14 @@ impl ShortFileName {
                     }
                 }
                 _ => {
-                    let ch = if ch >= b'a' && ch <= b'z' {
+                    let ch = if (b'a'..=b'z').contains(&ch) {
                         // Uppercase characters only
                         ch - 32
                     } else {
                         ch
                     };
                     if seen_dot {
-                        if idx >= Self::FILENAME_BASE_MAX_LEN && idx < Self::FILENAME_MAX_LEN {
+                        if (Self::FILENAME_BASE_MAX_LEN..Self::FILENAME_MAX_LEN).contains(&idx) {
                             sfn.contents[idx] = ch;
                         } else {
                             return Err(FilenameError::NameTooLong);
@@ -399,7 +399,7 @@ impl ShortFileName {
                 }
                 // Denotes the start of the file extension
                 b'.' => {
-                    if idx >= 1 && idx <= Self::FILENAME_BASE_MAX_LEN {
+                    if (1..=Self::FILENAME_BASE_MAX_LEN).contains(&idx) {
                         idx = Self::FILENAME_BASE_MAX_LEN;
                         seen_dot = true;
                     } else {
@@ -408,7 +408,7 @@ impl ShortFileName {
                 }
                 _ => {
                     if seen_dot {
-                        if idx >= Self::FILENAME_BASE_MAX_LEN && idx < Self::FILENAME_MAX_LEN {
+                        if (Self::FILENAME_BASE_MAX_LEN..Self::FILENAME_MAX_LEN).contains(&idx) {
                             sfn.contents[idx] = ch;
                         } else {
                             return Err(FilenameError::NameTooLong);
@@ -514,17 +514,17 @@ impl Timestamp {
         seconds: u8,
     ) -> Result<Timestamp, &'static str> {
         Ok(Timestamp {
-            year_since_1970: if year >= 1970 && year <= (1970 + 255) {
+            year_since_1970: if (1970..=(1970 + 255)).contains(&year) {
                 (year - 1970) as u8
             } else {
                 return Err("Bad year");
             },
-            zero_indexed_month: if month >= 1 && month <= 12 {
+            zero_indexed_month: if (1..=12).contains(&month) {
                 month - 1
             } else {
                 return Err("Bad month");
             },
-            zero_indexed_day: if day >= 1 && day <= 31 {
+            zero_indexed_day: if (1..=31).contains(&day) {
                 day - 1
             } else {
                 return Err("Bad day");
