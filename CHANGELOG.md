@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+[Unreleased]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/compare/v0.4.0...develop
+
+## [Version 0.4.0](https://github.com/rust-embedded-community/embedded-sdmmc-rs/releases/tag/v0.4.0)
+
 ### Changes
 - Optionally use [defmt](https://github.com/knurling-rs/defmt) for logging.
     Controlled by `defmt-log` feature flag.
@@ -16,8 +20,6 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 - [breaking-change] Changed interface to enforce correct SD state at compile time.
 - [breaking-change] Added custom error type for `File` operations.
 - Code tidy-ups and more documentation.
-
-[Unreleased]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/compare/v0.3.0...develop
 
 ## [Version 0.3.0](https://github.com/rust-embedded-community/embedded-sdmmc-rs/releases/tag/v0.3.0)
 
