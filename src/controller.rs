@@ -12,12 +12,12 @@ use crate::filesystem::{
     Attributes, Cluster, DirEntry, Directory, File, Mode, ShortFileName, TimeSource, MAX_FILE_SIZE,
 };
 use crate::{
-    Block, BlockCount, BlockDevice, BlockIdx, Error, Volume, VolumeIdx, VolumeType, MAX_OPEN_DIRS,
+    Block, BlockCount, BlockDevice, BlockIdx, Error, Volume, VolumeIdx, VolumeType,
     PARTITION_ID_FAT16, PARTITION_ID_FAT16_LBA, PARTITION_ID_FAT32_CHS_LBA, PARTITION_ID_FAT32_LBA,
 };
 
 /// A `Controller` wraps a block device and gives access to the volumes within it.
-pub struct Controller<D, T>
+pub struct Controller<D, T, const MAX_DIRS: usize = 4, const MAX_FILES: usize = 4>
 where
     D: BlockDevice,
     T: TimeSource,
@@ -25,11 +25,11 @@ where
 {
     pub(crate) block_device: D,
     pub(crate) timesource: T,
-    open_dirs: [(VolumeIdx, Cluster); MAX_OPEN_DIRS],
-    open_files: [(VolumeIdx, Cluster); MAX_OPEN_DIRS],
+    open_dirs: [(VolumeIdx, Cluster); MAX_DIRS],
+    open_files: [(VolumeIdx, Cluster); MAX_FILES],
 }
 
-impl<D, T> Controller<D, T>
+impl<D, T, const MAX_DIRS: usize, const MAX_FILES: usize> Controller<D, T, MAX_DIRS, MAX_FILES>
 where
     D: BlockDevice,
     T: TimeSource,
@@ -38,13 +38,13 @@ where
     /// Create a new Disk Controller using a generic `BlockDevice`. From this
     /// controller we can open volumes (partitions) and with those we can open
     /// files.
-    pub fn new(block_device: D, timesource: T) -> Controller<D, T> {
+    pub fn new(block_device: D, timesource: T) -> Controller<D, T, MAX_DIRS, MAX_FILES> {
         debug!("Creating new embedded-sdmmc::Controller");
         Controller {
             block_device,
             timesource,
-            open_dirs: [(VolumeIdx(0), Cluster::INVALID); 4],
-            open_files: [(VolumeIdx(0), Cluster::INVALID); 4],
+            open_dirs: [(VolumeIdx(0), Cluster::INVALID); MAX_DIRS],
+            open_files: [(VolumeIdx(0), Cluster::INVALID); MAX_FILES],
         }
     }
 

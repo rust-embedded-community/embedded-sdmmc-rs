@@ -154,14 +154,6 @@ where
     NotInBlock,
 }
 
-/// We have to track what directories are open to prevent users from modifying
-/// open directories (like creating a file when we have an open iterator).
-pub const MAX_OPEN_DIRS: usize = 4;
-
-/// We have to track what files and directories are open to prevent users from
-/// deleting open files (like Windows does).
-pub const MAX_OPEN_FILES: usize = 4;
-
 mod controller;
 pub use controller::Controller;
 
@@ -462,7 +454,8 @@ mod tests {
 
     #[test]
     fn partition0() {
-        let mut c = Controller::new(DummyBlockDevice, Clock);
+        let mut c: Controller<DummyBlockDevice, Clock, 4, 4> =
+            Controller::new(DummyBlockDevice, Clock);
         let v = c.get_volume(VolumeIdx(0)).unwrap();
         assert_eq!(
             v,
