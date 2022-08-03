@@ -39,7 +39,12 @@
 //! write!(uart, "Init SD card...").unwrap();
 //! match spi_dev.acquire() {
 //!     Ok(block) => {
-//!         let mut cont = embedded_sdmmc::Controller::new(block, time_source);
+//!         let mut cont: Controller<
+//!             embedded_sdmmc::BlockSpi<DummySpi, DummyCsPin>,
+//!             DummyTimeSource,
+//!             4,
+//!             4,
+//!         > = embedded_sdmmc::Controller::new(block, time_source);
 //!         write!(uart, "OK!\nCard size...").unwrap();
 //!         match cont.device().card_size_bytes() {
 //!             Ok(size) => writeln!(uart, "{}", size).unwrap(),
