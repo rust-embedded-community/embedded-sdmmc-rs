@@ -31,6 +31,7 @@
 //! # }
 //! # impl std::fmt::Write for DummyUart { fn write_str(&mut self, s: &str) -> std::fmt::Result { Ok(()) } }
 //! # use std::fmt::Write;
+//! # use embedded_sdmmc::Controller;
 //! # let mut uart = DummyUart;
 //! # let mut sdmmc_spi = DummySpi;
 //! # let mut sdmmc_cs = DummyCsPin;
@@ -39,7 +40,12 @@
 //! write!(uart, "Init SD card...").unwrap();
 //! match spi_dev.acquire() {
 //!     Ok(block) => {
-//!         let mut cont = embedded_sdmmc::Controller::new(block, time_source);
+//!         let mut cont: Controller<
+//!             embedded_sdmmc::BlockSpi<DummySpi, DummyCsPin>,
+//!             DummyTimeSource,
+//!             4,
+//!             4,
+//!         > = Controller::new(block, time_source);
 //!         write!(uart, "OK!\nCard size...").unwrap();
 //!         match cont.device().card_size_bytes() {
 //!             Ok(size) => writeln!(uart, "{}", size).unwrap(),
@@ -153,14 +159,6 @@ where
     /// Entry not found in the block
     NotInBlock,
 }
-
-/// We have to track what directories are open to prevent users from modifying
-/// open directories (like creating a file when we have an open iterator).
-pub const MAX_OPEN_DIRS: usize = 4;
-
-/// We have to track what files and directories are open to prevent users from
-/// deleting open files (like Windows does).
-pub const MAX_OPEN_FILES: usize = 4;
 
 mod controller;
 pub use controller::Controller;
@@ -462,7 +460,8 @@ mod tests {
 
     #[test]
     fn partition0() {
-        let mut c = Controller::new(DummyBlockDevice, Clock);
+        let mut c: Controller<DummyBlockDevice, Clock, 4, 4> =
+            Controller::new(DummyBlockDevice, Clock);
         let v = c.get_volume(VolumeIdx(0)).unwrap();
         assert_eq!(
             v,

@@ -68,9 +68,9 @@ pub struct FatVolume {
 
 impl FatVolume {
     /// Write a new entry in the FAT
-    pub fn update_info_sector<D, T>(
+    pub fn update_info_sector<D, T, const MAX_DIRS: usize, const MAX_FILES: usize>(
         &mut self,
-        controller: &mut Controller<D, T>,
+        controller: &mut Controller<D, T, MAX_DIRS, MAX_FILES>,
     ) -> Result<(), Error<D::Error>>
     where
         D: BlockDevice,
@@ -112,9 +112,9 @@ impl FatVolume {
     }
 
     /// Write a new entry in the FAT
-    fn update_fat<D, T>(
+    fn update_fat<D, T, const MAX_DIRS: usize, const MAX_FILES: usize>(
         &mut self,
-        controller: &mut Controller<D, T>,
+        controller: &mut Controller<D, T, MAX_DIRS, MAX_FILES>,
         cluster: Cluster,
         new_value: Cluster,
     ) -> Result<(), Error<D::Error>>
@@ -178,9 +178,9 @@ impl FatVolume {
     }
 
     /// Look in the FAT to see which cluster comes next.
-    pub(crate) fn next_cluster<D, T>(
+    pub(crate) fn next_cluster<D, T, const MAX_DIRS: usize, const MAX_FILES: usize>(
         &self,
-        controller: &Controller<D, T>,
+        controller: &Controller<D, T, MAX_DIRS, MAX_FILES>,
         cluster: Cluster,
     ) -> Result<Cluster, Error<D::Error>>
     where
@@ -285,9 +285,9 @@ impl FatVolume {
 
     /// Finds a empty entry space and writes the new entry to it, allocates a new cluster if it's
     /// needed
-    pub(crate) fn write_new_directory_entry<D, T>(
+    pub(crate) fn write_new_directory_entry<D, T, const MAX_DIRS: usize, const MAX_FILES: usize>(
         &mut self,
-        controller: &mut Controller<D, T>,
+        controller: &mut Controller<D, T, MAX_DIRS, MAX_FILES>,
         dir: &Directory,
         name: ShortFileName,
         attributes: Attributes,
@@ -422,9 +422,9 @@ impl FatVolume {
 
     /// Calls callback `func` with every valid entry in the given directory.
     /// Useful for performing directory listings.
-    pub(crate) fn iterate_dir<D, T, F>(
+    pub(crate) fn iterate_dir<D, T, F, const MAX_DIRS: usize, const MAX_FILES: usize>(
         &self,
-        controller: &Controller<D, T>,
+        controller: &Controller<D, T, MAX_DIRS, MAX_FILES>,
         dir: &Directory,
         mut func: F,
     ) -> Result<(), Error<D::Error>>
@@ -522,9 +522,9 @@ impl FatVolume {
     }
 
     /// Get an entry from the given directory
-    pub(crate) fn find_directory_entry<D, T>(
+    pub(crate) fn find_directory_entry<D, T, const MAX_DIRS: usize, const MAX_FILES: usize>(
         &self,
-        controller: &mut Controller<D, T>,
+        controller: &mut Controller<D, T, MAX_DIRS, MAX_FILES>,
         dir: &Directory,
         name: &str,
     ) -> Result<DirEntry, Error<D::Error>>
@@ -603,9 +603,9 @@ impl FatVolume {
     }
 
     /// Finds an entry in a given block
-    fn find_entry_in_block<D, T>(
+    fn find_entry_in_block<D, T, const MAX_DIRS: usize, const MAX_FILES: usize>(
         &self,
-        controller: &mut Controller<D, T>,
+        controller: &mut Controller<D, T, MAX_FILES, MAX_DIRS>,
         fat_type: FatType,
         match_name: &ShortFileName,
         block: BlockIdx,
@@ -637,9 +637,9 @@ impl FatVolume {
     }
 
     /// Delete an entry from the given directory
-    pub(crate) fn delete_directory_entry<D, T>(
+    pub(crate) fn delete_directory_entry<D, T, const MAX_DIRS: usize, const MAX_FILES: usize>(
         &self,
-        controller: &mut Controller<D, T>,
+        controller: &mut Controller<D, T, MAX_DIRS, MAX_FILES>,
         dir: &Directory,
         name: &str,
     ) -> Result<(), Error<D::Error>>
@@ -708,9 +708,9 @@ impl FatVolume {
     }
 
     /// Deletes an entry in a given block
-    fn delete_entry_in_block<D, T>(
+    fn delete_entry_in_block<D, T, const MAX_DIRS: usize, const MAX_FILES: usize>(
         &self,
-        controller: &mut Controller<D, T>,
+        controller: &mut Controller<D, T, MAX_DIRS, MAX_FILES>,
         match_name: &ShortFileName,
         block: BlockIdx,
     ) -> Result<(), Error<D::Error>>
@@ -744,9 +744,9 @@ impl FatVolume {
     }
 
     /// Finds the next free cluster after the start_cluster and before end_cluster
-    pub(crate) fn find_next_free_cluster<D, T>(
+    pub(crate) fn find_next_free_cluster<D, T, const MAX_DIRS: usize, const MAX_FILES: usize>(
         &self,
-        controller: &mut Controller<D, T>,
+        controller: &mut Controller<D, T, MAX_DIRS, MAX_FILES>,
         start_cluster: Cluster,
         end_cluster: Cluster,
     ) -> Result<Cluster, Error<D::Error>>
@@ -827,9 +827,9 @@ impl FatVolume {
     }
 
     /// Tries to allocate a cluster
-    pub(crate) fn alloc_cluster<D, T>(
+    pub(crate) fn alloc_cluster<D, T, const MAX_DIRS: usize, const MAX_FILES: usize>(
         &mut self,
-        controller: &mut Controller<D, T>,
+        controller: &mut Controller<D, T, MAX_DIRS, MAX_FILES>,
         prev_cluster: Option<Cluster>,
         zero: bool,
     ) -> Result<Cluster, Error<D::Error>>
@@ -910,9 +910,9 @@ impl FatVolume {
     }
 
     /// Marks the input cluster as an EOF and all the subsequent clusters in the chain as free
-    pub(crate) fn truncate_cluster_chain<D, T>(
+    pub(crate) fn truncate_cluster_chain<D, T, const MAX_DIRS: usize, const MAX_FILES: usize>(
         &mut self,
-        controller: &mut Controller<D, T>,
+        controller: &mut Controller<D, T, MAX_DIRS, MAX_FILES>,
         cluster: Cluster,
     ) -> Result<(), Error<D::Error>>
     where
@@ -958,8 +958,8 @@ impl FatVolume {
 
 /// Load the boot parameter block from the start of the given partition and
 /// determine if the partition contains a valid FAT16 or FAT32 file system.
-pub fn parse_volume<D, T>(
-    controller: &mut Controller<D, T>,
+pub fn parse_volume<D, T, const MAX_DIRS: usize, const MAX_FILES: usize>(
+    controller: &mut Controller<D, T, MAX_DIRS, MAX_FILES>,
     lba_start: BlockIdx,
     num_blocks: BlockCount,
 ) -> Result<VolumeType, Error<D::Error>>
