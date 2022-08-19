@@ -31,12 +31,28 @@ match spi_dev.acquire() {
 }
 ```
 
+### Open directories and files
+
+By default the `Controller` will initialize with a maximum number of `4` open directories and files. This can be customized by specifying the `MAX_DIR` and `MAX_FILES` generic consts of the `Controller`:
+
+```rust
+// Create a controller with a maximum of 6 open directories and 12 open files
+let mut cont: Controller<
+    embedded_sdmmc::BlockSpi<DummySpi, DummyCsPin>,
+    DummyTimeSource,
+    6,
+    12,
+> = Controller::new(block, time_source);
+```
+
 ## Supported features
 
 * Open files in all supported methods from an open directory
+* Open an arbitrary number of directories and files
 * Read data from open files
 * Write data to open files
 * Close files
+* Delete files
 * Iterate root directory
 * Iterate sub-directories
 * Log over defmt or the common log interface (feature flags).
@@ -44,7 +60,6 @@ match spi_dev.acquire() {
 ## Todo List (PRs welcome!)
 
 * Create new dirs
-* Delete files
 * Delete (empty) directories
 * Handle MS-DOS `/path/foo/bar.txt` style paths.
 
