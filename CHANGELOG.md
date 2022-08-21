@@ -22,6 +22,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 - Added `Controller::has_open_handles` and `Controller::free` methods.
 - [breaking-change] Changed interface to enforce correct SD state at compile time.
 - [breaking-change] Added custom error type for `File` operations.
+- Fix `env_logger` pulling in the `std` feature in `log` in library builds.
+- Raise the minimum supported Rust version to 1.56.0.
 - Code tidy-ups and more documentation.
 
 ## [Version 0.3.0](https://github.com/rust-embedded-community/embedded-sdmmc-rs/releases/tag/v0.3.0)
