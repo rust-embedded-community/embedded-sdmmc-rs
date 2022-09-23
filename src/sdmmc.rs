@@ -124,7 +124,7 @@ impl Delay {
 
 /// Options for acquiring the card.
 #[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct AcquireOpts {
     /// Some cards don't support CRC mode. At least a 512MiB Transcend one.
     pub require_crc: bool,
@@ -134,6 +134,11 @@ impl Default for AcquireOpts {
     fn default() -> Self {
         AcquireOpts { require_crc: true }
     }
+}
+
+/// Token indicating that the card is in a known good initialized state
+pub struct InitToken {
+    _private: (),
 }
 
 impl<SPI, CS> SdMmcSpi<SPI, CS>
@@ -163,13 +168,7 @@ where
         self.cs.borrow_mut().set_low().map_err(|_| Error::GpioError)
     }
 
-    /// Initializes the card into a known state
-    pub fn acquire(&mut self) -> Result<BlockSpi<SPI, CS>, Error> {
-        self.acquire_with_opts(Default::default())
-    }
-
-    /// Initializes the card into a known state
-    pub fn acquire_with_opts(&mut self, options: AcquireOpts) -> Result<BlockSpi<SPI, CS>, Error> {
+    fn acquire_with_opts_internal(&mut self, options: AcquireOpts) -> Result<(), Error> {
         debug!("acquiring card with opts: {:?}", options);
         let f = |s: &mut Self| {
             // Assume it hasn't worked
@@ -263,7 +262,34 @@ where
         let result = f(self);
         self.cs_high()?;
         let _ = self.receive();
-        result.map(move |()| BlockSpi(self))
+        result
+    }
+
+    /// Initializes the card into a known state
+    pub fn acquire(&mut self) -> Result<BlockSpi<'_, SPI, CS>, Error> {
+        self.acquire_with_opts(Default::default())
+    }
+
+    /// Initializes the card into a known state
+    pub fn acquire_with_opts(
+        &mut self,
+        options: AcquireOpts,
+    ) -> Result<BlockSpi<'_, SPI, CS>, Error> {
+        self.acquire_with_opts_internal(options)?;
+        Ok(BlockSpi(self))
+    }
+
+    /// Try to initialize the card into a known state. Returns a `Result<InitToken, Error>`. The [`InitToken`]
+    /// can be used to acquire the card using [`acquire_with_token`]. This mehtod can be used in cases where you might want
+    /// to retry initializing the card more than once, and ensure that the lifetimes check out.
+    pub fn try_init(&mut self, options: AcquireOpts) -> Result<InitToken, Error> {
+        self.acquire_with_opts_internal(options)?;
+        Ok(InitToken { _private: () })
+    }
+
+    /// Acquire a card that has already been initialized through the [`try_init`] method.
+    pub fn acquire_with_token(&mut self, _token: InitToken) -> BlockSpi<'_, SPI, CS> {
+        BlockSpi(self)
     }
 
     /// Perform a function that might error with the chipselect low.
