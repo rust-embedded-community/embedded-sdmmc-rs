@@ -129,11 +129,18 @@ impl Delay {
 pub struct AcquireOpts {
     /// Some cards don't support CRC mode. At least a 512MiB Transcend one.
     pub require_crc: bool,
+    /// Some cards should send CMD0 after an idle state to avoid being stuck in [`TimeoutWaitNotBusy`].
+    /// See [this conversation](https://github.com/rust-embedded-community/embedded-sdmmc-rs/issues/33)
+    /// and [this one])(https://github.com/rust-embedded-community/embedded-sdmmc-rs/issues/33).
+    pub skip_wait_not_busy: bool,
 }
 
 impl Default for AcquireOpts {
     fn default() -> Self {
-        AcquireOpts { require_crc: true }
+        AcquireOpts {
+            require_crc: true,
+            skip_wait_not_busy: false,
+        }
     }
 }
 
@@ -189,7 +196,15 @@ where
             while attempts > 0 {
                 trace!("Enter SPI mode, attempt: {}..", 32i32 - attempts);
 
-                match s.card_command(CMD0, 0) {
+                // Select whether or not to skip waiting for the card not to be busy
+                // when issuing the first CMD0. See https://github.com/rust-embedded-community/embedded-sdmmc-rs/pull/32 and
+                // https://github.com/rust-embedded-community/embedded-sdmmc-rs/issues/33.
+                let cmd0_func = match options.skip_wait_not_busy {
+                    true => Self::card_command_skip_wait,
+                    false => Self::card_command,
+                };
+
+                match cmd0_func(s, CMD0, 0) {
                     Err(Error::TimeoutCommand(0)) => {
                         // Try again?
                         warn!("Timed out, trying again..");
@@ -300,6 +315,13 @@ where
     /// Perform a command.
     fn card_command(&self, command: u8, arg: u32) -> Result<u8, Error> {
         self.wait_not_busy()?;
+        self.card_command_skip_wait(command, arg)
+    }
+
+    /// Perform a command without waiting for the card not to be busy. This method should almost never be used directly, except in
+    /// very specific circumstances. See [https://github.com/rust-embedded-community/embedded-sdmmc-rs/issues/33]
+    /// and [https://github.com/rust-embedded-community/embedded-sdmmc-rs/pull/32] for more info.
+    fn card_command_skip_wait(&self, command: u8, arg: u32) -> Result<u8, Error> {
         let mut buf = [
             0x40 | command,
             (arg >> 24) as u8,
