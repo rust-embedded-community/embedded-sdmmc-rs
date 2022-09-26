@@ -37,7 +37,7 @@ where
 /// An initialized block device used to access the SD card.
 /// **Caution**: any data must be flushed manually before dropping `BlockSpi`, see `deinit`.
 /// Uses SPI mode.
-pub struct BlockSpi<'a, SPI, CS>(&'a mut SdMmcSpi<SPI, CS>)
+pub struct BlockSpi<SPI, CS>(SdMmcSpi<SPI, CS>)
 where
     SPI: embedded_hal::blocking::spi::Transfer<u8>,
     CS: embedded_hal::digital::v2::OutputPin,
@@ -126,14 +126,14 @@ impl Delay {
 /// Options for acquiring the card.
 #[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
 #[derive(Debug, Clone, Copy)]
-pub struct AcquireOpts {
+pub struct InitOpts {
     /// Some cards don't support CRC mode. At least a 512MiB Transcend one.
     pub require_crc: bool,
 }
 
-impl Default for AcquireOpts {
+impl Default for InitOpts {
     fn default() -> Self {
-        AcquireOpts { require_crc: true }
+        Self { require_crc: true }
     }
 }
 
@@ -169,7 +169,26 @@ where
         self.cs.borrow_mut().set_low().map_err(|_| Error::GpioError)
     }
 
-    fn acquire_with_opts_internal(&mut self, options: AcquireOpts) -> Result<(), Error> {
+    /// Initializes the card into a known state. Requires an [`InitToken`] which is used to statically check that the card has been intiialized before being used as a [`BlockSpi`].
+    pub fn acquire(self, _token: InitToken) -> BlockSpi<SPI, CS> {
+        BlockSpi(self)
+    }
+
+    /// Try to initialize the card into a known state. Returns a `Result<InitToken, Error>`. The  returned [`InitToken`]
+    /// can be used to acquire the card using [`acquire`](SdMmcSpi::acquire). This mehtod can be used in cases where you might want
+    /// to retry initializing the card more than once, and ensure that the lifetimes check out.
+    ///
+    /// To provide additional intialization options, use [`try_init_with_opts`](SdMmcSpi::try_init_with_opts).
+    pub fn try_init(&mut self) -> Result<InitToken, Error> {
+        self.try_init_with_opts(Default::default())
+    }
+
+    /// Try to initialize the card into a known state. Returns a `Result<InitToken, Error>`. The  returned [`InitToken`]
+    /// can be used to acquire the card using [`acquire`](SdMmcSpi::acquire). This mehtod can be used in cases where you might want
+    /// to retry initializing the card more than once, and ensure that the lifetimes check out.
+    ///
+    /// Provide additional intialization options with [`InitOpts`].
+    pub fn try_init_with_opts(&mut self, options: InitOpts) -> Result<InitToken, Error> {
         debug!("acquiring card with opts: {:?}", options);
         let f = |s: &mut Self| {
             // Assume it hasn't worked
@@ -260,37 +279,12 @@ where
             s.state = State::Idle;
             Ok(())
         };
-        let result = f(self);
+
+        f(self)?;
         self.cs_high()?;
+        // TODO should we check for Err here?
         let _ = self.receive();
-        result
-    }
-
-    /// Initializes the card into a known state
-    pub fn acquire(&mut self) -> Result<BlockSpi<'_, SPI, CS>, Error> {
-        self.acquire_with_opts(Default::default())
-    }
-
-    /// Initializes the card into a known state
-    pub fn acquire_with_opts(
-        &mut self,
-        options: AcquireOpts,
-    ) -> Result<BlockSpi<'_, SPI, CS>, Error> {
-        self.acquire_with_opts_internal(options)?;
-        Ok(BlockSpi(self))
-    }
-
-    /// Try to initialize the card into a known state. Returns a `Result<InitToken, Error>`. The [`InitToken`]
-    /// can be used to acquire the card using [`acquire_with_token`]. This mehtod can be used in cases where you might want
-    /// to retry initializing the card more than once, and ensure that the lifetimes check out.
-    pub fn try_init(&mut self, options: AcquireOpts) -> Result<InitToken, Error> {
-        self.acquire_with_opts_internal(options)?;
         Ok(InitToken { _private: () })
-    }
-
-    /// Acquire a card that has already been initialized through the [`try_init`] method.
-    pub fn acquire_with_token(&mut self, _token: InitToken) -> BlockSpi<'_, SPI, CS> {
-        BlockSpi(self)
     }
 
     /// Perform a function that might error with the chipselect low.
@@ -395,7 +389,7 @@ where
     }
 }
 
-impl<SPI, CS> BlockSpi<'_, SPI, CS>
+impl<SPI, CS> BlockSpi<SPI, CS>
 where
     SPI: embedded_hal::blocking::spi::Transfer<u8>,
     CS: embedded_hal::digital::v2::OutputPin,
@@ -405,6 +399,12 @@ where
     /// need to re-clock the SPI.
     pub fn spi(&mut self) -> core::cell::RefMut<SPI> {
         self.0.spi.borrow_mut()
+    }
+
+    /// Give ownership of the underlying [`SdMmcSpi`] back to the caller. Deinitializes the card first.
+    pub fn free(mut self) -> SdMmcSpi<SPI, CS> {
+        self.deinit();
+        self.0
     }
 
     /// Mark the card as unused.
@@ -535,7 +535,7 @@ impl<U: BlockDevice, T: Deref<Target = U>> BlockDevice for T {
     }
 }
 
-impl<SPI, CS> BlockDevice for BlockSpi<'_, SPI, CS>
+impl<SPI, CS> BlockDevice for BlockSpi<SPI, CS>
 where
     SPI: embedded_hal::blocking::spi::Transfer<u8>,
     <SPI as embedded_hal::blocking::spi::Transfer<u8>>::Error: core::fmt::Debug,
@@ -610,17 +610,6 @@ where
         let num_bytes = self.card_size_bytes()?;
         let num_blocks = (num_bytes / 512) as u32;
         Ok(BlockCount(num_blocks))
-    }
-}
-
-impl<SPI, CS> Drop for BlockSpi<'_, SPI, CS>
-where
-    SPI: embedded_hal::blocking::spi::Transfer<u8>,
-    <SPI as embedded_hal::blocking::spi::Transfer<u8>>::Error: core::fmt::Debug,
-    CS: embedded_hal::digital::v2::OutputPin,
-{
-    fn drop(&mut self) {
-        self.deinit()
     }
 }
 
