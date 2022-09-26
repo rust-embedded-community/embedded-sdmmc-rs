@@ -360,6 +360,12 @@ where
         }
         Ok(())
     }
+
+    /// Get a temporary borrow on the underlying SPI device. Useful if you
+    /// need to re-clock the SPI.
+    pub fn spi(&mut self) -> core::cell::RefMut<SPI> {
+        self.spi.borrow_mut()
+    }
 }
 
 impl<SPI, CS> BlockSpi<'_, SPI, CS>
