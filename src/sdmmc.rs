@@ -8,6 +8,7 @@
 use super::sdmmc_proto::*;
 use super::{Block, BlockCount, BlockDevice, BlockIdx};
 use core::cell::RefCell;
+use core::ops::Deref;
 
 #[cfg(feature = "log")]
 use log::{debug, trace, warn};
@@ -484,6 +485,27 @@ where
         } else {
             Ok(())
         }
+    }
+}
+
+impl<U: BlockDevice, T: Deref<Target = U>> BlockDevice for T {
+    type Error = U::Error;
+    fn read(
+        &self,
+        blocks: &mut [Block],
+        start_block_idx: BlockIdx,
+        _reason: &str,
+    ) -> Result<(), Self::Error> {
+        self.deref().read(blocks, start_block_idx, _reason)
+    }
+
+    /// Write one or more blocks, starting at the given block index.
+    fn write(&self, blocks: &[Block], start_block_idx: BlockIdx) -> Result<(), Self::Error> {
+        self.deref().write(blocks, start_block_idx)
+    }
+
+    fn num_blocks(&self) -> Result<BlockCount, Self::Error> {
+        self.deref().num_blocks()
     }
 }
 
