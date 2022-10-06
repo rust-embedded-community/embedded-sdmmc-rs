@@ -25,7 +25,7 @@ const DEFAULT_DELAY_COUNT: u32 = 32_000;
 pub struct SdMmcSpi<SPI, CS>
 where
     SPI: embedded_hal::blocking::spi::Transfer<u8>,
-    CS: embedded_hal::digital::v2::OutputPin,
+    CS: embedded_hal::digital::OutputPin,
     <SPI as embedded_hal::blocking::spi::Transfer<u8>>::Error: core::fmt::Debug,
 {
     spi: RefCell<SPI>,
@@ -140,7 +140,7 @@ impl Default for AcquireOpts {
 impl<SPI, CS> SdMmcSpi<SPI, CS>
 where
     SPI: embedded_hal::blocking::spi::Transfer<u8>,
-    CS: embedded_hal::digital::v2::OutputPin,
+    CS: embedded_hal::digital::OutputPin,
     <SPI as embedded_hal::blocking::spi::Transfer<u8>>::Error: core::fmt::Debug,
 {
     /// Create a new SD/MMC controller using a raw SPI interface.
@@ -156,12 +156,15 @@ where
     fn cs_high(&self) -> Result<(), Error> {
         self.cs
             .borrow_mut()
-            .set_high()
+            .try_set_high()
             .map_err(|_| Error::GpioError)
     }
 
     fn cs_low(&self) -> Result<(), Error> {
-        self.cs.borrow_mut().set_low().map_err(|_| Error::GpioError)
+        self.cs
+            .borrow_mut()
+            .try_set_low()
+            .map_err(|_| Error::GpioError)
     }
 
     /// Initializes the card into a known state
@@ -343,7 +346,7 @@ where
     /// Send one byte and receive one byte.
     fn transfer(&self, out: u8) -> Result<u8, Error> {
         let mut spi = self.spi.borrow_mut();
-        spi.transfer(&mut [out])
+        spi.try_transfer(&mut [out])
             .map(|b| b[0])
             .map_err(|_e| Error::Transport)
     }
@@ -513,7 +516,7 @@ impl<SPI, CS> BlockDevice for BlockSpi<'_, SPI, CS>
 where
     SPI: embedded_hal::blocking::spi::Transfer<u8>,
     <SPI as embedded_hal::blocking::spi::Transfer<u8>>::Error: core::fmt::Debug,
-    CS: embedded_hal::digital::v2::OutputPin,
+    CS: embedded_hal::digital::OutputPin,
 {
     type Error = Error;
 

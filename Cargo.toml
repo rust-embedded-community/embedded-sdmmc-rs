@@ -11,7 +11,7 @@ edition = "2021"
 readme = "README.md"
 
 [dependencies]
-embedded-hal = "0.2.3"
+embedded-hal = "1.0.0-alpha.4"
 byteorder = { version = "1", default-features = false }
 log = { version = "0.4", default-features = false, optional = true }
 defmt = { version = "0.3", optional = true }
