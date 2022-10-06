@@ -37,15 +37,17 @@
 //! # let mut sdmmc_cs = DummyCsPin;
 //! # let time_source = DummyTimeSource;
 //! let mut spi_dev = embedded_sdmmc::SdMmcSpi::new(sdmmc_spi, sdmmc_cs);
+//! let maybe_init = spi_dev.try_init();
 //! write!(uart, "Init SD card...").unwrap();
-//! match spi_dev.acquire() {
-//!     Ok(block) => {
+//! match maybe_init {
+//!     Ok(token) => {
+//!         let block_spi = spi_dev.acquire(token);
 //!         let mut cont: Controller<
 //!             embedded_sdmmc::BlockSpi<DummySpi, DummyCsPin>,
 //!             DummyTimeSource,
 //!             4,
 //!             4,
-//!         > = Controller::new(block, time_source);
+//!         > = Controller::new(block_spi, time_source);
 //!         write!(uart, "OK!\nCard size...").unwrap();
 //!         match cont.device().card_size_bytes() {
 //!             Ok(size) => writeln!(uart, "{}", size).unwrap(),
