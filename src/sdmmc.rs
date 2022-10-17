@@ -196,18 +196,15 @@ where
             while attempts > 0 {
                 trace!("Enter SPI mode, attempt: {}..", 32i32 - attempts);
 
-                // Select whether or not to skip waiting for the card not to be busy
-                // when issuing the first CMD0. See https://github.com/rust-embedded-community/embedded-sdmmc-rs/issues/33#issue-803000031 and
-                // https://github.com/rust-embedded-community/embedded-sdmmc-rs/pull/32#issue-802999340.
-                let cmd0_func = match options.skip_wait_not_busy {
-                    true => Self::card_command_skip_wait,
-                    false => Self::card_command,
-                };
-
-                match cmd0_func(s, CMD0, 0) {
+                match s.card_command(CMD0, 0) {
                     Err(Error::TimeoutCommand(0)) => {
                         // Try again?
                         warn!("Timed out, trying again..");
+                        // Try flushing the card as done here: https://github.com/greiman/SdFat/blob/master/src/SdCard/SdSpiCard.cpp#L170,
+                        // https://github.com/rust-embedded-community/embedded-sdmmc-rs/pull/65#issuecomment-1270709448
+                        for _ in 0..0xFF {
+                            s.send(0xFF)?;
+                        }
                         attempts -= 1;
                     }
                     Err(e) => {
@@ -315,13 +312,7 @@ where
     /// Perform a command.
     fn card_command(&self, command: u8, arg: u32) -> Result<u8, Error> {
         self.wait_not_busy()?;
-        self.card_command_skip_wait(command, arg)
-    }
 
-    /// Perform a command without waiting for the card not to be busy. This method should almost never be used directly, except in
-    /// very specific circumstances. See [https://github.com/rust-embedded-community/embedded-sdmmc-rs/issues/33]
-    /// and [https://github.com/rust-embedded-community/embedded-sdmmc-rs/pull/32] for more info.
-    fn card_command_skip_wait(&self, command: u8, arg: u32) -> Result<u8, Error> {
         let mut buf = [
             0x40 | command,
             (arg >> 24) as u8,
