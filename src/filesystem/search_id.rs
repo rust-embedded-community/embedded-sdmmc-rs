@@ -1,13 +1,7 @@
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
 /// Unique ID used to search for files and directories in the open File/Directory lists
 pub struct SearchId(pub(crate) u32);
-
-impl PartialEq for SearchId {
-    fn eq(&self, other: &Self) -> bool {
-        self.0 == other.0
-    }
-}
 
 /// ID generator intented to be used in a static context.
 ///
