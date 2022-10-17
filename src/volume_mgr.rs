@@ -406,7 +406,7 @@ where
                 open_files_row = Some(i);
             }
         }
-        open_files_row.ok_or(Error::TooManyOpenDirs)
+        open_files_row.ok_or(Error::TooManyOpenFiles)
     }
 
     /// Delete a closed file with the given full path, if exists.
@@ -498,6 +498,12 @@ where
             file.starting_cluster = match &mut volume.volume_type {
                 VolumeType::Fat(fat) => fat.alloc_cluster(self, None, false)?,
             };
+            for f in self.open_files.iter_mut() {
+                if f.1 == Cluster(0) {
+                    *f = (f.0, file.starting_cluster)
+                }
+            }
+
             file.entry.cluster = file.starting_cluster;
             debug!("Alloc first cluster {:?}", file.starting_cluster);
         }
