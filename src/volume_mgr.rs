@@ -17,13 +17,13 @@ use heapless::Vec;
 static ID_GENERATOR: IdGenerator = IdGenerator::new();
 
 #[derive(PartialEq, Eq)]
-struct UniqueCluster {
+struct ClusterDescriptor {
     volume_idx: VolumeIdx,
     cluster: Cluster,
     search_id: SearchId,
 }
 
-impl UniqueCluster {
+impl ClusterDescriptor {
     fn compare_volume_and_cluster(&self, volume_idx: VolumeIdx, cluster: Cluster) -> bool {
         self.volume_idx == volume_idx && self.cluster == cluster
     }
@@ -42,8 +42,8 @@ where
 {
     pub(crate) block_device: D,
     pub(crate) timesource: T,
-    open_dirs: Vec<UniqueCluster, MAX_DIRS>,
-    open_files: Vec<UniqueCluster, MAX_FILES>,
+    open_dirs: Vec<ClusterDescriptor, MAX_DIRS>,
+    open_files: Vec<ClusterDescriptor, MAX_FILES>,
 }
 
 impl<D, T> VolumeManager<D, T, 4, 4>
@@ -167,7 +167,7 @@ where
         }
     }
 
-    /// Open a directory.
+    /// Open the volume's root directory.
     ///
     /// You can then read the directory entries with `iterate_dir` and `open_file_in_dir`.
     ///
@@ -175,18 +175,21 @@ where
     /// this directory handle is open. In particular, stop this directory
     /// being unlinked.
     pub fn open_root_dir(&mut self, volume: &Volume) -> Result<Directory, Error<D::Error>> {
+        if self.open_dirs.is_full() {
+            return Err(Error::TooManyOpenDirs);
+        }
+
         // Find a free directory entry, and check the root dir isn't open. As
         // we already know the root dir's magic cluster number, we can do both
         // checks in one loop.
-        for u in self.open_dirs.iter() {
-            if u.compare_volume_and_cluster(volume.idx, Cluster::ROOT_DIR) {
-                return Err(Error::DirAlreadyOpen);
-            }
+        if cluster_already_open(&self.open_dirs, volume.idx, Cluster::ROOT_DIR) {
+            return Err(Error::DirAlreadyOpen);
         }
+
         let search_id = ID_GENERATOR.next();
         // Remember this open directory
         self.open_dirs
-            .push(UniqueCluster {
+            .push(ClusterDescriptor {
                 volume_idx: volume.idx,
                 cluster: Cluster::ROOT_DIR,
                 search_id,
@@ -226,15 +229,14 @@ where
         }
 
         // Check it's not already open
-        for d in self.open_dirs.iter() {
-            if d.compare_volume_and_cluster(volume.idx, dir_entry.cluster) {
-                return Err(Error::DirAlreadyOpen);
-            }
+        if cluster_already_open(&self.open_dirs, volume.idx, dir_entry.cluster) {
+            return Err(Error::DirAlreadyOpen);
         }
+
         // Remember this open directory.
         let search_id = ID_GENERATOR.next();
         self.open_dirs
-            .push(UniqueCluster {
+            .push(ClusterDescriptor {
                 volume_idx: volume.idx,
                 cluster: dir_entry.cluster,
                 search_id,
@@ -250,12 +252,11 @@ where
     /// Close a directory. You cannot perform operations on an open directory
     /// and so must close it if you want to do something with it.
     pub fn close_dir(&mut self, volume: &Volume, dir: Directory) {
-        for (i, d) in self.open_dirs.iter().enumerate() {
-            if d.compare_id(dir.search_id) {
-                self.open_dirs.swap_remove(i);
-                break;
-            }
-        }
+        // Unwrap, because we should never be in a situation where we're attempting to close a dir
+        // with an ID which doesn't exist in our open dirs list.
+        let idx_to_close = cluster_position_by_id(&self.open_dirs, dir.search_id).unwrap();
+        self.open_dirs.swap_remove(idx_to_close);
+        drop(dir);
     }
 
     /// Look in a directory for a named file.
@@ -295,12 +296,12 @@ where
         if self.open_files.is_full() {
             return Err(Error::TooManyOpenFiles);
         }
+
         // Check it's not already open
-        for d in self.open_files.iter() {
-            if d.compare_volume_and_cluster(volume.idx, dir_entry.cluster) {
-                return Err(Error::DirAlreadyOpen);
-            }
+        if cluster_already_open(&self.open_dirs, volume.idx, dir_entry.cluster) {
+            return Err(Error::DirAlreadyOpen);
         }
+
         if dir_entry.attributes.is_directory() {
             return Err(Error::OpenedDirAsFile);
         }
@@ -363,9 +364,10 @@ where
             }
             _ => return Err(Error::Unsupported),
         };
+
         // Remember this open file
         self.open_files
-            .push(UniqueCluster {
+            .push(ClusterDescriptor {
                 volume_idx: volume.idx,
                 cluster: file.starting_cluster,
                 search_id,
@@ -433,7 +435,7 @@ where
 
                 // Remember this open file
                 self.open_files
-                    .push(UniqueCluster {
+                    .push(ClusterDescriptor {
                         volume_idx: volume.idx,
                         cluster: file.starting_cluster,
                         search_id,
@@ -471,10 +473,8 @@ where
             return Err(Error::DeleteDirAsFile);
         }
 
-        for d in self.open_files.iter_mut() {
-            if d.compare_volume_and_cluster(volume.idx, dir_entry.cluster) {
-                return Err(Error::FileIsOpen);
-            }
+        if cluster_already_open(&self.open_files, volume.idx, dir_entry.cluster) {
+            return Err(Error::FileIsOpen);
         }
 
         match &volume.volume_type {
@@ -540,6 +540,16 @@ where
             file.starting_cluster = match &mut volume.volume_type {
                 VolumeType::Fat(fat) => fat.alloc_cluster(self, None, false)?,
             };
+
+            // Update the cluster descriptor in our open files list
+            let cluster_to_update = self
+                .open_files
+                .iter_mut()
+                .find(|d| d.compare_id(file.search_id));
+
+            if let Some(c) = cluster_to_update {
+                c.cluster = file.starting_cluster;
+            }
 
             file.entry.cluster = file.starting_cluster;
             debug!("Alloc first cluster {:?}", file.starting_cluster);
@@ -630,12 +640,12 @@ where
 
     /// Close a file with the given full path.
     pub fn close_file(&mut self, volume: &Volume, file: File) -> Result<(), Error<D::Error>> {
-        for (i, f) in self.open_files.iter().enumerate() {
-            if f.compare_id(file.search_id) {
-                self.open_files.swap_remove(i);
-                break;
-            }
-        }
+        // Unwrap, because we should never be in a situation where we're attempting to close a file
+        // with an ID which doesn't exist in our open files list.
+        let idx_to_close = cluster_position_by_id(&self.open_files, file.search_id).unwrap();
+        self.open_files.swap_remove(idx_to_close);
+
+        drop(file);
         Ok(())
     }
 
@@ -702,6 +712,19 @@ where
             .map_err(Error::DeviceError)?;
         Ok(())
     }
+}
+
+fn cluster_position_by_id(vec: &[ClusterDescriptor], id_to_find: SearchId) -> Option<usize> {
+    vec.iter().position(|f| f.compare_id(id_to_find))
+}
+
+fn cluster_already_open(
+    vec: &[ClusterDescriptor],
+    volume_idx: VolumeIdx,
+    cluster: Cluster,
+) -> bool {
+    vec.iter()
+        .any(|d| d.compare_volume_and_cluster(volume_idx, cluster))
 }
 
 /// Transform mode variants (ReadWriteCreate_Or_Append) to simple modes ReadWriteAppend or
