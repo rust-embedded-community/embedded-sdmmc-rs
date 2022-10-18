@@ -14,8 +14,6 @@ use crate::{
 };
 use heapless::Vec;
 
-static ID_GENERATOR: IdGenerator = IdGenerator::new();
-
 #[derive(PartialEq, Eq)]
 struct ClusterDescriptor {
     volume_idx: VolumeIdx,
@@ -24,6 +22,14 @@ struct ClusterDescriptor {
 }
 
 impl ClusterDescriptor {
+    fn new(volume_idx: VolumeIdx, cluster: Cluster, search_id: SearchId) -> Self {
+        Self {
+            volume_idx,
+            cluster,
+            search_id,
+        }
+    }
+
     fn compare_volume_and_cluster(&self, volume_idx: VolumeIdx, cluster: Cluster) -> bool {
         self.volume_idx == volume_idx && self.cluster == cluster
     }
@@ -42,6 +48,7 @@ where
 {
     pub(crate) block_device: D,
     pub(crate) timesource: T,
+    id_generator: IdGenerator,
     open_dirs: Vec<ClusterDescriptor, MAX_DIRS>,
     open_files: Vec<ClusterDescriptor, MAX_FILES>,
 }
@@ -81,6 +88,7 @@ where
         VolumeManager {
             block_device,
             timesource,
+            id_generator: IdGenerator::new(),
             open_dirs: Vec::new(),
             open_files: Vec::new(),
         }
@@ -186,14 +194,14 @@ where
             return Err(Error::DirAlreadyOpen);
         }
 
-        let search_id = ID_GENERATOR.next();
+        let search_id = self.id_generator.get();
         // Remember this open directory
         self.open_dirs
-            .push(ClusterDescriptor {
-                volume_idx: volume.idx,
-                cluster: Cluster::ROOT_DIR,
+            .push(ClusterDescriptor::new(
+                volume.idx,
+                Cluster::ROOT_DIR,
                 search_id,
-            })
+            ))
             .map_err(|_| Error::TooManyOpenDirs)?;
 
         Ok(Directory {
@@ -234,13 +242,13 @@ where
         }
 
         // Remember this open directory.
-        let search_id = ID_GENERATOR.next();
+        let search_id = self.id_generator.get();
         self.open_dirs
-            .push(ClusterDescriptor {
-                volume_idx: volume.idx,
-                cluster: dir_entry.cluster,
+            .push(ClusterDescriptor::new(
+                volume.idx,
+                dir_entry.cluster,
                 search_id,
-            })
+            ))
             .map_err(|_| Error::TooManyOpenDirs)?;
 
         Ok(Directory {
@@ -255,7 +263,7 @@ where
         // Unwrap, because we should never be in a situation where we're attempting to close a dir
         // with an ID which doesn't exist in our open dirs list.
         let idx_to_close = cluster_position_by_id(&self.open_dirs, dir.search_id).unwrap();
-        self.open_dirs.swap_remove(idx_to_close);
+        self.open_dirs.remove(idx_to_close);
         drop(dir);
     }
 
@@ -310,7 +318,7 @@ where
         }
 
         let mode = solve_mode_variant(mode, true);
-        let search_id = ID_GENERATOR.next();
+        let search_id = self.id_generator.get();
 
         let file = match mode {
             Mode::ReadOnly => File {
@@ -367,11 +375,11 @@ where
 
         // Remember this open file
         self.open_files
-            .push(ClusterDescriptor {
-                volume_idx: volume.idx,
-                cluster: file.starting_cluster,
+            .push(ClusterDescriptor::new(
+                volume.idx,
+                file.starting_cluster,
                 search_id,
-            })
+            ))
             .map_err(|_| Error::TooManyOpenDirs)?;
 
         Ok(file)
@@ -421,7 +429,7 @@ where
                     }
                 };
 
-                let search_id = ID_GENERATOR.next();
+                let search_id = self.id_generator.get();
 
                 let file = File {
                     starting_cluster: entry.cluster,
@@ -435,11 +443,11 @@ where
 
                 // Remember this open file
                 self.open_files
-                    .push(ClusterDescriptor {
-                        volume_idx: volume.idx,
-                        cluster: file.starting_cluster,
+                    .push(ClusterDescriptor::new(
+                        volume.idx,
+                        file.starting_cluster,
                         search_id,
-                    })
+                    ))
                     .map_err(|_| Error::TooManyOpenFiles)?;
 
                 Ok(file)
@@ -478,8 +486,19 @@ where
         }
 
         match &volume.volume_type {
-            VolumeType::Fat(fat) => fat.delete_directory_entry(self, dir, name),
+            VolumeType::Fat(fat) => fat.delete_directory_entry(self, dir, name)?,
         }
+
+        // Unwrap, because we should never be in a situation where we're attempting to close a file
+        // which doesn't exist in our open files list.
+        let idx_to_remove = self
+            .open_files
+            .iter()
+            .position(|d| d.compare_volume_and_cluster(volume.idx, dir_entry.cluster))
+            .unwrap();
+        self.open_files.remove(idx_to_remove);
+
+        Ok(())
     }
 
     /// Read from an open file.
@@ -643,7 +662,7 @@ where
         // Unwrap, because we should never be in a situation where we're attempting to close a file
         // with an ID which doesn't exist in our open files list.
         let idx_to_close = cluster_position_by_id(&self.open_files, file.search_id).unwrap();
-        self.open_files.swap_remove(idx_to_close);
+        self.open_files.remove(idx_to_close);
 
         drop(file);
         Ok(())

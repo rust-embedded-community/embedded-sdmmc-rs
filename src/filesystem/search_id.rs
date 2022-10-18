@@ -7,22 +7,19 @@ pub struct SearchId(pub(crate) u32);
 ///
 /// This object will always return a different ID.
 pub struct IdGenerator {
-    next_id: core::sync::atomic::AtomicU32,
+    next_id: u32,
 }
 
 impl IdGenerator {
     /// Create a new [`IdGenerator`].
     pub const fn new() -> Self {
-        Self {
-            next_id: core::sync::atomic::AtomicU32::new(0),
-        }
+        Self { next_id: 0 }
     }
 
     /// Generate a new, unique [`SearchId`].
-    pub fn next(&self) -> SearchId {
-        use core::sync::atomic::Ordering;
-        let id = self.next_id.load(Ordering::Acquire);
-        self.next_id.store(id + 1, Ordering::Release);
+    pub fn get(&mut self) -> SearchId {
+        let id = self.next_id;
+        self.next_id += 1;
         SearchId(id)
     }
 }
