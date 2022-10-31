@@ -129,18 +129,11 @@ impl Delay {
 pub struct AcquireOpts {
     /// Some cards don't support CRC mode. At least a 512MiB Transcend one.
     pub require_crc: bool,
-    /// Some cards should send CMD0 after an idle state to avoid being stuck in [`TimeoutWaitNotBusy`].
-    /// See [this conversation](https://github.com/rust-embedded-community/embedded-sdmmc-rs/issues/33#issue-803000031)
-    /// and [this one])(https://github.com/rust-embedded-community/embedded-sdmmc-rs/pull/32#issue-802999340).
-    pub skip_wait_not_busy: bool,
 }
 
 impl Default for AcquireOpts {
     fn default() -> Self {
-        AcquireOpts {
-            require_crc: true,
-            skip_wait_not_busy: false,
-        }
+        AcquireOpts { require_crc: true }
     }
 }
 
@@ -311,7 +304,9 @@ where
 
     /// Perform a command.
     fn card_command(&self, command: u8, arg: u32) -> Result<u8, Error> {
-        self.wait_not_busy()?;
+        if command != CMD0 && command != CMD12 {
+            self.wait_not_busy()?;
+        }
 
         let mut buf = [
             0x40 | command,
