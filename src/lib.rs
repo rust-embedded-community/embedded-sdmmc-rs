@@ -460,8 +460,9 @@ mod tests {
 
     #[test]
     fn partition0() {
-        let mut c: Controller<DummyBlockDevice, Clock, 4, 4> =
-            Controller::new(DummyBlockDevice, Clock);
+        let mut c: Controller<DummyBlockDevice, Clock, 2, 2> =
+            Controller::new_custom_max(DummyBlockDevice, Clock);
+
         let v = c.get_volume(VolumeIdx(0)).unwrap();
         assert_eq!(
             v,
