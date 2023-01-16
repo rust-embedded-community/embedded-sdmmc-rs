@@ -42,7 +42,7 @@ let mut cont: Controller<
     DummyTimeSource,
     6,
     12,
-> = Controller::new_custom_max(block, time_source);
+> = Controller::new_with_limits(block, time_source);
 ```
 
 ## Supported features

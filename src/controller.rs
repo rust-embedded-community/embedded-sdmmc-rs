@@ -40,10 +40,10 @@ where
     /// files.
     ///
     /// This creates a Controller with default values
-    /// MAX_DIRS = 4, MAX_FILES = 4. Call `Controller::new_custom_max(block_device, timesource)`
+    /// MAX_DIRS = 4, MAX_FILES = 4. Call `Controller::new_with_limits(block_device, timesource)`
     /// if you need different limits.
     pub fn new(block_device: D, timesource: T) -> Controller<D, T, 4, 4> {
-        Self::new_custom_max(block_device, timesource)
+        Self::new_with_limits(block_device, timesource)
     }
 }
 
@@ -56,7 +56,10 @@ where
     /// Create a new Disk Controller using a generic `BlockDevice`. From this
     /// controller we can open volumes (partitions) and with those we can open
     /// files.
-    pub fn new_custom_max(block_device: D, timesource: T) -> Controller<D, T, MAX_DIRS, MAX_FILES> {
+    pub fn new_with_limits(
+        block_device: D,
+        timesource: T,
+    ) -> Controller<D, T, MAX_DIRS, MAX_FILES> {
         debug!("Creating new embedded-sdmmc::Controller");
         Controller {
             block_device,
