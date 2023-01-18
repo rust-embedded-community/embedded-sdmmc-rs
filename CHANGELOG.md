@@ -9,11 +9,6 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 
 [Unreleased]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/compare/v0.4.0...develop
 
-### Changes
-- Add `MAX_DIRS` and `MAX_FILES` generics to `Controller` to allow an arbitrary numbers of concurrent open directories and files.
-- Add new constructor method `Controller::new_with_limits(block_device: D, timesource: T) -> Controller<D, T, MAX_DIRS, MAX_FILES>`
-  to create a `Controller` with custom limits.
-
 ## [Version 0.4.0](https://github.com/rust-embedded-community/embedded-sdmmc-rs/releases/tag/v0.4.0)
 
 ### Changes
@@ -27,6 +22,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 - Fix `env_logger` pulling in the `std` feature in `log` in library builds.
 - Raise the minimum supported Rust version to 1.56.0.
 - Code tidy-ups and more documentation.
+- Add `MAX_DIRS` and `MAX_FILES` generics to `Controller` to allow an arbitrary numbers of concurrent open directories and files.
+- Add new constructor method `Controller::new_with_limits(block_device: D, timesource: T) -> Controller<D, T, MAX_DIRS, MAX_FILES>`
+  to create a `Controller` with custom limits.
 
 ## [Version 0.3.0](https://github.com/rust-embedded-community/embedded-sdmmc-rs/releases/tag/v0.3.0)
 
