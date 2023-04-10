@@ -397,6 +397,8 @@ where
             _ => {
                 // Safe to unwrap, since we actually have an entry if we got here
                 let dir_entry = dir_entry.unwrap();
+                // FIXME: if 2 files are in the same cluster this will cause an error when opening
+                // a file for a first time in a different than `ReadWriteCreate` mode.
                 self.open_dir_entry(volume, dir_entry, mode)
             }
         }
