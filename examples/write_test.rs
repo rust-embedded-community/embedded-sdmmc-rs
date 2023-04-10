@@ -118,7 +118,7 @@ fn main() {
         .map_err(Error::DeviceError)
         .unwrap();
     println!("lbd: {:?}", lbd);
-    let mut controller: Controller<LinuxBlockDevice, Clock, 4, 4> = Controller::new(lbd, Clock);
+    let mut controller = Controller::new(lbd, Clock);
     for volume_idx in 0..=3 {
         let volume = controller.get_volume(VolumeIdx(volume_idx));
         println!("volume {}: {:#?}", volume_idx, volume);
