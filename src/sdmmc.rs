@@ -193,6 +193,11 @@ where
                     Err(Error::TimeoutCommand(0)) => {
                         // Try again?
                         warn!("Timed out, trying again..");
+                        // Try flushing the card as done here: https://github.com/greiman/SdFat/blob/master/src/SdCard/SdSpiCard.cpp#L170,
+                        // https://github.com/rust-embedded-community/embedded-sdmmc-rs/pull/65#issuecomment-1270709448
+                        for _ in 0..0xFF {
+                            s.send(0xFF)?;
+                        }
                         attempts -= 1;
                     }
                     Err(e) => {
@@ -299,7 +304,10 @@ where
 
     /// Perform a command.
     fn card_command(&self, command: u8, arg: u32) -> Result<u8, Error> {
-        self.wait_not_busy()?;
+        if command != CMD0 && command != CMD12 {
+            self.wait_not_busy()?;
+        }
+
         let mut buf = [
             0x40 | command,
             (arg >> 24) as u8,
