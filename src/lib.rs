@@ -31,7 +31,7 @@
 //! # }
 //! # impl std::fmt::Write for DummyUart { fn write_str(&mut self, s: &str) -> std::fmt::Result { Ok(()) } }
 //! # use std::fmt::Write;
-//! # use embedded_sdmmc::Controller;
+//! # use embedded_sdmmc::VolumeManager;
 //! # let mut uart = DummyUart;
 //! # let mut sdmmc_spi = DummySpi;
 //! # let mut sdmmc_cs = DummyCsPin;
@@ -40,19 +40,19 @@
 //! write!(uart, "Init SD card...").unwrap();
 //! match spi_dev.acquire() {
 //!     Ok(block) => {
-//!         let mut cont: Controller<
+//!         let mut volume_mgr: VolumeManager<
 //!             embedded_sdmmc::BlockSpi<DummySpi, DummyCsPin>,
 //!             DummyTimeSource,
 //!             4,
 //!             4,
-//!         > = Controller::new(block, time_source);
+//!         > = VolumeManager::new(block, time_source);
 //!         write!(uart, "OK!\nCard size...").unwrap();
-//!         match cont.device().card_size_bytes() {
+//!         match volume_mgr.device().card_size_bytes() {
 //!             Ok(size) => writeln!(uart, "{}", size).unwrap(),
 //!             Err(e) => writeln!(uart, "Err: {:?}", e).unwrap(),
 //!         }
 //!         write!(uart, "Volume 0...").unwrap();
-//!         match cont.get_volume(embedded_sdmmc::VolumeIdx(0)) {
+//!         match volume_mgr.get_volume(embedded_sdmmc::VolumeIdx(0)) {
 //!             Ok(v) => writeln!(uart, "{:?}", v).unwrap(),
 //!             Err(e) => writeln!(uart, "Err: {:?}", e).unwrap(),
 //!         }
@@ -160,8 +160,8 @@ where
     NotInBlock,
 }
 
-mod controller;
-pub use controller::Controller;
+mod volume_mgr;
+pub use volume_mgr::VolumeManager;
 
 /// Represents a partition with a filesystem within it.
 #[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
@@ -460,8 +460,8 @@ mod tests {
 
     #[test]
     fn partition0() {
-        let mut c: Controller<DummyBlockDevice, Clock, 2, 2> =
-            Controller::new_with_limits(DummyBlockDevice, Clock);
+        let mut c: VolumeManager<DummyBlockDevice, Clock, 2, 2> =
+            VolumeManager::new_with_limits(DummyBlockDevice, Clock);
 
         let v = c.get_volume(VolumeIdx(0)).unwrap();
         assert_eq!(
