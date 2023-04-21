@@ -14,25 +14,30 @@ You will need something that implements the `BlockDevice` trait, which can read 
 // Build an SD Card interface out of an SPI device
 let mut spi_dev = embedded_sdmmc::SdMmcSpi::new(sdmmc_spi, sdmmc_cs);
 // Try and initialise the SD card
-write!(uart, "Init SD card...").unwrap();
-match spi_dev.acquire() {
-    Ok(block) => {
-        // The SD Card initialised, and we have a `BlockSpi` object representing
-        // the initialised card. Now let's 
-        let mut cont = embedded_sdmmc::VolumeManager::new(block, time_source);
-        write!(uart, "OK!\nCard size...").unwrap();
-        match cont.device().card_size_bytes() {
-            Ok(size) => writeln!(uart, "{}", size).unwrap(),
-            Err(e) => writeln!(uart, "Err: {:?}", e).unwrap(),
-        }
-        write!(uart, "Volume 0...").unwrap();
-        match cont.get_volume(embedded_sdmmc::VolumeIdx(0)) {
-            Ok(v) => writeln!(uart, "{:?}", v).unwrap(),
-            Err(e) => writeln!(uart, "Err: {:?}", e).unwrap(),
-        }
+let block_dev = spi_dev.acquire()?;
+// The SD Card was initialised, and we have a `BlockSpi` object
+// representing the initialised card.
+write!(uart, "Card size is {} bytes", block_dev.card_size_bytes()?)?;
+// Now let's look for volumes (also known as partitions) on our block device.
+let mut cont = embedded_sdmmc::VolumeManager::new(block_dev, time_source);
+// Try and access Volume 0 (i.e. the first partition)
+let mut volume = cont.get_volume(embedded_sdmmc::VolumeIdx(0))?;
+writeln!(uart, "Volume 0: {:?}", v)?;
+// Open the root directory
+let root_dir = volume_mgr.open_root_dir(&volume0)?;
+// Open a file called "MY_FILE.TXT" in the root directory
+let mut my_file = volume_mgr.open_file_in_dir(
+    &mut volume0, &root_dir, "MY_FILE.TXT", embedded_sdmmc::Mode::ReadOnly)?;
+// Print the contents of the file
+while !my_file.eof() {
+    let mut buffer = [0u8; 32];
+    let num_read = volume_mgr.read(&volume0, &mut my_file, &mut buffer)?;
+    for b in &buffer[0..num_read] {
+        print!("{}", *b as char);
     }
-    Err(e) => writeln!(uart, "{:?}!", e).unwrap(),
 }
+volume_mgr.close_file(&volume0, my_file)?;
+volume_mgr.close_dir(&volume0, root_dir)?;
 ```
 
 ### Open directories and files
@@ -41,12 +46,7 @@ By default the `VolumeManager` will initialize with a maximum number of `4` open
 
 ```rust
 // Create a volume manager with a maximum of 6 open directories and 12 open files
-let mut cont: VolumeManager<
-    embedded_sdmmc::BlockSpi<DummySpi, DummyCsPin>,
-    DummyTimeSource,
-    6,
-    12,
-> = VolumeManager::new_with_limits(block, time_source);
+let mut cont: VolumeManager<_, _, 6, 12> = VolumeManager::new_with_limits(block, time_source);
 ```
 
 ## Supported features

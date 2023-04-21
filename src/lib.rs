@@ -2,17 +2,21 @@
 //!
 //! > An SD/MMC Library written in Embedded Rust
 //!
-//! This crate is intended to allow you to read/write files on a FAT formatted SD
-//! card on your Rust Embedded device, as easily as using the `SdFat` Arduino
-//! library. It is written in pure-Rust, is `#![no_std]` and does not use `alloc`
-//! or `collections` to keep the memory footprint low. In the first instance it is
-//! designed for readability and simplicity over performance.
+//! This crate is intended to allow you to read/write files on a FAT formatted
+//! SD card on your Rust Embedded device, as easily as using the `SdFat` Arduino
+//! library. It is written in pure-Rust, is `#![no_std]` and does not use
+//! `alloc` or `collections` to keep the memory footprint low. In the first
+//! instance it is designed for readability and simplicity over performance.
 //!
 //! ## Using the crate
 //!
-//! You will need something that implements the `BlockDevice` trait, which can read and write the 512-byte blocks (or sectors) from your card. If you were to implement this over USB Mass Storage, there's no reason this crate couldn't work with a USB Thumb Drive, but we only supply a `BlockDevice` suitable for reading SD and SDHC cards over SPI.
+//! You will need something that implements the `BlockDevice` trait, which can
+//! read and write the 512-byte blocks (or sectors) from your card. If you were
+//! to implement this over USB Mass Storage, there's no reason this crate
+//! couldn't work with a USB Thumb Drive, but we only supply a `BlockDevice`
+//! suitable for reading SD and SDHC cards over SPI.
 //!
-//! ```rust
+//! ```rust,no_run
 //! # struct DummySpi;
 //! # struct DummyCsPin;
 //! # struct DummyUart;
@@ -32,41 +36,41 @@
 //! # impl std::fmt::Write for DummyUart { fn write_str(&mut self, s: &str) -> std::fmt::Result { Ok(()) } }
 //! # use std::fmt::Write;
 //! # use embedded_sdmmc::VolumeManager;
-//! # let mut uart = DummyUart;
+//! # fn main() -> Result<(), embedded_sdmmc::Error<embedded_sdmmc::SdMmcError>> {
 //! # let mut sdmmc_spi = DummySpi;
 //! # let mut sdmmc_cs = DummyCsPin;
 //! # let time_source = DummyTimeSource;
 //! let mut spi_dev = embedded_sdmmc::SdMmcSpi::new(sdmmc_spi, sdmmc_cs);
-//! write!(uart, "Init SD card...").unwrap();
-//! match spi_dev.acquire() {
-//!     Ok(block) => {
-//!         let mut volume_mgr: VolumeManager<
-//!             embedded_sdmmc::BlockSpi<DummySpi, DummyCsPin>,
-//!             DummyTimeSource,
-//!             4,
-//!             4,
-//!         > = VolumeManager::new(block, time_source);
-//!         write!(uart, "OK!\nCard size...").unwrap();
-//!         match volume_mgr.device().card_size_bytes() {
-//!             Ok(size) => writeln!(uart, "{}", size).unwrap(),
-//!             Err(e) => writeln!(uart, "Err: {:?}", e).unwrap(),
-//!         }
-//!         write!(uart, "Volume 0...").unwrap();
-//!         match volume_mgr.get_volume(embedded_sdmmc::VolumeIdx(0)) {
-//!             Ok(v) => writeln!(uart, "{:?}", v).unwrap(),
-//!             Err(e) => writeln!(uart, "Err: {:?}", e).unwrap(),
-//!         }
+//! let block = spi_dev.acquire()?;
+//! println!("Card size {} bytes", block.card_size_bytes()?);
+//! let mut volume_mgr = VolumeManager::new(block, time_source);
+//! println!("Card size is still {} bytes", volume_mgr.device().card_size_bytes()?);
+//! let mut volume0 = volume_mgr.get_volume(embedded_sdmmc::VolumeIdx(0))?;
+//! println!("Volume 0: {:?}", volume0);
+//! let root_dir = volume_mgr.open_root_dir(&volume0)?;
+//! let mut my_file = volume_mgr.open_file_in_dir(
+//!     &mut volume0, &root_dir, "MY_FILE.TXT", embedded_sdmmc::Mode::ReadOnly)?;
+//! while !my_file.eof() {
+//!     let mut buffer = [0u8; 32];
+//!     let num_read = volume_mgr.read(&volume0, &mut my_file, &mut buffer)?;
+//!     for b in &buffer[0..num_read] {
+//!         print!("{}", *b as char);
 //!     }
-//!     Err(e) => writeln!(uart, "{:?}!", e).unwrap(),
-//! };
+//! }
+//! volume_mgr.close_file(&volume0, my_file)?;
+//! volume_mgr.close_dir(&volume0, root_dir);
+//! # Ok(())
+//! # }
 //! ```
 //!
 //! ## Features
 //!
-//! * `defmt-log`: By turning off the default features and enabling the `defmt-log` feature you can
-//! configure this crate to log messages over defmt instead.
+//! * `defmt-log`: By turning off the default features and enabling the
+//! `defmt-log` feature you can configure this crate to log messages over defmt
+//! instead.
 //!
-//! Make sure that either the `log` feature or the `defmt-log` feature is enabled.
+//! Make sure that either the `log` feature or the `defmt-log` feature is
+//! enabled.
 
 #![cfg_attr(not(test), no_std)]
 #![deny(missing_docs)]
@@ -98,6 +102,12 @@ pub use crate::filesystem::{
 };
 pub use crate::sdmmc::Error as SdMmcError;
 pub use crate::sdmmc::{BlockSpi, SdMmcSpi};
+
+mod volume_mgr;
+pub use volume_mgr::VolumeManager;
+
+#[deprecated]
+pub use volume_mgr::VolumeManager as Controller;
 
 // ****************************************************************************
 //
@@ -160,8 +170,14 @@ where
     NotInBlock,
 }
 
-mod volume_mgr;
-pub use volume_mgr::VolumeManager;
+impl<E> From<E> for Error<E>
+where
+    E: core::fmt::Debug,
+{
+    fn from(value: E) -> Error<E> {
+        Error::DeviceError(value)
+    }
+}
 
 /// Represents a partition with a filesystem within it.
 #[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
