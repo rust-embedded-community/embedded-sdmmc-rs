@@ -143,7 +143,7 @@ where
     CS: embedded_hal::digital::v2::OutputPin,
     <SPI as embedded_hal::blocking::spi::Transfer<u8>>::Error: core::fmt::Debug,
 {
-    /// Create a new SD/MMC controller using a raw SPI interface.
+    /// Create a new SD/MMC interface using a raw SPI interface.
     pub fn new(spi: SPI, cs: CS) -> SdMmcSpi<SPI, CS> {
         SdMmcSpi {
             spi: RefCell::new(spi),

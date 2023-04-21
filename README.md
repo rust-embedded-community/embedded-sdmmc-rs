@@ -11,11 +11,15 @@ designed for readability and simplicity over performance.
 You will need something that implements the `BlockDevice` trait, which can read and write the 512-byte blocks (or sectors) from your card. If you were to implement this over USB Mass Storage, there's no reason this crate couldn't work with a USB Thumb Drive, but we only supply a `BlockDevice` suitable for reading SD and SDHC cards over SPI.
 
 ```rust
+// Build an SD Card interface out of an SPI device
 let mut spi_dev = embedded_sdmmc::SdMmcSpi::new(sdmmc_spi, sdmmc_cs);
+// Try and initialise the SD card
 write!(uart, "Init SD card...").unwrap();
 match spi_dev.acquire() {
     Ok(block) => {
-        let mut cont = embedded_sdmmc::Controller::new(block, time_source);
+        // The SD Card initialised, and we have a `BlockSpi` object representing
+        // the initialised card. Now let's 
+        let mut cont = embedded_sdmmc::VolumeManager::new(block, time_source);
         write!(uart, "OK!\nCard size...").unwrap();
         match cont.device().card_size_bytes() {
             Ok(size) => writeln!(uart, "{}", size).unwrap(),
@@ -33,16 +37,16 @@ match spi_dev.acquire() {
 
 ### Open directories and files
 
-By default the `Controller` will initialize with a maximum number of `4` open directories and files. This can be customized by specifying the `MAX_DIR` and `MAX_FILES` generic consts of the `Controller`:
+By default the `VolumeManager` will initialize with a maximum number of `4` open directories and files. This can be customized by specifying the `MAX_DIR` and `MAX_FILES` generic consts of the `VolumeManager`:
 
 ```rust
-// Create a controller with a maximum of 6 open directories and 12 open files
-let mut cont: Controller<
+// Create a volume manager with a maximum of 6 open directories and 12 open files
+let mut cont: VolumeManager<
     embedded_sdmmc::BlockSpi<DummySpi, DummyCsPin>,
     DummyTimeSource,
     6,
     12,
-> = Controller::new_with_limits(block, time_source);
+> = VolumeManager::new_with_limits(block, time_source);
 ```
 
 ## Supported features

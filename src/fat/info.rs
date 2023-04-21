@@ -26,7 +26,8 @@ pub struct Fat32Info {
 #[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
 #[derive(Debug, Eq, PartialEq)]
 pub struct Fat16Info {
-    /// The block the root directory starts in. Relative to start of partition (so add `self.lba_offset` before passing to controller)
+    /// The block the root directory starts in. Relative to start of partition
+    /// (so add `self.lba_offset` before passing to volume manager)
     pub(crate) first_root_dir_block: BlockCount,
     /// Number of entries in root directory (it's reserved and not in the FAT)
     pub(crate) root_entries_count: u16,

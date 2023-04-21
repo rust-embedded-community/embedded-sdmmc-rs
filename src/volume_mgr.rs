@@ -16,8 +16,8 @@ use crate::{
     PARTITION_ID_FAT16, PARTITION_ID_FAT16_LBA, PARTITION_ID_FAT32_CHS_LBA, PARTITION_ID_FAT32_LBA,
 };
 
-/// A `Controller` wraps a block device and gives access to the volumes within it.
-pub struct Controller<D, T, const MAX_DIRS: usize = 4, const MAX_FILES: usize = 4>
+/// A `VolumeManager` wraps a block device and gives access to the volumes within it.
+pub struct VolumeManager<D, T, const MAX_DIRS: usize = 4, const MAX_FILES: usize = 4>
 where
     D: BlockDevice,
     T: TimeSource,
@@ -29,39 +29,39 @@ where
     open_files: [(VolumeIdx, Cluster); MAX_FILES],
 }
 
-impl<D, T> Controller<D, T, 4, 4>
+impl<D, T> VolumeManager<D, T, 4, 4>
 where
     D: BlockDevice,
     T: TimeSource,
     <D as BlockDevice>::Error: core::fmt::Debug,
 {
-    /// Create a new Disk Controller using a generic `BlockDevice`. From this
-    /// controller we can open volumes (partitions) and with those we can open
+    /// Create a new Volume Manager using a generic `BlockDevice`. From this
+    /// object we can open volumes (partitions) and with those we can open
     /// files.
     ///
-    /// This creates a Controller with default values
-    /// MAX_DIRS = 4, MAX_FILES = 4. Call `Controller::new_with_limits(block_device, timesource)`
+    /// This creates a `VolumeManager` with default values
+    /// MAX_DIRS = 4, MAX_FILES = 4. Call `VolumeManager::new_with_limits(block_device, timesource)`
     /// if you need different limits.
-    pub fn new(block_device: D, timesource: T) -> Controller<D, T, 4, 4> {
+    pub fn new(block_device: D, timesource: T) -> VolumeManager<D, T, 4, 4> {
         Self::new_with_limits(block_device, timesource)
     }
 }
 
-impl<D, T, const MAX_DIRS: usize, const MAX_FILES: usize> Controller<D, T, MAX_DIRS, MAX_FILES>
+impl<D, T, const MAX_DIRS: usize, const MAX_FILES: usize> VolumeManager<D, T, MAX_DIRS, MAX_FILES>
 where
     D: BlockDevice,
     T: TimeSource,
     <D as BlockDevice>::Error: core::fmt::Debug,
 {
-    /// Create a new Disk Controller using a generic `BlockDevice`. From this
-    /// controller we can open volumes (partitions) and with those we can open
+    /// Create a new Volume Manager using a generic `BlockDevice`. From this
+    /// object we can open volumes (partitions) and with those we can open
     /// files.
     pub fn new_with_limits(
         block_device: D,
         timesource: T,
-    ) -> Controller<D, T, MAX_DIRS, MAX_FILES> {
-        debug!("Creating new embedded-sdmmc::Controller");
-        Controller {
+    ) -> VolumeManager<D, T, MAX_DIRS, MAX_FILES> {
+        debug!("Creating new embedded-sdmmc::VolumeManager");
+        VolumeManager {
             block_device,
             timesource,
             open_dirs: [(VolumeIdx(0), Cluster::INVALID); MAX_DIRS],
