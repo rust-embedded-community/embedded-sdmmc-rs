@@ -19,8 +19,8 @@ extern crate embedded_sdmmc;
 const FILE_TO_CREATE: &'static str = "CREATE.TXT";
 
 use embedded_sdmmc::{
-    Block, BlockCount, BlockDevice, BlockIdx, Controller, Error, Mode, TimeSource, Timestamp,
-    VolumeIdx,
+    Block, BlockCount, BlockDevice, BlockIdx, Error, Mode, TimeSource, Timestamp, VolumeIdx,
+    VolumeManager,
 };
 use std::cell::RefCell;
 use std::fs::{File, OpenOptions};
@@ -118,14 +118,14 @@ fn main() {
         .map_err(Error::DeviceError)
         .unwrap();
     println!("lbd: {:?}", lbd);
-    let mut controller = Controller::new(lbd, Clock);
+    let mut volume_mgr = VolumeManager::new(lbd, Clock);
     for volume_idx in 0..=3 {
-        let volume = controller.get_volume(VolumeIdx(volume_idx));
+        let volume = volume_mgr.get_volume(VolumeIdx(volume_idx));
         println!("volume {}: {:#?}", volume_idx, volume);
         if let Ok(mut volume) = volume {
-            let root_dir = controller.open_root_dir(&volume).unwrap();
+            let root_dir = volume_mgr.open_root_dir(&volume).unwrap();
             println!("\tListing root directory:");
-            controller
+            volume_mgr
                 .iterate_dir(&volume, &root_dir, |x| {
                     println!("\t\tFound: {:?}", x);
                 })
@@ -133,7 +133,7 @@ fn main() {
             println!("\nCreating file {}...", FILE_TO_CREATE);
             // This will panic if the file already exists, use ReadWriteCreateOrAppend or
             // ReadWriteCreateOrTruncate instead
-            let mut f = controller
+            let mut f = volume_mgr
                 .open_file_in_dir(
                     &mut volume,
                     &root_dir,
@@ -145,7 +145,7 @@ fn main() {
             println!("FILE STARTS:");
             while !f.eof() {
                 let mut buffer = [0u8; 32];
-                let num_read = controller.read(&volume, &mut f, &mut buffer).unwrap();
+                let num_read = volume_mgr.read(&volume, &mut f, &mut buffer).unwrap();
                 for b in &buffer[0..num_read] {
                     if *b == 10 {
                         print!("\\n");
@@ -164,12 +164,12 @@ fn main() {
                 buffer.push(b'\n');
             }
             println!("\nAppending to file");
-            let num_written1 = controller.write(&mut volume, &mut f, &buffer1[..]).unwrap();
-            let num_written = controller.write(&mut volume, &mut f, &buffer[..]).unwrap();
+            let num_written1 = volume_mgr.write(&mut volume, &mut f, &buffer1[..]).unwrap();
+            let num_written = volume_mgr.write(&mut volume, &mut f, &buffer[..]).unwrap();
             println!("Number of bytes written: {}\n", num_written + num_written1);
-            controller.close_file(&volume, f).unwrap();
+            volume_mgr.close_file(&volume, f).unwrap();
 
-            let mut f = controller
+            let mut f = volume_mgr
                 .open_file_in_dir(
                     &mut volume,
                     &root_dir,
@@ -183,13 +183,13 @@ fn main() {
             println!(
                 "\tFound {}?: {:?}",
                 FILE_TO_CREATE,
-                controller.find_directory_entry(&volume, &root_dir, FILE_TO_CREATE)
+                volume_mgr.find_directory_entry(&volume, &root_dir, FILE_TO_CREATE)
             );
             println!("\nReading from file");
             println!("FILE STARTS:");
             while !f.eof() {
                 let mut buffer = [0u8; 32];
-                let num_read = controller.read(&volume, &mut f, &mut buffer).unwrap();
+                let num_read = volume_mgr.read(&volume, &mut f, &mut buffer).unwrap();
                 for b in &buffer[0..num_read] {
                     if *b == 10 {
                         print!("\\n");
@@ -198,7 +198,7 @@ fn main() {
                 }
             }
             println!("EOF");
-            controller.close_file(&volume, f).unwrap();
+            volume_mgr.close_file(&volume, f).unwrap();
         }
     }
 }

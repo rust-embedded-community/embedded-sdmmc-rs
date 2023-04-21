@@ -19,8 +19,8 @@ extern crate embedded_sdmmc;
 const FILE_TO_DELETE: &'static str = "DELETE.TXT";
 
 use embedded_sdmmc::{
-    Block, BlockCount, BlockDevice, BlockIdx, Controller, Error, Mode, TimeSource, Timestamp,
-    VolumeIdx,
+    Block, BlockCount, BlockDevice, BlockIdx, Error, Mode, TimeSource, Timestamp, VolumeIdx,
+    VolumeManager,
 };
 use std::cell::RefCell;
 use std::fs::{File, OpenOptions};
@@ -118,14 +118,14 @@ fn main() {
         .map_err(Error::DeviceError)
         .unwrap();
     println!("lbd: {:?}", lbd);
-    let mut controller = Controller::new(lbd, Clock);
+    let mut volume_mgr = VolumeManager::new(lbd, Clock);
     for volume_idx in 0..=3 {
-        let volume = controller.get_volume(VolumeIdx(volume_idx));
+        let volume = volume_mgr.get_volume(VolumeIdx(volume_idx));
         println!("volume {}: {:#?}", volume_idx, volume);
         if let Ok(mut volume) = volume {
-            let root_dir = controller.open_root_dir(&volume).unwrap();
+            let root_dir = volume_mgr.open_root_dir(&volume).unwrap();
             println!("\tListing root directory:");
-            controller
+            volume_mgr
                 .iterate_dir(&volume, &root_dir, |x| {
                     println!("\t\tFound: {:?}", x);
                 })
@@ -133,7 +133,7 @@ fn main() {
             println!("\nCreating file {}...", FILE_TO_DELETE);
             // This will panic if the file already exists, use ReadWriteCreateOrAppend or
             // ReadWriteCreateOrTruncate instead
-            let f = controller
+            let f = volume_mgr
                 .open_file_in_dir(
                     &mut volume,
                     &root_dir,
@@ -146,17 +146,17 @@ fn main() {
             println!(
                 "\tFound {}?: {:?}",
                 FILE_TO_DELETE,
-                controller.find_directory_entry(&volume, &root_dir, FILE_TO_DELETE)
+                volume_mgr.find_directory_entry(&volume, &root_dir, FILE_TO_DELETE)
             );
 
-            match controller.delete_file_in_dir(&volume, &root_dir, FILE_TO_DELETE) {
+            match volume_mgr.delete_file_in_dir(&volume, &root_dir, FILE_TO_DELETE) {
                 Ok(()) => (),
                 Err(error) => println!("\tCannot delete file: {:?}", error),
             }
             println!("\tClosing {}...", FILE_TO_DELETE);
-            controller.close_file(&volume, f).unwrap();
+            volume_mgr.close_file(&volume, f).unwrap();
 
-            match controller.delete_file_in_dir(&volume, &root_dir, FILE_TO_DELETE) {
+            match volume_mgr.delete_file_in_dir(&volume, &root_dir, FILE_TO_DELETE) {
                 Ok(()) => println!("\tDeleted {}.", FILE_TO_DELETE),
                 Err(error) => println!("\tCannot delete {}: {:?}", FILE_TO_DELETE, error),
             }
@@ -164,7 +164,7 @@ fn main() {
             println!(
                 "\tFound {}?: {:?}",
                 FILE_TO_DELETE,
-                controller.find_directory_entry(&volume, &root_dir, FILE_TO_DELETE)
+                volume_mgr.find_directory_entry(&volume, &root_dir, FILE_TO_DELETE)
             );
         }
     }
