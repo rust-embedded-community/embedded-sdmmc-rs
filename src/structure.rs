@@ -1,4 +1,4 @@
-//! embedded-sdmmc-rs - Useful macros for parsing SD/MMC structures.
+//! Useful macros for parsing SD/MMC structures.
 
 macro_rules! access_field {
     ($self:expr, $offset:expr, $start_bit:expr, 1) => {
