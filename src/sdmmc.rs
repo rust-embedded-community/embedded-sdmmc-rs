@@ -1,4 +1,4 @@
-//! embedded-sdmmc-rs - SDMMC Protocol
+//! The SD/MMC Protocol
 //!
 //! Implements the SD/MMC protocol on some generic SPI interface.
 //!
