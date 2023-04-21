@@ -1,6 +1,7 @@
-//! embedded-sdmmc-rs - Block Device support
+//! Block Device support
 //!
-//! Generic code for handling block devices.
+//! Generic code for handling block devices, such as types for identifying
+//! a particular block on a block device by its index.
 
 /// Represents a standard 512 byte block (also known as a sector). IBM PC
 /// formatted 5.25" and 3.5" floppy disks, SD/MMC cards up to 1 GiB in size
