@@ -21,6 +21,7 @@
 //! # struct DummyCsPin;
 //! # struct DummyUart;
 //! # struct DummyTimeSource;
+//! # struct DummyDelayer;
 //! # impl embedded_hal::blocking::spi::Transfer<u8> for  DummySpi {
 //! #   type Error = ();
 //! #   fn transfer<'w>(&mut self, data: &'w mut [u8]) -> Result<&'w [u8], ()> { Ok(&[0]) }
@@ -33,6 +34,9 @@
 //! # impl embedded_sdmmc::TimeSource for DummyTimeSource {
 //! #   fn get_timestamp(&self) -> embedded_sdmmc::Timestamp { embedded_sdmmc::Timestamp::from_fat(0, 0) }
 //! # }
+//! # impl embedded_hal::blocking::delay::DelayUs<u8> for DummyDelayer {
+//! #   fn delay_us(&mut self, us: u8) {}
+//! # }
 //! # impl std::fmt::Write for DummyUart { fn write_str(&mut self, s: &str) -> std::fmt::Result { Ok(()) } }
 //! # use std::fmt::Write;
 //! # use embedded_sdmmc::VolumeManager;
@@ -40,7 +44,8 @@
 //! # let mut sdmmc_spi = DummySpi;
 //! # let mut sdmmc_cs = DummyCsPin;
 //! # let time_source = DummyTimeSource;
-//! let sdcard = embedded_sdmmc::SdCard::new(sdmmc_spi, sdmmc_cs);
+//! # let delayer = DummyDelayer;
+//! let sdcard = embedded_sdmmc::SdCard::new(sdmmc_spi, sdmmc_cs, delayer);
 //! println!("Card size {} bytes", sdcard.num_bytes()?);
 //! let mut volume_mgr = VolumeManager::new(sdcard, time_source);
 //! println!("Card size is still {} bytes", volume_mgr.device().num_bytes()?);
