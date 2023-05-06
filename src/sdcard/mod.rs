@@ -72,7 +72,7 @@ where
             inner: RefCell::new(SdCardInner {
                 spi,
                 cs,
-                card_type: CardType::Unknown,
+                card_type: None,
                 options,
             }),
         }
@@ -85,8 +85,7 @@ where
         F: FnOnce(&mut SPI) -> T,
     {
         let mut inner = self.inner.borrow_mut();
-        let result = func(&mut inner.spi);
-        result
+        func(&mut inner.spi)
     }
 
     /// Return the usable size of this SD card in bytes.
@@ -108,7 +107,24 @@ where
     /// The next operation will assume the card has been freshly inserted.
     pub fn mark_card_uninit(&self) {
         let mut inner = self.inner.borrow_mut();
-        inner.card_type = CardType::Unknown;
+        inner.card_type = None;
+    }
+
+    /// Get the card type.
+    pub fn get_card_type(&self) -> Option<CardType> {
+        let inner = self.inner.borrow();
+        inner.card_type
+    }
+
+    /// Tell the driver the card has been initialised.
+    ///
+    /// # Safety
+    ///
+    /// Only do this if the card has actually been initialised and is of the
+    /// indicated type, otherwise corruption may occur.
+    pub unsafe fn mark_card_as_init(&self, card_type: CardType) {
+        let mut inner = self.inner.borrow_mut();
+        inner.card_type = Some(card_type);
     }
 }
 
@@ -165,7 +181,7 @@ where
 {
     spi: SPI,
     cs: CS,
-    card_type: CardType,
+    card_type: Option<CardType>,
     options: AcquireOpts,
 }
 
@@ -178,9 +194,9 @@ where
     /// Read one or more blocks, starting at the given block index.
     fn read(&mut self, blocks: &mut [Block], start_block_idx: BlockIdx) -> Result<(), Error> {
         let start_idx = match self.card_type {
-            CardType::SD1 | CardType::SD2 => start_block_idx.0 * 512,
-            CardType::Sdhc => start_block_idx.0,
-            CardType::Unknown => return Err(Error::CardNotFound),
+            Some(CardType::SD1 | CardType::SD2) => start_block_idx.0 * 512,
+            Some(CardType::SDHC) => start_block_idx.0,
+            None => return Err(Error::CardNotFound),
         };
         self.with_chip_select(|s| {
             if blocks.len() == 1 {
@@ -203,9 +219,9 @@ where
     /// Write one or more blocks, starting at the given block index.
     fn write(&mut self, blocks: &[Block], start_block_idx: BlockIdx) -> Result<(), Error> {
         let start_idx = match self.card_type {
-            CardType::SD1 | CardType::SD2 => start_block_idx.0 * 512,
-            CardType::Sdhc => start_block_idx.0,
-            CardType::Unknown => return Err(Error::CardNotFound),
+            Some(CardType::SD1 | CardType::SD2) => start_block_idx.0 * 512,
+            Some(CardType::SDHC) => start_block_idx.0,
+            None => return Err(Error::CardNotFound),
         };
         self.with_chip_select(|s| {
             if blocks.len() == 1 {
@@ -273,7 +289,7 @@ where
     /// Read the 'card specific data' block.
     fn read_csd(&mut self) -> Result<Csd, Error> {
         match self.card_type {
-            CardType::SD1 => {
+            Some(CardType::SD1) => {
                 let mut csd = CsdV1::new();
                 if self.card_command(CMD9, 0)? != 0 {
                     return Err(Error::RegisterReadError);
@@ -281,7 +297,7 @@ where
                 self.read_data(&mut csd.data)?;
                 Ok(Csd::V1(csd))
             }
-            CardType::SD2 | CardType::Sdhc => {
+            Some(CardType::SD2 | CardType::SDHC) => {
                 let mut csd = CsdV2::new();
                 if self.card_command(CMD9, 0)? != 0 {
                     return Err(Error::RegisterReadError);
@@ -289,7 +305,7 @@ where
                 self.read_data(&mut csd.data)?;
                 Ok(Csd::V2(csd))
             }
-            CardType::Unknown => Err(Error::CardNotFound),
+            None => Err(Error::CardNotFound),
         }
     }
 
@@ -353,7 +369,7 @@ where
 
     /// Check the card is initialised.
     fn check_init(&mut self) -> Result<(), Error> {
-        if self.card_type == CardType::Unknown {
+        if self.card_type.is_none() {
             // If we don't know what the card type is, try and initialise the
             // card. This will tell us what type of card it is.
             self.acquire()
@@ -444,14 +460,14 @@ where
                     return Err(Error::Cmd58Error);
                 }
                 if (s.receive()? & 0xC0) == 0xC0 {
-                    card_type = CardType::Sdhc;
+                    card_type = CardType::SDHC;
                 }
                 // Discard other three bytes
                 s.receive()?;
                 s.receive()?;
                 s.receive()?;
             }
-            s.card_type = card_type;
+            s.card_type = Some(card_type);
             Ok(())
         };
         let result = f(self);
@@ -597,12 +613,20 @@ pub enum Error {
 
 /// The different types of card we support.
 #[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
-#[derive(Debug, Copy, Clone, PartialEq)]
-enum CardType {
-    Unknown,
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum CardType {
+    /// An standard-capacity SD Card supporting v1.x of the standard.
+    ///
+    /// Uses byte-addressing internally, so limited to 2GiB in size.
     SD1,
+    /// An standard-capacity SD Card supporting v2.x of the standard.
+    ///
+    /// Uses byte-addressing internally, so limited to 2GiB in size.
     SD2,
-    Sdhc,
+    /// An high-capacity 'SDHC' Card.
+    ///  
+    /// Uses block-addressing internally to support capacities above 2GiB.
+    SDHC,
 }
 
 /// A terrible hack for busy-waiting the CPU while we wait for the card to
