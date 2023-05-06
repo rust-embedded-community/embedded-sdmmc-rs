@@ -41,9 +41,9 @@
 //! # let mut sdmmc_cs = DummyCsPin;
 //! # let time_source = DummyTimeSource;
 //! let sdcard = embedded_sdmmc::SdCard::new(sdmmc_spi, sdmmc_cs);
-//! println!("Card size {} bytes", sdcard.card_size_bytes()?);
+//! println!("Card size {} bytes", sdcard.num_bytes()?);
 //! let mut volume_mgr = VolumeManager::new(sdcard, time_source);
-//! println!("Card size is still {} bytes", volume_mgr.device().card_size_bytes()?);
+//! println!("Card size is still {} bytes", volume_mgr.device().num_bytes()?);
 //! let mut volume0 = volume_mgr.get_volume(embedded_sdmmc::VolumeIdx(0))?;
 //! println!("Volume 0: {:?}", volume0);
 //! let root_dir = volume_mgr.open_root_dir(&volume0)?;

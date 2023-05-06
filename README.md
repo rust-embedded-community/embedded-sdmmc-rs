@@ -13,7 +13,7 @@ You will need something that implements the `BlockDevice` trait, which can read 
 ```rust
 // Build an SD Card interface out of an SPI device
 let sdcard = embedded_sdmmc::SdCard::new(sdmmc_spi, sdmmc_cs);
-write!(uart, "Card size is {} bytes", sdcard.card_size_bytes()?)?;
+write!(uart, "Card size is {} bytes", sdcard.num_bytes()?)?;
 // Now let's look for volumes (also known as partitions) on our block device.
 let mut cont = embedded_sdmmc::VolumeManager::new(sdcard, time_source);
 // Try and access Volume 0 (i.e. the first partition)
