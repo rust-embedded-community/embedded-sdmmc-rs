@@ -36,7 +36,7 @@
 //! # impl std::fmt::Write for DummyUart { fn write_str(&mut self, s: &str) -> std::fmt::Result { Ok(()) } }
 //! # use std::fmt::Write;
 //! # use embedded_sdmmc::VolumeManager;
-//! # fn main() -> Result<(), embedded_sdmmc::Error<embedded_sdmmc::SdMmcError>> {
+//! # fn main() -> Result<(), embedded_sdmmc::Error<embedded_sdmmc::SdCardError>> {
 //! # let mut sdmmc_spi = DummySpi;
 //! # let mut sdmmc_cs = DummyCsPin;
 //! # let time_source = DummyTimeSource;
@@ -90,8 +90,7 @@ mod structure;
 pub mod blockdevice;
 pub mod fat;
 pub mod filesystem;
-pub mod sdmmc;
-pub mod sdmmc_proto;
+pub mod sdcard;
 
 pub use crate::blockdevice::{Block, BlockCount, BlockDevice, BlockIdx};
 pub use crate::fat::FatVolume;
@@ -99,8 +98,8 @@ pub use crate::filesystem::{
     Attributes, Cluster, DirEntry, Directory, File, FilenameError, Mode, ShortFileName, TimeSource,
     Timestamp, MAX_FILE_SIZE,
 };
-pub use crate::sdmmc::Error as SdMmcError;
-pub use crate::sdmmc::SdCard;
+pub use crate::sdcard::Error as SdCardError;
+pub use crate::sdcard::SdCard;
 
 mod volume_mgr;
 pub use volume_mgr::VolumeManager;
