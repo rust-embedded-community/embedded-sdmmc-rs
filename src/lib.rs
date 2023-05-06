@@ -40,10 +40,9 @@
 //! # let mut sdmmc_spi = DummySpi;
 //! # let mut sdmmc_cs = DummyCsPin;
 //! # let time_source = DummyTimeSource;
-//! let mut spi_dev = embedded_sdmmc::SdCard::new(sdmmc_spi, sdmmc_cs);
-//! let block = spi_dev.acquire()?;
-//! println!("Card size {} bytes", block.card_size_bytes()?);
-//! let mut volume_mgr = VolumeManager::new(block, time_source);
+//! let sdcard = embedded_sdmmc::SdCard::new(sdmmc_spi, sdmmc_cs);
+//! println!("Card size {} bytes", sdcard.card_size_bytes()?);
+//! let mut volume_mgr = VolumeManager::new(sdcard, time_source);
 //! println!("Card size is still {} bytes", volume_mgr.device().card_size_bytes()?);
 //! let mut volume0 = volume_mgr.get_volume(embedded_sdmmc::VolumeIdx(0))?;
 //! println!("Volume 0: {:?}", volume0);
@@ -101,7 +100,7 @@ pub use crate::filesystem::{
     Timestamp, MAX_FILE_SIZE,
 };
 pub use crate::sdmmc::Error as SdMmcError;
-pub use crate::sdmmc::{AcquiredSdCard, SdCard};
+pub use crate::sdmmc::SdCard;
 
 mod volume_mgr;
 pub use volume_mgr::VolumeManager;
