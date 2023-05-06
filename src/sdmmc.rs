@@ -16,6 +16,12 @@ use log::{debug, trace, warn};
 #[cfg(feature = "defmt-log")]
 use defmt::{debug, trace, warn};
 
+#[cfg(all(feature = "defmt-log", feature = "log"))]
+compile_error!("Cannot enable both log and defmt-log");
+
+#[cfg(all(not(feature = "defmt-log"), not(feature = "log")))]
+compile_error!("Must enable either log or defmt-log");
+
 const DEFAULT_DELAY_COUNT: u32 = 32_000;
 
 /// Represents an inactive SD Card interface.
