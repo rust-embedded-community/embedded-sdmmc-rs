@@ -7,7 +7,7 @@
 
 pub mod proto;
 
-use super::{Block, BlockCount, BlockDevice, BlockIdx};
+use crate::{trace, Block, BlockCount, BlockDevice, BlockIdx};
 use core::cell::RefCell;
 use proto::*;
 
@@ -15,17 +15,7 @@ use proto::*;
 // Imports
 // =============================================================================
 
-#[cfg(feature = "log")]
-use log::{debug, trace, warn};
-
-#[cfg(feature = "defmt-log")]
-use defmt::{debug, trace, warn};
-
-#[cfg(all(feature = "defmt-log", feature = "log"))]
-compile_error!("Cannot enable both log and defmt-log");
-
-#[cfg(all(not(feature = "defmt-log"), not(feature = "log")))]
-compile_error!("Must enable either log or defmt-log");
+use crate::{debug, warn};
 
 // =============================================================================
 // Constants
@@ -141,14 +131,14 @@ where
         &self,
         blocks: &mut [Block],
         start_block_idx: BlockIdx,
-        reason: &str,
+        _reason: &str,
     ) -> Result<(), Self::Error> {
         let mut inner = self.inner.borrow_mut();
         debug!(
             "Read {} blocks @ {} for {}",
             blocks.len(),
             start_block_idx.0,
-            reason
+            _reason
         );
         inner.check_init()?;
         inner.read(blocks, start_block_idx)
@@ -415,9 +405,9 @@ where
                     Ok(R1_IDLE_STATE) => {
                         break;
                     }
-                    Ok(r) => {
+                    Ok(_r) => {
                         // Try again
-                        warn!("Got response: {:x}, trying again..", r);
+                        warn!("Got response: {:x}, trying again..", _r);
                     }
                 }
 

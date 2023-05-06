@@ -107,6 +107,36 @@ pub use volume_mgr::VolumeManager;
 #[deprecated]
 pub use volume_mgr::VolumeManager as Controller;
 
+#[cfg(all(feature = "defmt-log", feature = "log"))]
+compile_error!("Cannot enable both log and defmt-log");
+
+#[cfg(feature = "log")]
+use log::{debug, trace, warn};
+
+#[cfg(feature = "defmt-log")]
+use defmt::{debug, trace, warn};
+
+#[cfg(all(not(feature = "defmt-log"), not(feature = "log")))]
+#[macro_export]
+/// Like log::debug! but does nothing at all
+macro_rules! debug {
+    ($($arg:tt)+) => {};
+}
+
+#[cfg(all(not(feature = "defmt-log"), not(feature = "log")))]
+#[macro_export]
+/// Like log::trace! but does nothing at all
+macro_rules! trace {
+    ($($arg:tt)+) => {};
+}
+
+#[cfg(all(not(feature = "defmt-log"), not(feature = "log")))]
+#[macro_export]
+/// Like log::warn! but does nothing at all
+macro_rules! warn {
+    ($($arg:tt)+) => {};
+}
+
 // ****************************************************************************
 //
 // Public Types
