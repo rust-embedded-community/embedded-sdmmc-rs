@@ -1,18 +1,13 @@
 //! FAT volume
 
-#[cfg(feature = "log")]
-use log::{debug, trace, warn};
-
-#[cfg(feature = "defmt-log")]
-use defmt::{debug, trace, warn};
-
 use crate::{
+    debug,
     fat::{
         Bpb, Fat16Info, Fat32Info, FatSpecificInfo, FatType, InfoSector, OnDiskDirEntry,
         RESERVED_ENTRIES,
     },
-    Attributes, Block, BlockCount, BlockDevice, BlockIdx, Cluster, DirEntry, Directory, Error,
-    ShortFileName, TimeSource, VolumeManager, VolumeType,
+    trace, warn, Attributes, Block, BlockCount, BlockDevice, BlockIdx, Cluster, DirEntry,
+    Directory, Error, ShortFileName, TimeSource, VolumeManager, VolumeType,
 };
 use byteorder::{ByteOrder, LittleEndian};
 use core::convert::TryFrom;
