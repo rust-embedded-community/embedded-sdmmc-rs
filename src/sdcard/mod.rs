@@ -420,6 +420,7 @@ where
                     Ok(_r) => {
                         // Try again
                         warn!("Got response: {:x}, trying again..", _r);
+                        attempts -= 1;
                     }
                 }
 
