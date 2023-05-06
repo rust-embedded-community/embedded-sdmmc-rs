@@ -5,9 +5,11 @@
 //! This is currently optimised for readability and debugability, not
 //! performance.
 
-use super::sdmmc_proto::*;
+pub mod proto;
+
 use super::{Block, BlockCount, BlockDevice, BlockIdx};
 use core::cell::RefCell;
+use proto::*;
 
 // =============================================================================
 // Imports
