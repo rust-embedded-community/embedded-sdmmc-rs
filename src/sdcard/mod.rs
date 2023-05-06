@@ -34,34 +34,42 @@ const DEFAULT_DELAY_COUNT: u32 = 32_000;
 /// (which puts the card into SPI mode).
 ///
 /// All the APIs take `&self` - mutability is handled using an inner `RefCell`.
-pub struct SdCard<SPI, CS>
+pub struct SdCard<SPI, CS, DELAYER>
 where
     SPI: embedded_hal::blocking::spi::Transfer<u8>,
     CS: embedded_hal::digital::v2::OutputPin,
     <SPI as embedded_hal::blocking::spi::Transfer<u8>>::Error: core::fmt::Debug,
+    DELAYER: embedded_hal::blocking::delay::DelayUs<u8>,
 {
-    inner: RefCell<SdCardInner<SPI, CS>>,
+    inner: RefCell<SdCardInner<SPI, CS, DELAYER>>,
 }
 
-impl<SPI, CS> SdCard<SPI, CS>
+impl<SPI, CS, DELAYER> SdCard<SPI, CS, DELAYER>
 where
     SPI: embedded_hal::blocking::spi::Transfer<u8>,
     CS: embedded_hal::digital::v2::OutputPin,
     <SPI as embedded_hal::blocking::spi::Transfer<u8>>::Error: core::fmt::Debug,
+    DELAYER: embedded_hal::blocking::delay::DelayUs<u8>,
 {
     /// Create a new SD/MMC Card driver using a raw SPI interface.
     ///
     /// Uses the default options.
-    pub fn new(spi: SPI, cs: CS) -> SdCard<SPI, CS> {
-        Self::new_with_options(spi, cs, AcquireOpts::default())
+    pub fn new(spi: SPI, cs: CS, delayer: DELAYER) -> SdCard<SPI, CS, DELAYER> {
+        Self::new_with_options(spi, cs, delayer, AcquireOpts::default())
     }
 
     /// Construct a new SD/MMC Card driver, using a raw SPI interface and the given options.
-    pub fn new_with_options(spi: SPI, cs: CS, options: AcquireOpts) -> SdCard<SPI, CS> {
+    pub fn new_with_options(
+        spi: SPI,
+        cs: CS,
+        delayer: DELAYER,
+        options: AcquireOpts,
+    ) -> SdCard<SPI, CS, DELAYER> {
         SdCard {
             inner: RefCell::new(SdCardInner {
                 spi,
                 cs,
+                delayer,
                 card_type: None,
                 options,
             }),
@@ -118,11 +126,12 @@ where
     }
 }
 
-impl<SPI, CS> BlockDevice for SdCard<SPI, CS>
+impl<SPI, CS, DELAYER> BlockDevice for SdCard<SPI, CS, DELAYER>
 where
     SPI: embedded_hal::blocking::spi::Transfer<u8>,
     <SPI as embedded_hal::blocking::spi::Transfer<u8>>::Error: core::fmt::Debug,
     CS: embedded_hal::digital::v2::OutputPin,
+    DELAYER: embedded_hal::blocking::delay::DelayUs<u8>,
 {
     type Error = Error;
 
@@ -163,23 +172,26 @@ where
 /// Represents an SD Card on an SPI bus.
 ///
 /// All the APIs required `&mut self`.
-struct SdCardInner<SPI, CS>
+struct SdCardInner<SPI, CS, DELAYER>
 where
     SPI: embedded_hal::blocking::spi::Transfer<u8>,
     CS: embedded_hal::digital::v2::OutputPin,
     <SPI as embedded_hal::blocking::spi::Transfer<u8>>::Error: core::fmt::Debug,
+    DELAYER: embedded_hal::blocking::delay::DelayUs<u8>,
 {
     spi: SPI,
     cs: CS,
+    delayer: DELAYER,
     card_type: Option<CardType>,
     options: AcquireOpts,
 }
 
-impl<SPI, CS> SdCardInner<SPI, CS>
+impl<SPI, CS, DELAYER> SdCardInner<SPI, CS, DELAYER>
 where
     SPI: embedded_hal::blocking::spi::Transfer<u8>,
     CS: embedded_hal::digital::v2::OutputPin,
     <SPI as embedded_hal::blocking::spi::Transfer<u8>>::Error: core::fmt::Debug,
+    DELAYER: embedded_hal::blocking::delay::DelayUs<u8>,
 {
     /// Read one or more blocks, starting at the given block index.
     fn read(&mut self, blocks: &mut [Block], start_block_idx: BlockIdx) -> Result<(), Error> {
@@ -309,7 +321,7 @@ where
             if s != 0xFF {
                 break s;
             }
-            delay.delay(Error::TimeoutReadBuffer)?;
+            delay.delay(&mut self.delayer, Error::TimeoutReadBuffer)?;
         };
         if status != DATA_START_BLOCK {
             return Err(Error::ReadError);
@@ -411,7 +423,7 @@ where
                     }
                 }
 
-                delay.delay(Error::TimeoutCommand(CMD0))?;
+                delay.delay(&mut s.delayer, Error::TimeoutCommand(CMD0))?;
             }
             if attempts == 0 {
                 return Err(Error::CardNotFound);
@@ -436,12 +448,12 @@ where
                     card_type = CardType::SD2;
                     break 0x4000_0000;
                 }
-                delay.delay(Error::TimeoutCommand(CMD8))?;
+                delay.delay(&mut s.delayer, Error::TimeoutCommand(CMD8))?;
             };
 
             let mut delay = Delay::new();
             while s.card_acmd(ACMD41, arg)? != R1_READY_STATE {
-                delay.delay(Error::TimeoutACommand(ACMD41))?;
+                delay.delay(&mut s.delayer, Error::TimeoutACommand(ACMD41))?;
             }
 
             if card_type == CardType::SD2 {
@@ -547,7 +559,7 @@ where
             if s == 0xFF {
                 break;
             }
-            delay.delay(Error::TimeoutWaitNotBusy)?;
+            delay.delay(&mut self.delayer, Error::TimeoutWaitNotBusy)?;
         }
         Ok(())
     }
@@ -623,22 +635,26 @@ pub enum CardType {
 /// sort itself out.
 ///
 /// @TODO replace this!
-struct Delay(u32);
+struct Delay {
+    count: u32,
+}
 
 impl Delay {
     fn new() -> Delay {
-        Delay(DEFAULT_DELAY_COUNT)
+        Delay {
+            count: DEFAULT_DELAY_COUNT,
+        }
     }
 
-    fn delay(&mut self, err: Error) -> Result<(), Error> {
-        if self.0 == 0 {
+    fn delay<T>(&mut self, delayer: &mut T, err: Error) -> Result<(), Error>
+    where
+        T: embedded_hal::blocking::delay::DelayUs<u8>,
+    {
+        if self.count == 0 {
             Err(err)
         } else {
-            let dummy_var: u32 = 0;
-            for _ in 0..100 {
-                unsafe { core::ptr::read_volatile(&dummy_var) };
-            }
-            self.0 -= 1;
+            delayer.delay_us(10);
+            self.count -= 1;
             Ok(())
         }
     }
