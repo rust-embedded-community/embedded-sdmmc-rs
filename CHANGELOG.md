@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 [Unreleased]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/compare/v0.4.0...develop
 
 - Renamed `Controller` to `VolumeManager`, to better describe what it does.
+- Renamed `SdMmcSpi` to `SdCard`
+- Renamed `BlockSpi` to `AcquiredSdCard`
 
 ## [Version 0.4.0](https://github.com/rust-embedded-community/embedded-sdmmc-rs/releases/tag/v0.4.0)
 
