@@ -89,10 +89,10 @@ where
     }
 
     /// Return the usable size of this SD card in bytes.
-    pub fn card_size_bytes(&self) -> Result<u64, Error> {
+    pub fn num_bytes(&self) -> Result<u64, Error> {
         let mut inner = self.inner.borrow_mut();
         inner.check_init()?;
-        inner.card_size_bytes()
+        inner.num_bytes()
     }
 
     /// Can this card erase single blocks?
@@ -166,7 +166,7 @@ where
     fn num_blocks(&self) -> Result<BlockCount, Self::Error> {
         let mut inner = self.inner.borrow_mut();
         inner.check_init()?;
-        inner.card_size_blocks()
+        inner.num_blocks()
     }
 }
 
@@ -251,7 +251,7 @@ where
     }
 
     /// Determine how many blocks this device can hold.
-    fn card_size_blocks(&mut self) -> Result<BlockCount, Error> {
+    fn num_blocks(&mut self) -> Result<BlockCount, Error> {
         let num_blocks = self.with_chip_select(|s| {
             let csd = s.read_csd()?;
             debug!("CSD: {:?}", csd);
@@ -264,7 +264,7 @@ where
     }
 
     /// Return the usable size of this SD card in bytes.
-    fn card_size_bytes(&mut self) -> Result<u64, Error> {
+    fn num_bytes(&mut self) -> Result<u64, Error> {
         self.with_chip_select(|s| {
             let csd = s.read_csd()?;
             debug!("CSD: {:?}", csd);
