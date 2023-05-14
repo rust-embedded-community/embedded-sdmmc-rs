@@ -523,6 +523,118 @@ impl FatVolume {
         }
     }
 
+    /// Calls callback `func` with every extention filterd valid entry in the given directory.
+    /// Useful for performing directory listings.
+    pub(crate) fn extention_filtered_iterate_dir<
+        D,
+        T,
+        F,
+        const MAX_DIRS: usize,
+        const MAX_FILES: usize,
+    >(
+        &self,
+        volume_mgr: &VolumeManager<D, T, MAX_DIRS, MAX_FILES>,
+        dir: &Directory,
+        extension: &str,
+        mut func: F,
+    ) -> Result<(), Error<D::Error>>
+    where
+        F: FnMut(&DirEntry),
+        D: BlockDevice,
+        T: TimeSource,
+    {
+        match &self.fat_specific_info {
+            FatSpecificInfo::Fat16(fat16_info) => {
+                let mut first_dir_block_num = match dir.cluster {
+                    Cluster::ROOT_DIR => self.lba_start + fat16_info.first_root_dir_block,
+                    _ => self.cluster_to_block(dir.cluster),
+                };
+                let mut current_cluster = Some(dir.cluster);
+                let dir_size = match dir.cluster {
+                    Cluster::ROOT_DIR => BlockCount(
+                        ((u32::from(fat16_info.root_entries_count) * 32) + (Block::LEN as u32 - 1))
+                            / Block::LEN as u32,
+                    ),
+                    _ => BlockCount(u32::from(self.blocks_per_cluster)),
+                };
+                let mut blocks = [Block::new()];
+                while let Some(cluster) = current_cluster {
+                    for block in first_dir_block_num.range(dir_size) {
+                        volume_mgr
+                            .block_device
+                            .read(&mut blocks, block, "read_dir")
+                            .map_err(Error::DeviceError)?;
+                        for entry in 0..Block::LEN / OnDiskDirEntry::LEN {
+                            let start = entry * OnDiskDirEntry::LEN;
+                            let end = (entry + 1) * OnDiskDirEntry::LEN;
+                            let dir_entry = OnDiskDirEntry::new(&blocks[0][start..end]);
+                            if dir_entry.is_end() {
+                                // Can quit early
+                                return Ok(());
+                            } else if dir_entry.is_valid() && !dir_entry.is_lfn() {
+                                // Safe, since Block::LEN always fits on a u32
+                                if dir_entry.extension_matches(extension) {
+                                    let start = u32::try_from(start).unwrap();
+                                    let entry = dir_entry.get_entry(FatType::Fat16, block, start);
+                                    func(&entry);
+                                }
+                            }
+                        }
+                    }
+                    if cluster != Cluster::ROOT_DIR {
+                        current_cluster = match self.next_cluster(volume_mgr, cluster) {
+                            Ok(n) => {
+                                first_dir_block_num = self.cluster_to_block(n);
+                                Some(n)
+                            }
+                            _ => None,
+                        };
+                    } else {
+                        current_cluster = None;
+                    }
+                }
+                Ok(())
+            }
+            FatSpecificInfo::Fat32(fat32_info) => {
+                let mut current_cluster = match dir.cluster {
+                    Cluster::ROOT_DIR => Some(fat32_info.first_root_dir_cluster),
+                    _ => Some(dir.cluster),
+                };
+                let mut blocks = [Block::new()];
+                while let Some(cluster) = current_cluster {
+                    let block_idx = self.cluster_to_block(cluster);
+                    for block in block_idx.range(BlockCount(u32::from(self.blocks_per_cluster))) {
+                        volume_mgr
+                            .block_device
+                            .read(&mut blocks, block, "read_dir")
+                            .map_err(Error::DeviceError)?;
+                        for entry in 0..Block::LEN / OnDiskDirEntry::LEN {
+                            let start = entry * OnDiskDirEntry::LEN;
+                            let end = (entry + 1) * OnDiskDirEntry::LEN;
+                            let dir_entry = OnDiskDirEntry::new(&blocks[0][start..end]);
+                            if dir_entry.is_end() {
+                                // Can quit early
+                                return Ok(());
+                            } else if dir_entry.is_valid() && !dir_entry.is_lfn() {
+                                // Safe, since Block::LEN always fits on a u32
+                                if dir_entry.extension_matches(extension) {
+                                    let start = u32::try_from(start).unwrap();
+                                    let entry = dir_entry.get_entry(FatType::Fat32, block, start);
+                                    func(&entry);
+                                }
+                            }
+                        }
+                    }
+                    current_cluster = match self.next_cluster(volume_mgr, cluster) {
+                        Ok(n) => Some(n),
+                        _ => None,
+                    };
+                }
+                Ok(())
+            }
+        }
+    }
+
     /// Get an entry from the given directory
     pub(crate) fn find_directory_entry<D, T, const MAX_DIRS: usize, const MAX_FILES: usize>(
         &self,
@@ -628,7 +740,7 @@ impl FatVolume {
             if dir_entry.is_end() {
                 // Can quit early
                 return Err(Error::FileNotFound);
-            } else if dir_entry.matches(match_name) {
+            } else if dir_entry.file_name_matches(match_name) {
                 // Found it
                 // Safe, since Block::LEN always fits on a u32
                 let start = u32::try_from(start).unwrap();
@@ -732,7 +844,7 @@ impl FatVolume {
             if dir_entry.is_end() {
                 // Can quit early
                 return Err(Error::FileNotFound);
-            } else if dir_entry.matches(match_name) {
+            } else if dir_entry.file_name_matches(match_name) {
                 let mut blocks = blocks;
                 blocks[0].contents[start] = 0xE5;
                 volume_mgr

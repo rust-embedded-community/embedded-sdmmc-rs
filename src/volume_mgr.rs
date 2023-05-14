@@ -674,6 +674,22 @@ where
             .map_err(Error::DeviceError)?;
         Ok(())
     }
+
+    /// Call a callback function for each extention filterd directory entry in a directory.
+    pub fn extention_filtered_iterate_dir<F>(
+        &mut self,
+        volume: &Volume,
+        dir: &Directory,
+        extension: &str,
+        func: F,
+    ) -> Result<(), Error<D::Error>>
+    where
+        F: FnMut(&DirEntry),
+    {
+        match &volume.volume_type {
+            VolumeType::Fat(fat) => fat.extention_filtered_iterate_dir(self, dir, extension, func),
+        }
+    }
 }
 
 /// Transform mode variants (ReadWriteCreate_Or_Append) to simple modes ReadWriteAppend or

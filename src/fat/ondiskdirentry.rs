@@ -124,8 +124,13 @@ impl<'a> OnDiskDirEntry<'a> {
     }
 
     /// Does this on-disk entry match the given filename?
-    pub fn matches(&self, sfn: &ShortFileName) -> bool {
+    pub fn file_name_matches(&self, sfn: &ShortFileName) -> bool {
         self.data[0..11] == sfn.contents
+    }
+
+    /// Does this on-disk entry match the given extention?
+    pub fn extension_matches(&self, extension: &str) -> bool {
+        &self.data[8..11] == extension.as_bytes()
     }
 
     /// Which cluster, if any, does this file start at? Assumes this is from a FAT32 volume.
