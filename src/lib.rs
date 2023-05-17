@@ -24,7 +24,11 @@
 //! # struct DummyDelayer;
 //! # impl embedded_hal::blocking::spi::Transfer<u8> for  DummySpi {
 //! #   type Error = ();
-//! #   fn transfer<'w>(&mut self, data: &'w mut [u8]) -> Result<&'w [u8], ()> { Ok(&[0]) }
+//! #   fn transfer<'w>(&mut self, data: &'w mut [u8]) -> Result<&'w [u8], Self::Error> { Ok(&[0]) }
+//! # }
+//! # impl embedded_hal::blocking::spi::Write<u8> for  DummySpi {
+//! #   type Error = ();
+//! #   fn write(&mut self, data: &[u8]) -> Result<(), Self::Error> { Ok(()) }
 //! # }
 //! # impl embedded_hal::digital::v2::OutputPin for DummyCsPin {
 //! #   type Error = ();
