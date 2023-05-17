@@ -18,12 +18,6 @@ use proto::*;
 use crate::{debug, warn};
 
 // =============================================================================
-// Constants
-// =============================================================================
-
-const DEFAULT_DELAY_COUNT: u32 = 32_000;
-
-// =============================================================================
 // Types and Implementations
 // =============================================================================
 
@@ -31,14 +25,15 @@ const DEFAULT_DELAY_COUNT: u32 = 32_000;
 ///
 /// Built from an SPI peripheral and a Chip Select pin. We need Chip Select to
 /// be separate so we can clock out some bytes without Chip Select asserted
-/// (which puts the card into SPI mode).
+/// (which "flushes the SD cards registers" according to the spec).
 ///
 /// All the APIs take `&self` - mutability is handled using an inner `RefCell`.
 pub struct SdCard<SPI, CS, DELAYER>
 where
-    SPI: embedded_hal::blocking::spi::Transfer<u8>,
+    SPI: embedded_hal::blocking::spi::Transfer<u8> + embedded_hal::blocking::spi::Write<u8>,
     CS: embedded_hal::digital::v2::OutputPin,
     <SPI as embedded_hal::blocking::spi::Transfer<u8>>::Error: core::fmt::Debug,
+    <SPI as embedded_hal::blocking::spi::Write<u8>>::Error: core::fmt::Debug,
     DELAYER: embedded_hal::blocking::delay::DelayUs<u8>,
 {
     inner: RefCell<SdCardInner<SPI, CS, DELAYER>>,
@@ -46,9 +41,10 @@ where
 
 impl<SPI, CS, DELAYER> SdCard<SPI, CS, DELAYER>
 where
-    SPI: embedded_hal::blocking::spi::Transfer<u8>,
+    SPI: embedded_hal::blocking::spi::Transfer<u8> + embedded_hal::blocking::spi::Write<u8>,
     CS: embedded_hal::digital::v2::OutputPin,
     <SPI as embedded_hal::blocking::spi::Transfer<u8>>::Error: core::fmt::Debug,
+    <SPI as embedded_hal::blocking::spi::Write<u8>>::Error: core::fmt::Debug,
     DELAYER: embedded_hal::blocking::delay::DelayUs<u8>,
 {
     /// Create a new SD/MMC Card driver using a raw SPI interface.
@@ -128,9 +124,10 @@ where
 
 impl<SPI, CS, DELAYER> BlockDevice for SdCard<SPI, CS, DELAYER>
 where
-    SPI: embedded_hal::blocking::spi::Transfer<u8>,
-    <SPI as embedded_hal::blocking::spi::Transfer<u8>>::Error: core::fmt::Debug,
+    SPI: embedded_hal::blocking::spi::Transfer<u8> + embedded_hal::blocking::spi::Write<u8>,
     CS: embedded_hal::digital::v2::OutputPin,
+    <SPI as embedded_hal::blocking::spi::Transfer<u8>>::Error: core::fmt::Debug,
+    <SPI as embedded_hal::blocking::spi::Write<u8>>::Error: core::fmt::Debug,
     DELAYER: embedded_hal::blocking::delay::DelayUs<u8>,
 {
     type Error = Error;
@@ -174,9 +171,10 @@ where
 /// All the APIs required `&mut self`.
 struct SdCardInner<SPI, CS, DELAYER>
 where
-    SPI: embedded_hal::blocking::spi::Transfer<u8>,
+    SPI: embedded_hal::blocking::spi::Transfer<u8> + embedded_hal::blocking::spi::Write<u8>,
     CS: embedded_hal::digital::v2::OutputPin,
     <SPI as embedded_hal::blocking::spi::Transfer<u8>>::Error: core::fmt::Debug,
+    <SPI as embedded_hal::blocking::spi::Write<u8>>::Error: core::fmt::Debug,
     DELAYER: embedded_hal::blocking::delay::DelayUs<u8>,
 {
     spi: SPI,
@@ -188,9 +186,10 @@ where
 
 impl<SPI, CS, DELAYER> SdCardInner<SPI, CS, DELAYER>
 where
-    SPI: embedded_hal::blocking::spi::Transfer<u8>,
+    SPI: embedded_hal::blocking::spi::Transfer<u8> + embedded_hal::blocking::spi::Write<u8>,
     CS: embedded_hal::digital::v2::OutputPin,
     <SPI as embedded_hal::blocking::spi::Transfer<u8>>::Error: core::fmt::Debug,
+    <SPI as embedded_hal::blocking::spi::Write<u8>>::Error: core::fmt::Debug,
     DELAYER: embedded_hal::blocking::delay::DelayUs<u8>,
 {
     /// Read one or more blocks, starting at the given block index.
@@ -234,7 +233,7 @@ where
                 if s.card_command(CMD13, 0)? != 0x00 {
                     return Err(Error::WriteError);
                 }
-                if s.receive()? != 0x00 {
+                if s.read_byte()? != 0x00 {
                     return Err(Error::WriteError);
                 }
             } else {
@@ -246,7 +245,7 @@ where
                 }
                 // Stop the write
                 s.wait_not_busy()?;
-                s.send(STOP_TRAN_TOKEN)?;
+                s.write_byte(STOP_TRAN_TOKEN)?;
             }
             Ok(())
         })
@@ -311,13 +310,14 @@ where
         }
     }
 
-    /// Read an arbitrary number of bytes from the card. Always fills the
-    /// given buffer, so make sure it's the right size.
+    /// Read an arbitrary number of bytes from the card using the SD Card
+    /// protocol and an optional CRC. Always fills the given buffer, so make
+    /// sure it's the right size.
     fn read_data(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
         // Get first non-FF byte.
-        let mut delay = Delay::new();
+        let mut delay = Delay::default();
         let status = loop {
-            let s = self.receive()?;
+            let s = self.read_byte()?;
             if s != 0xFF {
                 break s;
             }
@@ -330,30 +330,38 @@ where
         for b in buffer.iter_mut() {
             *b = 0xFF;
         }
-        self.spi.transfer(buffer).map_err(|_e| Error::Transport)?;
+        self.transfer_bytes(buffer)?;
 
-        let mut crc = u16::from(self.receive()?);
-        crc <<= 8;
-        crc |= u16::from(self.receive()?);
-
-        let calc_crc = crc16(buffer);
-        if crc != calc_crc {
-            return Err(Error::CrcError(crc, calc_crc));
+        // These two bytes are always sent. They are either a valid CRC, or
+        // junk, depending on whether CRC mode was enabled.
+        let mut crc_bytes = [0xFF; 2];
+        self.transfer_bytes(&mut crc_bytes)?;
+        if self.options.use_crc {
+            let crc = u16::from_be_bytes(crc_bytes);
+            let calc_crc = crc16(buffer);
+            if crc != calc_crc {
+                return Err(Error::CrcError(crc, calc_crc));
+            }
         }
 
         Ok(())
     }
 
-    /// Write an arbitrary number of bytes to the card.
+    /// Write an arbitrary number of bytes to the card using the SD protocol and
+    /// an optional CRC.
     fn write_data(&mut self, token: u8, buffer: &[u8]) -> Result<(), Error> {
-        let calc_crc = crc16(buffer);
-        self.send(token)?;
-        for &b in buffer.iter() {
-            self.send(b)?;
-        }
-        self.send((calc_crc >> 8) as u8)?;
-        self.send(calc_crc as u8)?;
-        let status = self.receive()?;
+        self.write_byte(token)?;
+        self.write_bytes(buffer)?;
+        let crc_bytes = if self.options.use_crc {
+            crc16(buffer).to_be_bytes()
+        } else {
+            [0xFF, 0xFF]
+        };
+        // These two bytes are always sent. They are either a valid CRC, or
+        // junk, depending on whether CRC mode was enabled.
+        self.write_bytes(&crc_bytes)?;
+
+        let status = self.read_byte()?;
         if (status & DATA_RES_MASK) != DATA_RES_ACCEPTED {
             Err(Error::WriteError)
         } else {
@@ -389,17 +397,13 @@ where
             trace!("Reset card..");
             // Supply minimum of 74 clock cycles without CS asserted.
             s.cs_high()?;
-            for _ in 0..10 {
-                s.send(0xFF)?;
-            }
+            s.write_bytes(&[0xFF; 10])?;
             // Assert CS
             s.cs_low()?;
-            // Enter SPI mode
-            let mut delay = Delay::new();
-            let mut attempts = 32;
-            while attempts > 0 {
-                trace!("Enter SPI mode, attempt: {}..", 32i32 - attempts);
-
+            // Enter SPI mode.
+            let mut delay = Delay::default();
+            for attempts in 1.. {
+                trace!("Enter SPI mode, attempt: {}..", attempts);
                 match s.card_command(CMD0, 0) {
                     Err(Error::TimeoutCommand(0)) => {
                         // Try again?
@@ -407,9 +411,8 @@ where
                         // Try flushing the card as done here: https://github.com/greiman/SdFat/blob/master/src/SdCard/SdSpiCard.cpp#L170,
                         // https://github.com/rust-embedded-community/embedded-sdmmc-rs/pull/65#issuecomment-1270709448
                         for _ in 0..0xFF {
-                            s.send(0xFF)?;
+                            s.write_byte(0xFF)?;
                         }
-                        attempts -= 1;
                     }
                     Err(e) => {
                         return Err(e);
@@ -420,31 +423,28 @@ where
                     Ok(_r) => {
                         // Try again
                         warn!("Got response: {:x}, trying again..", _r);
-                        attempts -= 1;
                     }
                 }
 
-                delay.delay(&mut s.delayer, Error::TimeoutCommand(CMD0))?;
-            }
-            if attempts == 0 {
-                return Err(Error::CardNotFound);
+                delay.delay(&mut s.delayer, Error::CardNotFound)?;
             }
             // Enable CRC
-            debug!("Enable CRC: {}", s.options.require_crc);
-            if s.card_command(CMD59, 1)? != R1_IDLE_STATE && s.options.require_crc {
+            debug!("Enable CRC: {}", s.options.use_crc);
+            // "The SPI interface is initialized in the CRC OFF mode in default"
+            // -- SD Part 1 Physical Layer Specification v9.00, Section 7.2.2 Bus Transfer Protection
+            if s.options.use_crc && s.card_command(CMD59, 1)? != R1_IDLE_STATE {
                 return Err(Error::CantEnableCRC);
             }
             // Check card version
-            let mut delay = Delay::new();
+            let mut delay = Delay::default();
             let arg = loop {
                 if s.card_command(CMD8, 0x1AA)? == (R1_ILLEGAL_COMMAND | R1_IDLE_STATE) {
                     card_type = CardType::SD1;
                     break 0;
                 }
-                s.receive()?;
-                s.receive()?;
-                s.receive()?;
-                let status = s.receive()?;
+                let mut buffer = [0xFF; 4];
+                s.transfer_bytes(&mut buffer)?;
+                let status = buffer[3];
                 if status == 0xAA {
                     card_type = CardType::SD2;
                     break 0x4000_0000;
@@ -452,7 +452,7 @@ where
                 delay.delay(&mut s.delayer, Error::TimeoutCommand(CMD8))?;
             };
 
-            let mut delay = Delay::new();
+            let mut delay = Delay::default();
             while s.card_acmd(ACMD41, arg)? != R1_READY_STATE {
                 delay.delay(&mut s.delayer, Error::TimeoutACommand(ACMD41))?;
             }
@@ -461,13 +461,12 @@ where
                 if s.card_command(CMD58, 0)? != 0 {
                     return Err(Error::Cmd58Error);
                 }
-                if (s.receive()? & 0xC0) == 0xC0 {
+                let mut buffer = [0xFF; 4];
+                s.transfer_bytes(&mut buffer)?;
+                if (buffer[0] & 0xC0) == 0xC0 {
                     card_type = CardType::SDHC;
                 }
-                // Discard other three bytes
-                s.receive()?;
-                s.receive()?;
-                s.receive()?;
+                // Ignore the other three bytes
             }
             debug!("Card version: {:?}", card_type);
             s.card_type = Some(card_type);
@@ -475,7 +474,7 @@ where
         };
         let result = f(self);
         self.cs_high()?;
-        let _ = self.receive();
+        let _ = self.read_byte();
         result
     }
 
@@ -513,50 +512,60 @@ where
         ];
         buf[5] = crc7(&buf[0..5]);
 
-        for b in buf.iter() {
-            self.send(*b)?;
-        }
+        self.write_bytes(&buf)?;
 
         // skip stuff byte for stop read
         if command == CMD12 {
-            let _result = self.receive()?;
+            let _result = self.read_byte()?;
         }
 
-        for _ in 0..512 {
-            let result = self.receive()?;
+        let mut delay = Delay::default();
+        loop {
+            let result = self.read_byte()?;
             if (result & 0x80) == ERROR_OK {
                 return Ok(result);
             }
+            delay.delay(&mut self.delayer, Error::TimeoutCommand(command))?;
         }
-
-        Err(Error::TimeoutCommand(command))
     }
 
-    /// Receive a byte from the SD card by clocking in an 0xFF byte.
-    fn receive(&mut self) -> Result<u8, Error> {
-        self.transfer(0xFF)
+    /// Receive a byte from the SPI bus by clocking out an 0xFF byte.
+    fn read_byte(&mut self) -> Result<u8, Error> {
+        self.transfer_byte(0xFF)
     }
 
-    /// Send a byte from the SD card.
-    fn send(&mut self, out: u8) -> Result<(), Error> {
-        let _ = self.transfer(out)?;
+    /// Send a byte over the SPI bus and ignore what comes back.
+    fn write_byte(&mut self, out: u8) -> Result<(), Error> {
+        let _ = self.transfer_byte(out)?;
         Ok(())
     }
 
-    /// Send one byte and receive one byte.
-    fn transfer(&mut self, out: u8) -> Result<u8, Error> {
+    /// Send one byte and receive one byte over the SPI bus.
+    fn transfer_byte(&mut self, out: u8) -> Result<u8, Error> {
         self.spi
             .transfer(&mut [out])
             .map(|b| b[0])
             .map_err(|_e| Error::Transport)
     }
 
+    /// Send mutiple bytes and ignore what comes back over the SPI bus.
+    fn write_bytes(&mut self, out: &[u8]) -> Result<(), Error> {
+        self.spi.write(out).map_err(|_e| Error::Transport)?;
+        Ok(())
+    }
+
+    /// Send multiple bytes and replace them with what comes back over the SPI bus.
+    fn transfer_bytes(&mut self, in_out: &mut [u8]) -> Result<(), Error> {
+        self.spi.transfer(in_out).map_err(|_e| Error::Transport)?;
+        Ok(())
+    }
+
     /// Spin until the card returns 0xFF, or we spin too many times and
     /// timeout.
     fn wait_not_busy(&mut self) -> Result<(), Error> {
-        let mut delay = Delay::new();
+        let mut delay = Delay::default();
         loop {
-            let s = self.receive()?;
+            let s = self.read_byte()?;
             if s == 0xFF {
                 break;
             }
@@ -570,13 +579,19 @@ where
 #[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
 #[derive(Debug)]
 pub struct AcquireOpts {
-    /// Some cards don't support CRC mode. At least a 512MiB Transcend one.
-    pub require_crc: bool,
+    /// Set to true to enable CRC checking on reading/writing blocks of data.
+    ///
+    /// Set to false to disable the CRC. Some cards don't support CRC correctly
+    /// and this option may be useful in that instance.
+    ///
+    /// On by default because without it you might get silent data corruption on
+    /// your card.
+    pub use_crc: bool,
 }
 
 impl Default for AcquireOpts {
     fn default() -> Self {
-        AcquireOpts { require_crc: true }
+        AcquireOpts { use_crc: true }
     }
 }
 
@@ -632,30 +647,41 @@ pub enum CardType {
     SDHC,
 }
 
-/// A terrible hack for busy-waiting the CPU while we wait for the card to
-/// sort itself out.
+/// This an object you can use to busy-wait with a timeout.
 ///
-/// @TODO replace this!
+/// Will let you call `delay` up to `max_retries` times before `delay` returns
+/// an error.
 struct Delay {
-    count: u32,
+    retries_left: u32,
 }
 
 impl Delay {
-    fn new() -> Delay {
+    /// The default number of retries for a write operation.
+    ///
+    /// At 10us each this is 320ms.
+    pub const DEFAULT_WRITE_RETRIES: u32 = 32000;
+
+    /// Create a new Delay object with the given maximum number of retries.
+    fn new(max_retries: u32) -> Delay {
         Delay {
-            count: DEFAULT_DELAY_COUNT,
+            retries_left: max_retries,
         }
     }
 
+    /// Wait for a while.
+    ///
+    /// Checks the retry counter first, and if we hit the max retry limit, the
+    /// value `err` is returned. Otherwise we wait for 10us and then return
+    /// `Ok(())`.
     fn delay<T>(&mut self, delayer: &mut T, err: Error) -> Result<(), Error>
     where
         T: embedded_hal::blocking::delay::DelayUs<u8>,
     {
-        if self.count == 0 {
+        if self.retries_left == 0 {
             Err(err)
         } else {
             delayer.delay_us(10);
-            self.count -= 1;
+            self.retries_left -= 1;
             Ok(())
         }
     }
