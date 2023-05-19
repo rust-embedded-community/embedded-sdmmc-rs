@@ -229,7 +229,7 @@ where
                 // Start a single-block write
                 s.card_command(CMD24, start_idx)?;
                 s.write_data(DATA_START_BLOCK, &blocks[0].contents)?;
-                s.wait_not_busy()?;
+                s.wait_not_busy(Delay::new_write())?;
                 if s.card_command(CMD13, 0)? != 0x00 {
                     return Err(Error::WriteError);
                 }
@@ -240,11 +240,11 @@ where
                 // Start a multi-block write
                 s.card_command(CMD25, start_idx)?;
                 for block in blocks.iter() {
-                    s.wait_not_busy()?;
+                    s.wait_not_busy(Delay::new_write())?;
                     s.write_data(WRITE_MULTIPLE_TOKEN, &block.contents)?;
                 }
                 // Stop the write
-                s.wait_not_busy()?;
+                s.wait_not_busy(Delay::new_write())?;
                 s.write_byte(STOP_TRAN_TOKEN)?;
             }
             Ok(())
@@ -315,7 +315,7 @@ where
     /// sure it's the right size.
     fn read_data(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
         // Get first non-FF byte.
-        let mut delay = Delay::default();
+        let mut delay = Delay::new_read();
         let status = loop {
             let s = self.read_byte()?;
             if s != 0xFF {
@@ -401,7 +401,7 @@ where
             // Assert CS
             s.cs_low()?;
             // Enter SPI mode.
-            let mut delay = Delay::default();
+            let mut delay = Delay::new_command();
             for attempts in 1.. {
                 trace!("Enter SPI mode, attempt: {}..", attempts);
                 match s.card_command(CMD0, 0) {
@@ -436,7 +436,7 @@ where
                 return Err(Error::CantEnableCRC);
             }
             // Check card version
-            let mut delay = Delay::default();
+            let mut delay = Delay::new_command();
             let arg = loop {
                 if s.card_command(CMD8, 0x1AA)? == (R1_ILLEGAL_COMMAND | R1_IDLE_STATE) {
                     card_type = CardType::SD1;
@@ -452,7 +452,7 @@ where
                 delay.delay(&mut s.delayer, Error::TimeoutCommand(CMD8))?;
             };
 
-            let mut delay = Delay::default();
+            let mut delay = Delay::new_command();
             while s.card_acmd(ACMD41, arg)? != R1_READY_STATE {
                 delay.delay(&mut s.delayer, Error::TimeoutACommand(ACMD41))?;
             }
@@ -499,7 +499,7 @@ where
     /// Perform a command.
     fn card_command(&mut self, command: u8, arg: u32) -> Result<u8, Error> {
         if command != CMD0 && command != CMD12 {
-            self.wait_not_busy()?;
+            self.wait_not_busy(Delay::new_command())?;
         }
 
         let mut buf = [
@@ -519,7 +519,7 @@ where
             let _result = self.read_byte()?;
         }
 
-        let mut delay = Delay::default();
+        let mut delay = Delay::new_command();
         loop {
             let result = self.read_byte()?;
             if (result & 0x80) == ERROR_OK {
@@ -562,8 +562,7 @@ where
 
     /// Spin until the card returns 0xFF, or we spin too many times and
     /// timeout.
-    fn wait_not_busy(&mut self) -> Result<(), Error> {
-        let mut delay = Delay::default();
+    fn wait_not_busy(&mut self, mut delay: Delay) -> Result<(), Error> {
         loop {
             let s = self.read_byte()?;
             if s == 0xFF {
@@ -656,16 +655,47 @@ struct Delay {
 }
 
 impl Delay {
+    /// The default number of retries for a read operation.
+    ///
+    /// At ~10us each this is ~100ms.
+    ///
+    /// See `Part1_Physical_Layer_Simplified_Specification_Ver9.00-1.pdf` Section 4.6.2.1
+    pub const DEFAULT_READ_RETRIES: u32 = 10_000;
+
     /// The default number of retries for a write operation.
     ///
-    /// At 10us each this is 320ms.
-    pub const DEFAULT_WRITE_RETRIES: u32 = 32000;
+    /// At ~10us each this is ~500ms.
+    ///
+    /// See `Part1_Physical_Layer_Simplified_Specification_Ver9.00-1.pdf` Section 4.6.2.2
+    pub const DEFAULT_WRITE_RETRIES: u32 = 50_000;
+
+    /// The default number of retries for a control command.
+    ///
+    /// At ~10us each this is ~100ms.
+    ///
+    /// No value is given in the specification, so we pick the same as the read timeout.
+    pub const DEFAULT_COMMAND_RETRIES: u32 = 10_000;
 
     /// Create a new Delay object with the given maximum number of retries.
     fn new(max_retries: u32) -> Delay {
         Delay {
             retries_left: max_retries,
         }
+    }
+
+    /// Create a new Delay object with the maximum number of retries for a read operation.
+    fn new_read() -> Delay {
+        Delay::new(Self::DEFAULT_READ_RETRIES)
+    }
+
+    /// Create a new Delay object with the maximum number of retries for a write operation.
+    fn new_write() -> Delay {
+        Delay::new(Self::DEFAULT_WRITE_RETRIES)
+    }
+
+    /// Create a new Delay object with the maximum number of retries for a command operation.
+    fn new_command() -> Delay {
+        Delay::new(Self::DEFAULT_COMMAND_RETRIES)
     }
 
     /// Wait for a while.
