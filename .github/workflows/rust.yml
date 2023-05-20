@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        features: ['log', 'defmt-log']
+        features: ['log', 'defmt-log', '""']
     steps:
     - uses: actions/checkout@v1
     - name: Build

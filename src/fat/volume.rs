@@ -1,18 +1,13 @@
 //! FAT volume
 
-#[cfg(feature = "log")]
-use log::{debug, trace, warn};
-
-#[cfg(feature = "defmt-log")]
-use defmt::{debug, trace, warn};
-
 use crate::{
+    debug,
     fat::{
         Bpb, Fat16Info, Fat32Info, FatSpecificInfo, FatType, InfoSector, OnDiskDirEntry,
         RESERVED_ENTRIES,
     },
-    Attributes, Block, BlockCount, BlockDevice, BlockIdx, Cluster, DirEntry, Directory, Error,
-    ShortFileName, TimeSource, VolumeManager, VolumeType,
+    trace, warn, Attributes, Block, BlockCount, BlockDevice, BlockIdx, Cluster, DirEntry,
+    Directory, Error, ShortFileName, TimeSource, VolumeManager, VolumeType,
 };
 use byteorder::{ByteOrder, LittleEndian};
 use core::convert::TryFrom;
@@ -149,7 +144,7 @@ impl FatVolume {
             }
             FatSpecificInfo::Fat32(_fat32_info) => {
                 // FAT32 => 4 bytes per entry
-                let fat_offset = cluster.0 as u32 * 4;
+                let fat_offset = cluster.0 * 4;
                 this_fat_block_num = self.lba_start + self.fat_start.offset_bytes(fat_offset);
                 let this_fat_ent_offset = (fat_offset % Block::LEN_U32) as usize;
                 volume_mgr

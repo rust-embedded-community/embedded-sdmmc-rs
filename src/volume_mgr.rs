@@ -3,18 +3,12 @@
 use byteorder::{ByteOrder, LittleEndian};
 use core::convert::TryFrom;
 
-#[cfg(feature = "log")]
-use log::debug;
-
-#[cfg(feature = "defmt-log")]
-use defmt::debug;
-
 use crate::fat::{self, RESERVED_ENTRIES};
 use crate::filesystem::{
     Attributes, Cluster, DirEntry, Directory, File, Mode, ShortFileName, TimeSource, MAX_FILE_SIZE,
 };
 use crate::{
-    Block, BlockCount, BlockDevice, BlockIdx, Error, Volume, VolumeIdx, VolumeType,
+    debug, Block, BlockCount, BlockDevice, BlockIdx, Error, Volume, VolumeIdx, VolumeType,
     PARTITION_ID_FAT16, PARTITION_ID_FAT16_LBA, PARTITION_ID_FAT32_CHS_LBA, PARTITION_ID_FAT32_LBA,
 };
 
@@ -237,7 +231,6 @@ where
                 break;
             }
         }
-        drop(dir);
     }
 
     /// Look in a directory for a named file.
@@ -603,7 +596,6 @@ where
                 break;
             }
         }
-        drop(file);
         Ok(())
     }
 

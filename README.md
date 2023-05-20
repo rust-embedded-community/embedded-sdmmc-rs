@@ -11,23 +11,29 @@ designed for readability and simplicity over performance.
 You will need something that implements the `BlockDevice` trait, which can read and write the 512-byte blocks (or sectors) from your card. If you were to implement this over USB Mass Storage, there's no reason this crate couldn't work with a USB Thumb Drive, but we only supply a `BlockDevice` suitable for reading SD and SDHC cards over SPI.
 
 ```rust
-// Build an SD Card interface out of an SPI device
-let mut spi_dev = embedded_sdmmc::SdMmcSpi::new(sdmmc_spi, sdmmc_cs);
-// Try and initialise the SD card
-let block_dev = spi_dev.acquire()?;
-// The SD Card was initialised, and we have a `BlockSpi` object
-// representing the initialised card.
-write!(uart, "Card size is {} bytes", block_dev.card_size_bytes()?)?;
+// Build an SD Card interface out of an SPI device, a chip-select pin and a delay object
+let sdcard = embedded_sdmmc::SdCard::new(sdmmc_spi, sdmmc_cs, delay);
+// Get the card size (this also triggers card initialisation because it's not been done yet)
+println!("Card size is {} bytes", sdcard.num_bytes()?);
 // Now let's look for volumes (also known as partitions) on our block device.
-let mut cont = embedded_sdmmc::VolumeManager::new(block_dev, time_source);
-// Try and access Volume 0 (i.e. the first partition)
-let mut volume = cont.get_volume(embedded_sdmmc::VolumeIdx(0))?;
-writeln!(uart, "Volume 0: {:?}", v)?;
-// Open the root directory
+// To do this we need a Volume Manager. It will take ownership of the block device.
+let mut volume_mgr = embedded_sdmmc::VolumeManager::new(sdcard, time_source);
+// Try and access Volume 0 (i.e. the first partition).
+// The volume object holds information about the filesystem on that volume.
+// It doesn't hold a reference to the Volume Manager and so must be passed back
+// to every Volume Manager API call. This makes it easier to handle multiple
+// volumes in parallel.
+let mut volume0 = volume_mgr.get_volume(embedded_sdmmc::VolumeIdx(0))?;
+println!("Volume 0: {:?}", volume0);
+// Open the root directory (passing in the volume we're using).
 let root_dir = volume_mgr.open_root_dir(&volume0)?;
 // Open a file called "MY_FILE.TXT" in the root directory
 let mut my_file = volume_mgr.open_file_in_dir(
-    &mut volume0, &root_dir, "MY_FILE.TXT", embedded_sdmmc::Mode::ReadOnly)?;
+    &mut volume0,
+    &root_dir,
+    "MY_FILE.TXT",
+    embedded_sdmmc::Mode::ReadOnly,
+)?;
 // Print the contents of the file
 while !my_file.eof() {
     let mut buffer = [0u8; 32];
@@ -37,7 +43,7 @@ while !my_file.eof() {
     }
 }
 volume_mgr.close_file(&volume0, my_file)?;
-volume_mgr.close_dir(&volume0, root_dir)?;
+volume_mgr.close_dir(&volume0, root_dir);
 ```
 
 ### Open directories and files

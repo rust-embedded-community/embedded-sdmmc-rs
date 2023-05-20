@@ -91,20 +91,24 @@ pub const DATA_RES_MASK: u8 = 0x1F;
 pub const DATA_RES_ACCEPTED: u8 = 0x05;
 
 /// Card Specific Data, version 1
-#[derive(Default)]
+#[derive(Default, Debug)]
+#[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
 pub struct CsdV1 {
     /// The 16-bytes of data in this Card Specific Data block
     pub data: [u8; 16],
 }
 
 /// Card Specific Data, version 2
-#[derive(Default)]
+#[derive(Default, Debug)]
+#[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
 pub struct CsdV2 {
     /// The 16-bytes of data in this Card Specific Data block
     pub data: [u8; 16],
 }
 
 /// Card Specific Data
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
 pub enum Csd {
     /// A version 1 CSD
     V1(CsdV1),

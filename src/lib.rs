@@ -21,9 +21,14 @@
 //! # struct DummyCsPin;
 //! # struct DummyUart;
 //! # struct DummyTimeSource;
+//! # struct DummyDelayer;
 //! # impl embedded_hal::blocking::spi::Transfer<u8> for  DummySpi {
 //! #   type Error = ();
-//! #   fn transfer<'w>(&mut self, data: &'w mut [u8]) -> Result<&'w [u8], ()> { Ok(&[0]) }
+//! #   fn transfer<'w>(&mut self, data: &'w mut [u8]) -> Result<&'w [u8], Self::Error> { Ok(&[0]) }
+//! # }
+//! # impl embedded_hal::blocking::spi::Write<u8> for  DummySpi {
+//! #   type Error = ();
+//! #   fn write(&mut self, data: &[u8]) -> Result<(), Self::Error> { Ok(()) }
 //! # }
 //! # impl embedded_hal::digital::v2::OutputPin for DummyCsPin {
 //! #   type Error = ();
@@ -33,18 +38,21 @@
 //! # impl embedded_sdmmc::TimeSource for DummyTimeSource {
 //! #   fn get_timestamp(&self) -> embedded_sdmmc::Timestamp { embedded_sdmmc::Timestamp::from_fat(0, 0) }
 //! # }
+//! # impl embedded_hal::blocking::delay::DelayUs<u8> for DummyDelayer {
+//! #   fn delay_us(&mut self, us: u8) {}
+//! # }
 //! # impl std::fmt::Write for DummyUart { fn write_str(&mut self, s: &str) -> std::fmt::Result { Ok(()) } }
 //! # use std::fmt::Write;
 //! # use embedded_sdmmc::VolumeManager;
-//! # fn main() -> Result<(), embedded_sdmmc::Error<embedded_sdmmc::SdMmcError>> {
+//! # fn main() -> Result<(), embedded_sdmmc::Error<embedded_sdmmc::SdCardError>> {
 //! # let mut sdmmc_spi = DummySpi;
 //! # let mut sdmmc_cs = DummyCsPin;
 //! # let time_source = DummyTimeSource;
-//! let mut spi_dev = embedded_sdmmc::SdMmcSpi::new(sdmmc_spi, sdmmc_cs);
-//! let block = spi_dev.acquire()?;
-//! println!("Card size {} bytes", block.card_size_bytes()?);
-//! let mut volume_mgr = VolumeManager::new(block, time_source);
-//! println!("Card size is still {} bytes", volume_mgr.device().card_size_bytes()?);
+//! # let delayer = DummyDelayer;
+//! let sdcard = embedded_sdmmc::SdCard::new(sdmmc_spi, sdmmc_cs, delayer);
+//! println!("Card size {} bytes", sdcard.num_bytes()?);
+//! let mut volume_mgr = VolumeManager::new(sdcard, time_source);
+//! println!("Card size is still {} bytes", volume_mgr.device().num_bytes()?);
 //! let mut volume0 = volume_mgr.get_volume(embedded_sdmmc::VolumeIdx(0))?;
 //! println!("Volume 0: {:?}", volume0);
 //! let root_dir = volume_mgr.open_root_dir(&volume0)?;
@@ -91,8 +99,7 @@ mod structure;
 pub mod blockdevice;
 pub mod fat;
 pub mod filesystem;
-pub mod sdmmc;
-pub mod sdmmc_proto;
+pub mod sdcard;
 
 pub use crate::blockdevice::{Block, BlockCount, BlockDevice, BlockIdx};
 pub use crate::fat::FatVolume;
@@ -100,14 +107,44 @@ pub use crate::filesystem::{
     Attributes, Cluster, DirEntry, Directory, File, FilenameError, Mode, ShortFileName, TimeSource,
     Timestamp, MAX_FILE_SIZE,
 };
-pub use crate::sdmmc::Error as SdMmcError;
-pub use crate::sdmmc::{BlockSpi, SdMmcSpi};
+pub use crate::sdcard::Error as SdCardError;
+pub use crate::sdcard::SdCard;
 
 mod volume_mgr;
 pub use volume_mgr::VolumeManager;
 
 #[deprecated]
 pub use volume_mgr::VolumeManager as Controller;
+
+#[cfg(all(feature = "defmt-log", feature = "log"))]
+compile_error!("Cannot enable both log and defmt-log");
+
+#[cfg(feature = "log")]
+use log::{debug, trace, warn};
+
+#[cfg(feature = "defmt-log")]
+use defmt::{debug, trace, warn};
+
+#[cfg(all(not(feature = "defmt-log"), not(feature = "log")))]
+#[macro_export]
+/// Like log::debug! but does nothing at all
+macro_rules! debug {
+    ($($arg:tt)+) => {};
+}
+
+#[cfg(all(not(feature = "defmt-log"), not(feature = "log")))]
+#[macro_export]
+/// Like log::trace! but does nothing at all
+macro_rules! trace {
+    ($($arg:tt)+) => {};
+}
+
+#[cfg(all(not(feature = "defmt-log"), not(feature = "log")))]
+#[macro_export]
+/// Like log::warn! but does nothing at all
+macro_rules! warn {
+    ($($arg:tt)+) => {};
+}
 
 // ****************************************************************************
 //

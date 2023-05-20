@@ -27,7 +27,7 @@ pub struct Timestamp {
 impl Timestamp {
     /// Create a `Timestamp` from the 16-bit FAT date and time fields.
     pub fn from_fat(date: u16, time: u16) -> Timestamp {
-        let year = (1980 + (date >> 9)) as u16;
+        let year = 1980 + (date >> 9);
         let month = ((date >> 5) & 0x000F) as u8;
         let day = (date & 0x001F) as u8;
         let hours = ((time >> 11) & 0x001F) as u8;
