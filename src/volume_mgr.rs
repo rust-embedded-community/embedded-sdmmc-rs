@@ -172,7 +172,6 @@ where
         self.open_dirs[open_dirs_row] = (volume.idx, Cluster::ROOT_DIR);
         Ok(Directory {
             cluster: Cluster::ROOT_DIR,
-            entry: None,
         })
     }
 
@@ -217,7 +216,6 @@ where
         self.open_dirs[open_dirs_row] = (volume.idx, dir_entry.cluster);
         Ok(Directory {
             cluster: dir_entry.cluster,
-            entry: Some(dir_entry),
         })
     }
 
