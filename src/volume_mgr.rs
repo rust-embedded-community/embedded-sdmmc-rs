@@ -264,7 +264,6 @@ where
         // with an ID which doesn't exist in our open dirs list.
         let idx_to_close = cluster_position_by_id(&self.open_dirs, dir.search_id).unwrap();
         self.open_dirs.remove(idx_to_close);
-        drop(dir);
     }
 
     /// Look in a directory for a named file.
@@ -664,7 +663,6 @@ where
         let idx_to_close = cluster_position_by_id(&self.open_files, file.search_id).unwrap();
         self.open_files.remove(idx_to_close);
 
-        drop(file);
         Ok(())
     }
 
@@ -733,8 +731,8 @@ where
     }
 }
 
-fn cluster_position_by_id(vec: &[ClusterDescriptor], id_to_find: SearchId) -> Option<usize> {
-    vec.iter().position(|f| f.compare_id(id_to_find))
+fn cluster_position_by_id(list: &[ClusterDescriptor], id_to_find: SearchId) -> Option<usize> {
+    list.iter().position(|f| f.compare_id(id_to_find))
 }
 
 fn cluster_already_open(
