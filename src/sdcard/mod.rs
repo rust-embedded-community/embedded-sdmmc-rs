@@ -715,13 +715,12 @@ impl Delay {
         T: embedded_hal::blocking::delay::DelayUs<u8>,
     {
         if self.retries_left == 0 {
-            return Err(err);
+            Err(err)
         } else {
             delayer.delay_us(10);
             self.retries_left -= 1;
+            Ok(())
         }
-
-        Ok(())
     }
 }
 
