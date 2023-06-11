@@ -412,6 +412,12 @@ where
             _ => return Err(Error::FileNotFound),
         };
 
+        if let Some(d) = &dir_entry {
+            if cluster_already_open(&self.open_files, volume.idx, d.cluster) {
+                return Err(Error::FileAlreadyOpen);
+            }
+        }
+
         let mode = solve_mode_variant(mode, dir_entry.is_some());
 
         match mode {
