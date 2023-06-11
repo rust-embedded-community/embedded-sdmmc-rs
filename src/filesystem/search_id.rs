@@ -19,7 +19,7 @@ impl IdGenerator {
     /// Generate a new, unique [`SearchId`].
     pub fn get(&mut self) -> SearchId {
         let id = self.next_id;
-        self.next_id += 1;
+        self.next_id = self.next_id.wrapping_add(1);
         SearchId(id)
     }
 }
