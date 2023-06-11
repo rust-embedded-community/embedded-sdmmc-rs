@@ -737,16 +737,20 @@ where
     }
 }
 
-fn cluster_position_by_id(list: &[ClusterDescriptor], id_to_find: SearchId) -> Option<usize> {
-    list.iter().position(|f| f.compare_id(id_to_find))
+fn cluster_position_by_id(
+    cluster_list: &[ClusterDescriptor],
+    id_to_find: SearchId,
+) -> Option<usize> {
+    cluster_list.iter().position(|f| f.compare_id(id_to_find))
 }
 
 fn cluster_already_open(
-    vec: &[ClusterDescriptor],
+    cluster_list: &[ClusterDescriptor],
     volume_idx: VolumeIdx,
     cluster: Cluster,
 ) -> bool {
-    vec.iter()
+    cluster_list
+        .iter()
         .any(|d| d.compare_volume_and_cluster(volume_idx, cluster))
 }
 
