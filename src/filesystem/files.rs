@@ -1,4 +1,4 @@
-use crate::filesystem::{Cluster, DirEntry};
+use crate::filesystem::{Cluster, DirEntry, SearchId};
 
 /// Represents an open file on disk.
 #[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
@@ -16,6 +16,8 @@ pub struct File {
     pub(crate) mode: Mode,
     /// DirEntry of this file
     pub(crate) entry: DirEntry,
+    /// Search ID for this file
+    pub(crate) search_id: SearchId,
 }
 
 /// Errors related to file operations
