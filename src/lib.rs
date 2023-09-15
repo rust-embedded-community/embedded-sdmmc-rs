@@ -101,20 +101,27 @@ pub mod fat;
 pub mod filesystem;
 pub mod sdcard;
 
+#[doc(inline)]
 pub use crate::blockdevice::{Block, BlockCount, BlockDevice, BlockIdx};
+
+#[doc(inline)]
 pub use crate::fat::FatVolume;
+
+#[doc(inline)]
 pub use crate::filesystem::{
     Attributes, Cluster, DirEntry, Directory, File, FilenameError, Mode, ShortFileName, TimeSource,
     Timestamp, MAX_FILE_SIZE,
 };
+
+#[doc(inline)]
 pub use crate::sdcard::Error as SdCardError;
+
+#[doc(inline)]
 pub use crate::sdcard::SdCard;
 
 mod volume_mgr;
+#[doc(inline)]
 pub use volume_mgr::VolumeManager;
-
-#[deprecated]
-pub use volume_mgr::VolumeManager as Controller;
 
 #[cfg(all(feature = "defmt-log", feature = "log"))]
 compile_error!("Cannot enable both log and defmt-log");
