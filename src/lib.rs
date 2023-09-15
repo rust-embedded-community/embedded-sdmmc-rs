@@ -234,8 +234,9 @@ pub enum VolumeType {
 }
 
 /// A `VolumeIdx` is a number which identifies a volume (or partition) on a
-/// disk. `VolumeIdx(0)` is the first primary partition on an MBR partitioned
 /// disk.
+///
+/// `VolumeIdx(0)` is the first primary partition on an MBR partitioned disk.
 #[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub struct VolumeIdx(pub usize);

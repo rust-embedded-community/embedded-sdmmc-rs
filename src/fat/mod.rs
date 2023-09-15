@@ -1,4 +1,4 @@
-//! embedded-sdmmc-rs - FAT16/FAT32 file system implementation
+//! FAT16/FAT32 file system implementation
 //!
 //! Implements the File Allocation Table file system. Supports FAT16 and FAT32 volumes.
 

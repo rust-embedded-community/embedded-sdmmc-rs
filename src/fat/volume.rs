@@ -37,7 +37,7 @@ impl core::fmt::Debug for VolumeName {
     }
 }
 
-/// Identifies a FAT16 Volume on the disk.
+/// Identifies a FAT16 or FAT32 Volume on the disk.
 #[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
 #[derive(PartialEq, Eq, Debug)]
 pub struct FatVolume {
@@ -76,7 +76,9 @@ impl FatVolume {
         T: TimeSource,
     {
         match &self.fat_specific_info {
-            FatSpecificInfo::Fat16(_) => {}
+            FatSpecificInfo::Fat16(_) => {
+                // FAT16 volumes don't have an info sector
+            }
             FatSpecificInfo::Fat32(fat32_info) => {
                 if self.free_clusters_count.is_none() && self.next_free_cluster.is_none() {
                     return Ok(());
