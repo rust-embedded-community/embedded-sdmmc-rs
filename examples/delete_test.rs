@@ -154,7 +154,7 @@ fn main() {
                 Err(error) => println!("\tCannot delete file: {:?}", error),
             }
             println!("\tClosing {}...", FILE_TO_DELETE);
-            volume_mgr.close_file(&volume, f).unwrap();
+            volume_mgr.close_file(&mut volume, f).unwrap();
 
             match volume_mgr.delete_file_in_dir(&volume, &root_dir, FILE_TO_DELETE) {
                 Ok(()) => println!("\tDeleted {}.", FILE_TO_DELETE),

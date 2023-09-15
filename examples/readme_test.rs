@@ -109,7 +109,7 @@ fn main() -> Result<(), Error> {
             print!("{}", *b as char);
         }
     }
-    volume_mgr.close_file(&volume0, my_file)?;
+    volume_mgr.close_file(&mut volume0, my_file)?;
     volume_mgr.close_dir(&volume0, root_dir);
     Ok(())
 }

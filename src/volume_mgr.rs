@@ -658,25 +658,22 @@ where
             file.seek_from_current(to_copy).unwrap();
             file.entry.attributes.set_archive(true);
             file.entry.mtime = self.timesource.get_timestamp();
-            debug!("Updating FAT info sector");
-            match &mut volume.volume_type {
-                VolumeType::Fat(fat) => {
-                    fat.update_info_sector(self)?;
-                    debug!("Updating dir entry");
-                    self.write_entry_to_disk(fat.get_fat_type(), &file.entry)?;
-                }
-            }
+            // Entry update deferred to file close, for performance.
         }
         Ok(written)
     }
 
     /// Close a file with the given full path.
-    pub fn close_file(&mut self, volume: &Volume, file: File) -> Result<(), Error<D::Error>> {
-        // We don't strictly speaking need the volume in order to close a
-        // directory, as we don't flush anything to disk at this point. However,
-        // we take it in case we change this in the future and closing a file
-        // does then cause some disk write to occur.
-        let _ = volume;
+    pub fn close_file(&mut self, volume: &mut Volume, file: File) -> Result<(), Error<D::Error>> {
+        match volume.volume_type {
+            VolumeType::Fat(ref mut fat) => {
+                debug!("Updating FAT info sector");
+                fat.update_info_sector(self)?;
+                debug!("Updating dir entry {:?}", file.entry);
+                let fat_type = fat.get_fat_type();
+                self.write_entry_to_disk(fat_type, &file.entry)?;
+            }
+        };
 
         // Unwrap, because we should never be in a situation where we're attempting to close a file
         // with an ID which doesn't exist in our open files list.

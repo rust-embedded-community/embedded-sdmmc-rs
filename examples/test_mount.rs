@@ -158,7 +158,7 @@ fn main() {
             assert!(volume_mgr
                 .open_file_in_dir(&mut volume, &root_dir, FILE_TO_PRINT, Mode::ReadOnly)
                 .is_err());
-            volume_mgr.close_file(&volume, f).unwrap();
+            volume_mgr.close_file(&mut volume, f).unwrap();
 
             let test_dir = volume_mgr.open_dir(&volume, &root_dir, "TEST").unwrap();
             // Check we can't open it twice
@@ -187,7 +187,7 @@ fn main() {
                 }
             }
             println!("Checksum over {} bytes: {}", f.length(), csum);
-            volume_mgr.close_file(&volume, f).unwrap();
+            volume_mgr.close_file(&mut volume, f).unwrap();
 
             assert!(volume_mgr.open_root_dir(&volume).is_err());
             volume_mgr.close_dir(&volume, root_dir);

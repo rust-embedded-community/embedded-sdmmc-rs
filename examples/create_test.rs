@@ -167,7 +167,7 @@ fn main() {
             let num_written1 = volume_mgr.write(&mut volume, &mut f, &buffer1[..]).unwrap();
             let num_written = volume_mgr.write(&mut volume, &mut f, &buffer[..]).unwrap();
             println!("Number of bytes written: {}\n", num_written + num_written1);
-            volume_mgr.close_file(&volume, f).unwrap();
+            volume_mgr.close_file(&mut volume, f).unwrap();
 
             let mut f = volume_mgr
                 .open_file_in_dir(
@@ -198,7 +198,7 @@ fn main() {
                 }
             }
             println!("EOF");
-            volume_mgr.close_file(&volume, f).unwrap();
+            volume_mgr.close_file(&mut volume, f).unwrap();
         }
     }
 }

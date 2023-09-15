@@ -153,7 +153,7 @@ fn main() {
             }
             println!("EOF\n");
             let mut file_size = f.length() as usize;
-            volume_mgr.close_file(&volume, f).unwrap();
+            volume_mgr.close_file(&mut volume, f).unwrap();
 
             let mut f = volume_mgr
                 .open_file_in_dir(&mut volume, &root_dir, FILE_TO_WRITE, Mode::ReadWriteAppend)
@@ -170,10 +170,7 @@ fn main() {
             for b in &buffer[..] {
                 csum += u32::from(*b);
             }
-            println!(
-                "Number of bytes appendedß: {}\n",
-                num_written + num_written1
-            );
+            println!("Number of bytes appended: {}\n", num_written + num_written1);
             file_size += num_written;
             file_size += num_written1;
 
@@ -190,7 +187,7 @@ fn main() {
                 }
             }
             println!("EOF");
-            volume_mgr.close_file(&volume, f).unwrap();
+            volume_mgr.close_file(&mut volume, f).unwrap();
 
             println!("\tFinding {}...", FILE_TO_WRITE);
             let dir_ent = volume_mgr
@@ -201,7 +198,12 @@ fn main() {
             let mut f = volume_mgr
                 .open_file_in_dir(&mut volume, &root_dir, FILE_TO_WRITE, Mode::ReadWriteAppend)
                 .unwrap();
-            println!("\nReading from file {}\n", FILE_TO_WRITE);
+            println!(
+                "\nReading from file {}, len {}\n",
+                FILE_TO_WRITE,
+                f.length()
+            );
+            f.seek_from_start(0).unwrap();
             println!("FILE STARTS:");
             let mut csum2 = 0;
             while !f.eof() {
@@ -217,7 +219,7 @@ fn main() {
             }
             println!("EOF\n");
             assert_eq!(f.length() as usize, file_size);
-            volume_mgr.close_file(&volume, f).unwrap();
+            volume_mgr.close_file(&mut volume, f).unwrap();
 
             assert_eq!(csum, csum2);
 
@@ -254,7 +256,7 @@ fn main() {
                 }
             }
             println!("EOF");
-            volume_mgr.close_file(&volume, f).unwrap();
+            volume_mgr.close_file(&mut volume, f).unwrap();
         }
     }
 }
