@@ -261,6 +261,12 @@ where
     /// Close a directory. You cannot perform operations on an open directory
     /// and so must close it if you want to do something with it.
     pub fn close_dir(&mut self, volume: &Volume, dir: Directory) {
+        // We don't strictly speaking need the volume in order to close a
+        // directory, as we don't flush anything to disk at this point. The open
+        // directory acts more as a lock. However, we take it because it then
+        // matches the `close_file` API.
+        let _ = volume;
+
         // Unwrap, because we should never be in a situation where we're attempting to close a dir
         // with an ID which doesn't exist in our open dirs list.
         let idx_to_close = cluster_position_by_id(&self.open_dirs, dir.search_id).unwrap();
@@ -665,6 +671,12 @@ where
 
     /// Close a file with the given full path.
     pub fn close_file(&mut self, volume: &Volume, file: File) -> Result<(), Error<D::Error>> {
+        // We don't strictly speaking need the volume in order to close a
+        // directory, as we don't flush anything to disk at this point. However,
+        // we take it in case we change this in the future and closing a file
+        // does then cause some disk write to occur.
+        let _ = volume;
+
         // Unwrap, because we should never be in a situation where we're attempting to close a file
         // with an ID which doesn't exist in our open files list.
         let idx_to_close = cluster_position_by_id(&self.open_files, file.search_id).unwrap();
