@@ -49,12 +49,18 @@ where
 {
     /// Create a new SD/MMC Card driver using a raw SPI interface.
     ///
+    /// The card will not be initialised at this time. Initialisation is
+    /// deferred until a method is called on the object.
+    ///
     /// Uses the default options.
     pub fn new(spi: SPI, cs: CS, delayer: DELAYER) -> SdCard<SPI, CS, DELAYER> {
         Self::new_with_options(spi, cs, delayer, AcquireOpts::default())
     }
 
     /// Construct a new SD/MMC Card driver, using a raw SPI interface and the given options.
+    ///
+    /// The card will not be initialised at this time. Initialisation is
+    /// deferred until a method is called on the object.
     pub fn new_with_options(
         spi: SPI,
         cs: CS,
@@ -72,8 +78,13 @@ where
         }
     }
 
-    /// Get a temporary borrow on the underlying SPI device. Useful if you
-    /// need to re-clock the SPI.
+    /// Get a temporary borrow on the underlying SPI device.
+    ///
+    /// The given closure will be called exactly once, and will be passed a
+    /// mutable reference to the underlying SPI object.
+    ///
+    /// Useful if you need to re-clock the SPI, but does not perform card
+    /// initialisation.
     pub fn spi<T, F>(&self, func: F) -> T
     where
         F: FnOnce(&mut SPI) -> T,
@@ -83,6 +94,8 @@ where
     }
 
     /// Return the usable size of this SD card in bytes.
+    ///
+    /// This will trigger card (re-)initialisation.
     pub fn num_bytes(&self) -> Result<u64, Error> {
         let mut inner = self.inner.borrow_mut();
         inner.check_init()?;
@@ -90,6 +103,8 @@ where
     }
 
     /// Can this card erase single blocks?
+    ///
+    /// This will trigger card (re-)initialisation.
     pub fn erase_single_block_enabled(&self) -> Result<bool, Error> {
         let mut inner = self.inner.borrow_mut();
         inner.check_init()?;
@@ -105,17 +120,30 @@ where
     }
 
     /// Get the card type.
+    ///
+    /// This will trigger card (re-)initialisation.
     pub fn get_card_type(&self) -> Option<CardType> {
-        let inner = self.inner.borrow();
+        let mut inner = self.inner.borrow_mut();
+        inner.check_init().ok()?;
         inner.card_type
     }
 
     /// Tell the driver the card has been initialised.
     ///
+    /// This is here in case you were previously using the SD Card, and then a
+    /// previous instance of this object got destroyed but you know for certain
+    /// the SD Card remained powered up and initialised, and you'd just like to
+    /// read/write to/from the card again without going through the
+    /// initialisation sequence again.
+    ///
     /// # Safety
     ///
-    /// Only do this if the card has actually been initialised and is of the
-    /// indicated type, otherwise corruption may occur.
+    /// Only do this if the SD Card has actually been initialised. That is, if
+    /// you have been through the card initialisation sequence as specified in
+    /// the SD Card Specification by sending each appropriate command in turn,
+    /// either manually or using another variable of this [`SdCard`]. The card
+    /// must also be of the indicated type. Failure to uphold this will cause
+    /// data corruption.
     pub unsafe fn mark_card_as_init(&self, card_type: CardType) {
         let mut inner = self.inner.borrow_mut();
         inner.card_type = Some(card_type);
@@ -133,6 +161,8 @@ where
     type Error = Error;
 
     /// Read one or more blocks, starting at the given block index.
+    ///
+    /// This will trigger card (re-)initialisation.
     fn read(
         &self,
         blocks: &mut [Block],
@@ -151,6 +181,8 @@ where
     }
 
     /// Write one or more blocks, starting at the given block index.
+    ///
+    /// This will trigger card (re-)initialisation.
     fn write(&self, blocks: &[Block], start_block_idx: BlockIdx) -> Result<(), Self::Error> {
         let mut inner = self.inner.borrow_mut();
         debug!("Writing {} blocks @ {}", blocks.len(), start_block_idx.0);
@@ -159,6 +191,8 @@ where
     }
 
     /// Determine how many blocks this device can hold.
+    ///
+    /// This will trigger card (re-)initialisation.
     fn num_blocks(&self) -> Result<BlockCount, Self::Error> {
         let mut inner = self.inner.borrow_mut();
         inner.check_init()?;
