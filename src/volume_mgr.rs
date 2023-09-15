@@ -659,14 +659,18 @@ where
                 .map_err(Error::DeviceError)?;
             written += to_copy;
             file.current_cluster = current_cluster;
-            let to_copy = i32::try_from(to_copy).map_err(|_| Error::ConversionError)?;
-            // TODO: Should we do this once when the whole file is written?
-            file.update_length(file.length + (to_copy as u32));
-            file.seek_from_current(to_copy).unwrap();
-            file.entry.attributes.set_archive(true);
-            file.entry.mtime = self.timesource.get_timestamp();
+
+            let to_copy = to_copy as u32;
+            let new_offset = file.current_offset + to_copy;
+            if new_offset > file.length {
+                // We made it longer
+                file.update_length(new_offset);
+            }
+            file.seek_from_start(new_offset).unwrap();
             // Entry update deferred to file close, for performance.
         }
+        file.entry.attributes.set_archive(true);
+        file.entry.mtime = self.timesource.get_timestamp();
         Ok(written)
     }
 
