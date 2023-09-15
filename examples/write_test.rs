@@ -138,6 +138,7 @@ fn main() {
                 .open_file_in_dir(&mut volume, &root_dir, FILE_TO_WRITE, Mode::ReadOnly)
                 .unwrap();
             println!("\nReading from file {}\n", FILE_TO_WRITE);
+            let mut csum = 0;
             println!("FILE STARTS:");
             while !f.eof() {
                 let mut buffer = [0u8; 32];
@@ -147,9 +148,11 @@ fn main() {
                         print!("\\n");
                     }
                     print!("{}", *b as char);
+                    csum += u32::from(*b);
                 }
             }
             println!("EOF\n");
+            let mut file_size = f.length() as usize;
             volume_mgr.close_file(&volume, f).unwrap();
 
             let mut f = volume_mgr
@@ -161,15 +164,20 @@ fn main() {
             println!("\nAppending to file");
             let num_written1 = volume_mgr.write(&mut volume, &mut f, &buffer1[..]).unwrap();
             let num_written = volume_mgr.write(&mut volume, &mut f, &buffer[..]).unwrap();
-            println!("Number of bytes written: {}\n", num_written + num_written1);
+            for b in &buffer1[..] {
+                csum += u32::from(*b);
+            }
+            for b in &buffer[..] {
+                csum += u32::from(*b);
+            }
+            println!(
+                "Number of bytes appendedß: {}\n",
+                num_written + num_written1
+            );
+            file_size += num_written;
+            file_size += num_written1;
 
             f.seek_from_start(0).unwrap();
-            println!("\tFinding {}...", FILE_TO_WRITE);
-            println!(
-                "\tFound {}?: {:?}",
-                FILE_TO_WRITE,
-                volume_mgr.find_directory_entry(&volume, &root_dir, FILE_TO_WRITE)
-            );
             println!("\nFILE STARTS:");
             while !f.eof() {
                 let mut buffer = [0u8; 32];
@@ -183,6 +191,35 @@ fn main() {
             }
             println!("EOF");
             volume_mgr.close_file(&volume, f).unwrap();
+
+            println!("\tFinding {}...", FILE_TO_WRITE);
+            let dir_ent = volume_mgr
+                .find_directory_entry(&volume, &root_dir, FILE_TO_WRITE)
+                .unwrap();
+            println!("\tFound {}?: {:?}", FILE_TO_WRITE, dir_ent);
+            assert_eq!(dir_ent.size as usize, file_size);
+            let mut f = volume_mgr
+                .open_file_in_dir(&mut volume, &root_dir, FILE_TO_WRITE, Mode::ReadWriteAppend)
+                .unwrap();
+            println!("\nReading from file {}\n", FILE_TO_WRITE);
+            println!("FILE STARTS:");
+            let mut csum2 = 0;
+            while !f.eof() {
+                let mut buffer = [0u8; 32];
+                let num_read = volume_mgr.read(&volume, &mut f, &mut buffer).unwrap();
+                for b in &buffer[0..num_read] {
+                    if *b == 10 {
+                        print!("\\n");
+                    }
+                    print!("{}", *b as char);
+                    csum2 += u32::from(*b);
+                }
+            }
+            println!("EOF\n");
+            assert_eq!(f.length() as usize, file_size);
+            volume_mgr.close_file(&volume, f).unwrap();
+
+            assert_eq!(csum, csum2);
 
             println!("\nTruncating file");
             let mut f = volume_mgr
