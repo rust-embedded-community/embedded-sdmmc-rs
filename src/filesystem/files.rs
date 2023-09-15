@@ -18,6 +18,8 @@ pub struct File {
     pub(crate) entry: DirEntry,
     /// Search ID for this file
     pub(crate) search_id: SearchId,
+    /// Did we write to this file?
+    pub(crate) dirty: bool,
 }
 
 /// Errors related to file operations

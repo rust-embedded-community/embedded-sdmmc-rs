@@ -336,6 +336,7 @@ where
                 mode,
                 entry: dir_entry,
                 search_id,
+                dirty: false,
             },
             Mode::ReadWriteAppend => {
                 let mut file = File {
@@ -346,6 +347,7 @@ where
                     mode,
                     entry: dir_entry,
                     search_id,
+                    dirty: false,
                 };
                 // seek_from_end with 0 can't fail
                 file.seek_from_end(0).ok();
@@ -360,6 +362,7 @@ where
                     mode,
                     entry: dir_entry,
                     search_id,
+                    dirty: false,
                 };
                 match &mut volume.volume_type {
                     VolumeType::Fat(fat) => {
@@ -452,6 +455,7 @@ where
                     mode,
                     entry,
                     search_id,
+                    dirty: false,
                 };
 
                 // Remember this open file
@@ -567,6 +571,9 @@ where
         if file.mode == Mode::ReadOnly {
             return Err(Error::ReadOnly);
         }
+
+        file.dirty = true;
+
         if file.starting_cluster.0 < RESERVED_ENTRIES {
             // file doesn't have a valid allocated cluster (possible zero-length file), allocate one
             file.starting_cluster = match &mut volume.volume_type {
@@ -665,15 +672,17 @@ where
 
     /// Close a file with the given full path.
     pub fn close_file(&mut self, volume: &mut Volume, file: File) -> Result<(), Error<D::Error>> {
-        match volume.volume_type {
-            VolumeType::Fat(ref mut fat) => {
-                debug!("Updating FAT info sector");
-                fat.update_info_sector(self)?;
-                debug!("Updating dir entry {:?}", file.entry);
-                let fat_type = fat.get_fat_type();
-                self.write_entry_to_disk(fat_type, &file.entry)?;
-            }
-        };
+        if file.dirty {
+            match volume.volume_type {
+                VolumeType::Fat(ref mut fat) => {
+                    debug!("Updating FAT info sector");
+                    fat.update_info_sector(self)?;
+                    debug!("Updating dir entry {:?}", file.entry);
+                    let fat_type = fat.get_fat_type();
+                    self.write_entry_to_disk(fat_type, &file.entry)?;
+                }
+            };
+        }
 
         // Unwrap, because we should never be in a situation where we're attempting to close a file
         // with an ID which doesn't exist in our open files list.
