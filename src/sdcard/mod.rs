@@ -237,6 +237,13 @@ where
                     return Err(Error::WriteError);
                 }
             } else {
+                // > It is recommended using this command preceding CMD25, some of the cards will be faster for Multiple
+                // > Write Blocks operation. Note that the host should send ACMD23 just before WRITE command if the host
+                // > wants to use the pre-erased feature
+                s.card_acmd(ACMD23, blocks.len() as u32)?;
+                // wait for card to be ready before sending the next command
+                s.wait_not_busy(Delay::new_write())?;
+
                 // Start a multi-block write
                 s.card_command(CMD25, start_idx)?;
                 for block in blocks.iter() {
