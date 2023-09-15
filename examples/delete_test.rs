@@ -16,7 +16,7 @@
 
 extern crate embedded_sdmmc;
 
-const FILE_TO_DELETE: &'static str = "DELETE.TXT";
+const FILE_TO_DELETE: &str = "DELETE.TXT";
 
 use embedded_sdmmc::{
     Block, BlockCount, BlockDevice, BlockIdx, Error, Mode, TimeSource, Timestamp, VolumeIdx,

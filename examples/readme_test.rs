@@ -14,7 +14,7 @@ impl embedded_hal::blocking::spi::Transfer<u8> for FakeSpi {
 
 impl embedded_hal::blocking::spi::Write<u8> for FakeSpi {
     type Error = core::convert::Infallible;
-    fn write<'w>(&mut self, _words: &'w [u8]) -> Result<(), Self::Error> {
+    fn write(&mut self, _words: &[u8]) -> Result<(), Self::Error> {
         Ok(())
     }
 }

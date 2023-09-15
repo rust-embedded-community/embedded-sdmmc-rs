@@ -23,8 +23,8 @@
 
 extern crate embedded_sdmmc;
 
-const FILE_TO_PRINT: &'static str = "README.TXT";
-const FILE_TO_CHECKSUM: &'static str = "64MB.DAT";
+const FILE_TO_PRINT: &str = "README.TXT";
+const FILE_TO_CHECKSUM: &str = "64MB.DAT";
 
 use embedded_sdmmc::{
     Block, BlockCount, BlockDevice, BlockIdx, Error, Mode, TimeSource, Timestamp, VolumeIdx,

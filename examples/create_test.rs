@@ -16,7 +16,7 @@
 
 extern crate embedded_sdmmc;
 
-const FILE_TO_CREATE: &'static str = "CREATE.TXT";
+const FILE_TO_CREATE: &str = "CREATE.TXT";
 
 use embedded_sdmmc::{
     Block, BlockCount, BlockDevice, BlockIdx, Error, Mode, TimeSource, Timestamp, VolumeIdx,
@@ -158,9 +158,7 @@ fn main() {
             let buffer1 = b"\nFile Appended\n";
             let mut buffer: Vec<u8> = vec![];
             for _ in 0..64 {
-                for _ in 0..15 {
-                    buffer.push(b'a');
-                }
+                buffer.resize(buffer.len() + 15, b'a');
                 buffer.push(b'\n');
             }
             println!("\nAppending to file");
