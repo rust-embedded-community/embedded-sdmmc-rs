@@ -40,7 +40,8 @@ impl ClusterDescriptor {
     }
 }
 
-/// A `VolumeManager` wraps a block device and gives access to the volumes within it.
+/// A `VolumeManager` wraps a block device and gives access to the FAT-formatted
+/// volumes within it.
 pub struct VolumeManager<D, T, const MAX_DIRS: usize = 4, const MAX_FILES: usize = 4>
 where
     D: BlockDevice,
