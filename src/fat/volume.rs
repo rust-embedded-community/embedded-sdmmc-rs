@@ -192,8 +192,7 @@ impl FatVolume {
                 let fat_offset = cluster.0 * 2;
                 let this_fat_block_num = self.lba_start + self.fat_start.offset_bytes(fat_offset);
                 let this_fat_ent_offset = (fat_offset % Block::LEN_U32) as usize;
-                let block =
-                    fat_block_cache.read(&volume_mgr, this_fat_block_num, "next_cluster")?;
+                let block = fat_block_cache.read(volume_mgr, this_fat_block_num, "next_cluster")?;
                 let fat_entry =
                     LittleEndian::read_u16(&block[this_fat_ent_offset..=this_fat_ent_offset + 1]);
                 match fat_entry {
@@ -215,8 +214,7 @@ impl FatVolume {
                 let fat_offset = cluster.0 * 4;
                 let this_fat_block_num = self.lba_start + self.fat_start.offset_bytes(fat_offset);
                 let this_fat_ent_offset = (fat_offset % Block::LEN_U32) as usize;
-                let block =
-                    fat_block_cache.read(&volume_mgr, this_fat_block_num, "next_cluster")?;
+                let block = fat_block_cache.read(volume_mgr, this_fat_block_num, "next_cluster")?;
                 let fat_entry =
                     LittleEndian::read_u32(&block[this_fat_ent_offset..=this_fat_ent_offset + 3])
                         & 0x0FFF_FFFF;
