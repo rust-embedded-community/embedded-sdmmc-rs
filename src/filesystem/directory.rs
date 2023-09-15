@@ -2,7 +2,7 @@ use core::convert::TryFrom;
 
 use crate::blockdevice::BlockIdx;
 use crate::fat::{FatType, OnDiskDirEntry};
-use crate::filesystem::{Attributes, Cluster, ShortFileName, Timestamp};
+use crate::filesystem::{Attributes, Cluster, SearchId, ShortFileName, Timestamp};
 
 /// Represents a directory entry, which tells you about
 /// other files and directories.
@@ -33,8 +33,8 @@ pub struct DirEntry {
 pub struct Directory {
     /// The starting point of the directory listing.
     pub(crate) cluster: Cluster,
-    /// Dir Entry of this directory, None for the root directory
-    pub(crate) entry: Option<DirEntry>,
+    /// Search ID for this directory.
+    pub(crate) search_id: SearchId,
 }
 
 impl DirEntry {

@@ -408,7 +408,7 @@ where
             // Assert CS
             s.cs_low()?;
             // Enter SPI mode.
-            let mut delay = Delay::new_command();
+            let mut delay = Delay::new(s.options.acquire_retries);
             for attempts in 1.. {
                 trace!("Enter SPI mode, attempt: {}..", attempts);
                 match s.card_command(CMD0, 0) {
@@ -593,11 +593,18 @@ pub struct AcquireOpts {
     /// On by default because without it you might get silent data corruption on
     /// your card.
     pub use_crc: bool,
+
+    /// Sets the number of times we will retry to acquire the card before giving up and returning
+    /// `Err(Error::CardNotFound)`. By default, card acquisition will be retried 50 times.
+    pub acquire_retries: u32,
 }
 
 impl Default for AcquireOpts {
     fn default() -> Self {
-        AcquireOpts { use_crc: true }
+        AcquireOpts {
+            use_crc: true,
+            acquire_retries: 50,
+        }
     }
 }
 
