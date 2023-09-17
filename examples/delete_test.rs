@@ -118,15 +118,16 @@ fn main() {
         .map_err(Error::DeviceError)
         .unwrap();
     println!("lbd: {:?}", lbd);
-    let mut volume_mgr = VolumeManager::new(lbd, Clock);
+    let mut volume_mgr: VolumeManager<LinuxBlockDevice, Clock, 8, 8, 4> =
+        VolumeManager::new_with_limits(lbd, Clock, 0xAA00_0000);
     for volume_idx in 0..=3 {
-        let volume = volume_mgr.get_volume(VolumeIdx(volume_idx));
+        let volume = volume_mgr.open_volume(VolumeIdx(volume_idx));
         println!("volume {}: {:#?}", volume_idx, volume);
-        if let Ok(mut volume) = volume {
-            let root_dir = volume_mgr.open_root_dir(&volume).unwrap();
+        if let Ok(volume) = volume {
+            let root_dir = volume_mgr.open_root_dir(volume).unwrap();
             println!("\tListing root directory:");
             volume_mgr
-                .iterate_dir(&volume, &root_dir, |x| {
+                .iterate_dir(root_dir, |x| {
                     println!("\t\tFound: {:?}", x);
                 })
                 .unwrap();
@@ -134,29 +135,24 @@ fn main() {
             // This will panic if the file already exists, use ReadWriteCreateOrAppend or
             // ReadWriteCreateOrTruncate instead
             let f = volume_mgr
-                .open_file_in_dir(
-                    &mut volume,
-                    &root_dir,
-                    FILE_TO_DELETE,
-                    Mode::ReadWriteCreate,
-                )
+                .open_file_in_dir(root_dir, FILE_TO_DELETE, Mode::ReadWriteCreate)
                 .unwrap();
 
             println!("\tFinding {}...", FILE_TO_DELETE);
             println!(
                 "\tFound {}?: {:?}",
                 FILE_TO_DELETE,
-                volume_mgr.find_directory_entry(&volume, &root_dir, FILE_TO_DELETE)
+                volume_mgr.find_directory_entry(root_dir, FILE_TO_DELETE)
             );
 
-            match volume_mgr.delete_file_in_dir(&volume, &root_dir, FILE_TO_DELETE) {
+            match volume_mgr.delete_file_in_dir(root_dir, FILE_TO_DELETE) {
                 Ok(()) => (),
                 Err(error) => println!("\tCannot delete file: {:?}", error),
             }
             println!("\tClosing {}...", FILE_TO_DELETE);
-            volume_mgr.close_file(&mut volume, f).unwrap();
+            volume_mgr.close_file(f).unwrap();
 
-            match volume_mgr.delete_file_in_dir(&volume, &root_dir, FILE_TO_DELETE) {
+            match volume_mgr.delete_file_in_dir(root_dir, FILE_TO_DELETE) {
                 Ok(()) => println!("\tDeleted {}.", FILE_TO_DELETE),
                 Err(error) => println!("\tCannot delete {}: {:?}", FILE_TO_DELETE, error),
             }
@@ -164,7 +160,7 @@ fn main() {
             println!(
                 "\tFound {}?: {:?}",
                 FILE_TO_DELETE,
-                volume_mgr.find_directory_entry(&volume, &root_dir, FILE_TO_DELETE)
+                volume_mgr.find_directory_entry(root_dir, FILE_TO_DELETE)
             );
         }
     }

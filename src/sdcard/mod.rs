@@ -11,15 +11,15 @@ use crate::{trace, Block, BlockCount, BlockDevice, BlockIdx};
 use core::cell::RefCell;
 use proto::*;
 
-// =============================================================================
+// ****************************************************************************
 // Imports
-// =============================================================================
+// ****************************************************************************
 
 use crate::{debug, warn};
 
-// =============================================================================
+// ****************************************************************************
 // Types and Implementations
-// =============================================================================
+// ****************************************************************************
 
 /// Represents an SD Card on an SPI bus.
 ///
@@ -443,8 +443,8 @@ where
             s.cs_low()?;
             // Enter SPI mode.
             let mut delay = Delay::new(s.options.acquire_retries);
-            for attempts in 1.. {
-                trace!("Enter SPI mode, attempt: {}..", attempts);
+            for _attempts in 1.. {
+                trace!("Enter SPI mode, attempt: {}..", _attempts);
                 match s.card_command(CMD0, 0) {
                     Err(Error::TimeoutCommand(0)) => {
                         // Try again?

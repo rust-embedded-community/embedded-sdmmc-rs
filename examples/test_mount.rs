@@ -121,15 +121,16 @@ fn main() {
         .map_err(Error::DeviceError)
         .unwrap();
     println!("lbd: {:?}", lbd);
-    let mut volume_mgr = VolumeManager::new(lbd, Clock);
+    let mut volume_mgr: VolumeManager<LinuxBlockDevice, Clock, 8, 8, 4> =
+        VolumeManager::new_with_limits(lbd, Clock, 0xAA00_0000);
     for i in 0..=3 {
-        let volume = volume_mgr.get_volume(VolumeIdx(i));
+        let volume = volume_mgr.open_volume(VolumeIdx(i));
         println!("volume {}: {:#?}", i, volume);
-        if let Ok(mut volume) = volume {
-            let root_dir = volume_mgr.open_root_dir(&volume).unwrap();
+        if let Ok(volume) = volume {
+            let root_dir = volume_mgr.open_root_dir(volume).unwrap();
             println!("\tListing root directory:");
             volume_mgr
-                .iterate_dir(&volume, &root_dir, |x| {
+                .iterate_dir(root_dir, |x| {
                     println!("\t\tFound: {:?}", x);
                 })
                 .unwrap();
@@ -137,15 +138,15 @@ fn main() {
             println!(
                 "\tFound {}?: {:?}",
                 FILE_TO_PRINT,
-                volume_mgr.find_directory_entry(&volume, &root_dir, FILE_TO_PRINT)
+                volume_mgr.find_directory_entry(root_dir, FILE_TO_PRINT)
             );
-            let mut f = volume_mgr
-                .open_file_in_dir(&mut volume, &root_dir, FILE_TO_PRINT, Mode::ReadOnly)
+            let f = volume_mgr
+                .open_file_in_dir(root_dir, FILE_TO_PRINT, Mode::ReadOnly)
                 .unwrap();
             println!("FILE STARTS:");
-            while !f.eof() {
+            while !volume_mgr.file_eof(f).unwrap() {
                 let mut buffer = [0u8; 32];
-                let num_read = volume_mgr.read(&volume, &mut f, &mut buffer).unwrap();
+                let num_read = volume_mgr.read(f, &mut buffer).unwrap();
                 for b in &buffer[0..num_read] {
                     if *b == 10 {
                         print!("\\n");
@@ -156,42 +157,52 @@ fn main() {
             println!("EOF");
             // Can't open file twice
             assert!(volume_mgr
-                .open_file_in_dir(&mut volume, &root_dir, FILE_TO_PRINT, Mode::ReadOnly)
+                .open_file_in_dir(root_dir, FILE_TO_PRINT, Mode::ReadOnly)
                 .is_err());
-            volume_mgr.close_file(&mut volume, f).unwrap();
+            volume_mgr.close_file(f).unwrap();
 
-            let test_dir = volume_mgr.open_dir(&volume, &root_dir, "TEST").unwrap();
+            let test_dir = volume_mgr.open_dir(root_dir, "TEST").unwrap();
             // Check we can't open it twice
-            assert!(volume_mgr.open_dir(&volume, &root_dir, "TEST").is_err());
+            assert!(volume_mgr.open_dir(root_dir, "TEST").is_err());
             // Print the contents
             println!("\tListing TEST directory:");
             volume_mgr
-                .iterate_dir(&volume, &test_dir, |x| {
+                .iterate_dir(test_dir, |x| {
                     println!("\t\tFound: {:?}", x);
                 })
                 .unwrap();
-            volume_mgr.close_dir(&volume, test_dir);
+            volume_mgr.close_dir(test_dir).unwrap();
 
             // Checksum example file. We just sum the bytes, as a quick and dirty checksum.
             // We also read in a weird block size, just to exercise the offset calculation code.
-            let mut f = volume_mgr
-                .open_file_in_dir(&mut volume, &root_dir, FILE_TO_CHECKSUM, Mode::ReadOnly)
+            let f = volume_mgr
+                .open_file_in_dir(root_dir, FILE_TO_CHECKSUM, Mode::ReadOnly)
                 .unwrap();
-            println!("Checksuming {} bytes of {}", f.length(), FILE_TO_CHECKSUM);
+            println!(
+                "Checksuming {} bytes of {}",
+                volume_mgr.file_length(f).unwrap(),
+                FILE_TO_CHECKSUM
+            );
             let mut csum = 0u32;
-            while !f.eof() {
+            while !volume_mgr.file_eof(f).unwrap() {
                 let mut buffer = [0u8; 2047];
-                let num_read = volume_mgr.read(&volume, &mut f, &mut buffer).unwrap();
+                let num_read = volume_mgr.read(f, &mut buffer).unwrap();
                 for b in &buffer[0..num_read] {
                     csum += u32::from(*b);
                 }
             }
-            println!("Checksum over {} bytes: {}", f.length(), csum);
-            volume_mgr.close_file(&mut volume, f).unwrap();
+            println!(
+                "\nChecksum over {} bytes: {}",
+                volume_mgr.file_length(f).unwrap(),
+                csum
+            );
+            // Should be all zero bytes
+            assert_eq!(csum, 0);
+            volume_mgr.close_file(f).unwrap();
 
-            assert!(volume_mgr.open_root_dir(&volume).is_err());
-            volume_mgr.close_dir(&volume, root_dir);
-            assert!(volume_mgr.open_root_dir(&volume).is_ok());
+            assert!(volume_mgr.open_root_dir(volume).is_err());
+            assert!(volume_mgr.close_dir(root_dir).is_ok());
+            assert!(volume_mgr.open_root_dir(volume).is_ok());
         }
     }
 }

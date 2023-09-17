@@ -3,7 +3,7 @@ use byteorder::{ByteOrder, LittleEndian};
 
 /// Indentifies the supported types of FAT format
 #[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub enum FatSpecificInfo {
     /// Fat16 Format
     Fat16(Fat16Info),
@@ -13,7 +13,7 @@ pub enum FatSpecificInfo {
 
 /// FAT32 specific data
 #[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Fat32Info {
     /// The root directory does not have a reserved area in FAT32. This is the
     /// cluster it starts in (nominally 2).
@@ -24,7 +24,7 @@ pub struct Fat32Info {
 
 /// FAT16 specific data
 #[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Fat16Info {
     /// The block the root directory starts in. Relative to start of partition
     /// (so add `self.lba_offset` before passing to volume manager)
@@ -86,3 +86,9 @@ impl<'a> InfoSector<'a> {
         }
     }
 }
+
+// ****************************************************************************
+//
+// End Of File
+//
+// ****************************************************************************

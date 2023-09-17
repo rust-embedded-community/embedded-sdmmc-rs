@@ -118,34 +118,30 @@ fn main() {
         .map_err(Error::DeviceError)
         .unwrap();
     println!("lbd: {:?}", lbd);
-    let mut volume_mgr = VolumeManager::new(lbd, Clock);
+    let mut volume_mgr: VolumeManager<LinuxBlockDevice, Clock, 8, 8, 4> =
+        VolumeManager::new_with_limits(lbd, Clock, 0xAA00_0000);
     for volume_idx in 0..=3 {
-        let volume = volume_mgr.get_volume(VolumeIdx(volume_idx));
+        let volume = volume_mgr.open_volume(VolumeIdx(volume_idx));
         println!("volume {}: {:#?}", volume_idx, volume);
-        if let Ok(mut volume) = volume {
-            let root_dir = volume_mgr.open_root_dir(&volume).unwrap();
+        if let Ok(volume) = volume {
+            let root_dir = volume_mgr.open_root_dir(volume).unwrap();
             println!("\tListing root directory:");
             volume_mgr
-                .iterate_dir(&volume, &root_dir, |x| {
+                .iterate_dir(root_dir, |x| {
                     println!("\t\tFound: {:?}", x);
                 })
                 .unwrap();
             println!("\nCreating file {}...", FILE_TO_CREATE);
             // This will panic if the file already exists, use ReadWriteCreateOrAppend or
             // ReadWriteCreateOrTruncate instead
-            let mut f = volume_mgr
-                .open_file_in_dir(
-                    &mut volume,
-                    &root_dir,
-                    FILE_TO_CREATE,
-                    Mode::ReadWriteCreate,
-                )
+            let f = volume_mgr
+                .open_file_in_dir(root_dir, FILE_TO_CREATE, Mode::ReadWriteCreate)
                 .unwrap();
             println!("\nReading from file");
             println!("FILE STARTS:");
-            while !f.eof() {
+            while !volume_mgr.file_eof(f).unwrap() {
                 let mut buffer = [0u8; 32];
-                let num_read = volume_mgr.read(&volume, &mut f, &mut buffer).unwrap();
+                let num_read = volume_mgr.read(f, &mut buffer).unwrap();
                 for b in &buffer[0..num_read] {
                     if *b == 10 {
                         print!("\\n");
@@ -162,32 +158,27 @@ fn main() {
                 buffer.push(b'\n');
             }
             println!("\nAppending to file");
-            let num_written1 = volume_mgr.write(&mut volume, &mut f, &buffer1[..]).unwrap();
-            let num_written = volume_mgr.write(&mut volume, &mut f, &buffer[..]).unwrap();
+            let num_written1 = volume_mgr.write(f, &buffer1[..]).unwrap();
+            let num_written = volume_mgr.write(f, &buffer[..]).unwrap();
             println!("Number of bytes written: {}\n", num_written + num_written1);
-            volume_mgr.close_file(&mut volume, f).unwrap();
+            volume_mgr.close_file(f).unwrap();
 
-            let mut f = volume_mgr
-                .open_file_in_dir(
-                    &mut volume,
-                    &root_dir,
-                    FILE_TO_CREATE,
-                    Mode::ReadWriteCreateOrAppend,
-                )
+            let f = volume_mgr
+                .open_file_in_dir(root_dir, FILE_TO_CREATE, Mode::ReadWriteCreateOrAppend)
                 .unwrap();
-            f.seek_from_start(0).unwrap();
+            volume_mgr.file_seek_from_start(f, 0).unwrap();
 
             println!("\tFinding {}...", FILE_TO_CREATE);
             println!(
                 "\tFound {}?: {:?}",
                 FILE_TO_CREATE,
-                volume_mgr.find_directory_entry(&volume, &root_dir, FILE_TO_CREATE)
+                volume_mgr.find_directory_entry(root_dir, FILE_TO_CREATE)
             );
             println!("\nReading from file");
             println!("FILE STARTS:");
-            while !f.eof() {
+            while !volume_mgr.file_eof(f).unwrap() {
                 let mut buffer = [0u8; 32];
-                let num_read = volume_mgr.read(&volume, &mut f, &mut buffer).unwrap();
+                let num_read = volume_mgr.read(f, &mut buffer).unwrap();
                 for b in &buffer[0..num_read] {
                     if *b == 10 {
                         print!("\\n");
@@ -196,7 +187,7 @@ fn main() {
                 }
             }
             println!("EOF");
-            volume_mgr.close_file(&mut volume, f).unwrap();
+            volume_mgr.close_file(f).unwrap();
         }
     }
 }

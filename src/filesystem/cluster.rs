@@ -1,6 +1,6 @@
 /// Represents a cluster on disk.
 #[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd)]
 pub struct Cluster(pub(crate) u32);
 
 impl Cluster {
@@ -42,3 +42,9 @@ impl core::ops::AddAssign<Cluster> for Cluster {
         self.0 += rhs.0;
     }
 }
+
+// ****************************************************************************
+//
+// End Of File
+//
+// ****************************************************************************

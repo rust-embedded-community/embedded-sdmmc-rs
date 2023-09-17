@@ -90,26 +90,22 @@ fn main() -> Result<(), Error> {
     // It doesn't hold a reference to the Volume Manager and so must be passed back
     // to every Volume Manager API call. This makes it easier to handle multiple
     // volumes in parallel.
-    let mut volume0 = volume_mgr.get_volume(embedded_sdmmc::VolumeIdx(0))?;
+    let volume0 = volume_mgr.open_volume(embedded_sdmmc::VolumeIdx(0))?;
     println!("Volume 0: {:?}", volume0);
     // Open the root directory (passing in the volume we're using).
-    let root_dir = volume_mgr.open_root_dir(&volume0)?;
+    let root_dir = volume_mgr.open_root_dir(volume0)?;
     // Open a file called "MY_FILE.TXT" in the root directory
-    let mut my_file = volume_mgr.open_file_in_dir(
-        &mut volume0,
-        &root_dir,
-        "MY_FILE.TXT",
-        embedded_sdmmc::Mode::ReadOnly,
-    )?;
+    let my_file =
+        volume_mgr.open_file_in_dir(root_dir, "MY_FILE.TXT", embedded_sdmmc::Mode::ReadOnly)?;
     // Print the contents of the file
-    while !my_file.eof() {
+    while !volume_mgr.file_eof(my_file).unwrap() {
         let mut buffer = [0u8; 32];
-        let num_read = volume_mgr.read(&volume0, &mut my_file, &mut buffer)?;
+        let num_read = volume_mgr.read(my_file, &mut buffer)?;
         for b in &buffer[0..num_read] {
             print!("{}", *b as char);
         }
     }
-    volume_mgr.close_file(&mut volume0, my_file)?;
-    volume_mgr.close_dir(&volume0, root_dir);
+    volume_mgr.close_file(my_file)?;
+    volume_mgr.close_dir(root_dir)?;
     Ok(())
 }
