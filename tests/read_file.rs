@@ -1,3 +1,5 @@
+//! Reading related tests
+
 mod utils;
 
 static TEST_DAT_SHA256_SUM: &str =
@@ -167,3 +169,9 @@ fn read_file_backwards() {
     let hash = sha256::digest(flat);
     assert_eq!(&hash, TEST_DAT_SHA256_SUM);
 }
+
+// ****************************************************************************
+//
+// End Of File
+//
+// ****************************************************************************
