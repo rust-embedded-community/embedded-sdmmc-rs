@@ -20,6 +20,8 @@ log = {version = "0.4", default-features = false, optional = true}
 [dev-dependencies]
 env_logger = "0.9"
 hex-literal = "0.3"
+flate2 = "1.0"
+sha256 = "1.4"
 
 [features]
 default = ["log"]
