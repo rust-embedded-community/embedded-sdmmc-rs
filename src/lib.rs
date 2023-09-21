@@ -200,6 +200,10 @@ where
     DeleteDirAsFile,
     /// You can't delete an open file
     FileIsOpen,
+    /// You can't close a volume with open files or directories
+    VolumeStillInUse,
+    /// You can't open a volume twice
+    VolumeAlreadyOpen,
     /// We can't do that yet
     Unsupported,
     /// Tried to read beyond end of file

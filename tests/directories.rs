@@ -214,6 +214,102 @@ fn fat32_root_directory_listing() {
     }
 }
 
+#[test]
+fn open_dir_twice() {
+    let time_source = utils::make_time_source();
+    let disk = utils::make_block_device(utils::DISK_SOURCE).unwrap();
+    let mut volume_mgr = embedded_sdmmc::VolumeManager::new(disk, time_source);
+
+    let fat32_volume = volume_mgr
+        .open_volume(embedded_sdmmc::VolumeIdx(1))
+        .expect("open volume 1");
+
+    let root_dir = volume_mgr
+        .open_root_dir(fat32_volume)
+        .expect("open root dir");
+
+    let r = volume_mgr.open_root_dir(fat32_volume);
+    let Err(embedded_sdmmc::Error::DirAlreadyOpen) = r else {
+        panic!("Expected to fail opening the root dir twice: {r:?}");
+    };
+
+    let r = volume_mgr.open_dir(root_dir, "README.TXT");
+    let Err(embedded_sdmmc::Error::OpenedFileAsDir) = r else {
+        panic!("Expected to fail opening file as dir: {r:?}");
+    };
+
+    let test_dir = volume_mgr
+        .open_dir(root_dir, "TEST")
+        .expect("open test dir");
+
+    let r = volume_mgr.open_dir(root_dir, "TEST");
+    let Err(embedded_sdmmc::Error::DirAlreadyOpen) = r else {
+        panic!("Expected to fail opening the dir twice: {r:?}");
+    };
+
+    volume_mgr.close_dir(root_dir).expect("close root dir");
+    volume_mgr.close_dir(test_dir).expect("close test dir");
+
+    let r = volume_mgr.close_dir(test_dir);
+    let Err(embedded_sdmmc::Error::BadHandle) = r else {
+        panic!("Expected to fail closing the dir twice: {r:?}");
+    };
+}
+
+#[test]
+fn open_too_many_dirs() {
+    let time_source = utils::make_time_source();
+    let disk = utils::make_block_device(utils::DISK_SOURCE).unwrap();
+    let mut volume_mgr: embedded_sdmmc::VolumeManager<
+        utils::RamDisk<Vec<u8>>,
+        utils::TestTimeSource,
+        1,
+        4,
+        2,
+    > = embedded_sdmmc::VolumeManager::new_with_limits(disk, time_source, 0x1000_0000);
+
+    let fat32_volume = volume_mgr
+        .open_volume(embedded_sdmmc::VolumeIdx(1))
+        .expect("open volume 1");
+    let root_dir = volume_mgr
+        .open_root_dir(fat32_volume)
+        .expect("open root dir");
+
+    let Err(embedded_sdmmc::Error::TooManyOpenDirs) = volume_mgr.open_dir(root_dir, "TEST") else {
+        panic!("Expected to fail at opening too many dirs");
+    };
+}
+
+#[test]
+fn find_dir_entry() {
+    let time_source = utils::make_time_source();
+    let disk = utils::make_block_device(utils::DISK_SOURCE).unwrap();
+    let mut volume_mgr = embedded_sdmmc::VolumeManager::new(disk, time_source);
+
+    let fat32_volume = volume_mgr
+        .open_volume(embedded_sdmmc::VolumeIdx(1))
+        .expect("open volume 1");
+
+    let root_dir = volume_mgr
+        .open_root_dir(fat32_volume)
+        .expect("open root dir");
+
+    let dir_entry = volume_mgr
+        .find_directory_entry(root_dir, "README.TXT")
+        .expect("Find directory entry");
+    assert!(dir_entry.attributes.is_archive());
+    assert!(!dir_entry.attributes.is_directory());
+    assert!(!dir_entry.attributes.is_hidden());
+    assert!(!dir_entry.attributes.is_lfn());
+    assert!(!dir_entry.attributes.is_system());
+    assert!(!dir_entry.attributes.is_volume());
+
+    let r = volume_mgr.find_directory_entry(root_dir, "README.TXS");
+    let Err(embedded_sdmmc::Error::FileNotFound) = r else {
+        panic!("Expected not to find file: {r:?}");
+    };
+}
+
 // ****************************************************************************
 //
 // End Of File

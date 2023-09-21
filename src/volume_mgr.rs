@@ -115,6 +115,12 @@ where
             return Err(Error::TooManyOpenVolumes);
         }
 
+        for v in self.open_volumes.iter() {
+            if v.idx == volume_idx {
+                return Err(Error::VolumeAlreadyOpen);
+            }
+        }
+
         let (part_type, lba_start, num_blocks) = {
             let mut blocks = [Block::new()];
             self.block_device
@@ -282,6 +288,28 @@ where
                 Ok(())
             }
         }
+    }
+
+    /// Close a volume
+    ///
+    /// You can't close it if there are any files or directories open on it.
+    pub fn close_volume(&mut self, volume: Volume) -> Result<(), Error<D::Error>> {
+        for f in self.open_files.iter() {
+            if f.volume_id == volume {
+                return Err(Error::VolumeStillInUse);
+            }
+        }
+
+        for d in self.open_dirs.iter() {
+            if d.volume_id == volume {
+                return Err(Error::VolumeStillInUse);
+            }
+        }
+
+        let volume_idx = self.get_volume_by_id(volume)?;
+        self.open_volumes.swap_remove(volume_idx);
+
+        Ok(())
     }
 
     /// Look in a directory for a named file.
