@@ -17,7 +17,7 @@ mod timestamp;
 pub use self::attributes::Attributes;
 pub use self::cluster::Cluster;
 pub use self::directory::{DirEntry, Directory};
-pub use self::filename::{FilenameError, ShortFileName};
+pub use self::filename::{FilenameError, ShortFileName, ToShortFileName};
 pub use self::files::{File, FileError, Mode};
 pub use self::search_id::{SearchId, SearchIdGenerator};
 pub use self::timestamp::{TimeSource, Timestamp};

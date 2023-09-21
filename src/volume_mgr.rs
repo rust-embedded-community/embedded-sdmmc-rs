@@ -9,7 +9,7 @@ use crate::fat::{self, BlockCache, RESERVED_ENTRIES};
 
 use crate::filesystem::{
     Attributes, Cluster, DirEntry, Directory, DirectoryInfo, File, FileInfo, Mode,
-    SearchIdGenerator, ShortFileName, TimeSource, MAX_FILE_SIZE,
+    SearchIdGenerator, TimeSource, ToShortFileName, MAX_FILE_SIZE,
 };
 use crate::{
     debug, Block, BlockCount, BlockDevice, BlockIdx, Error, Volume, VolumeIdx, VolumeInfo,
@@ -211,11 +211,14 @@ where
     /// TODO: Work out how to prevent damage occuring to the file system while
     /// this directory handle is open. In particular, stop this directory
     /// being unlinked.
-    pub fn open_dir(
+    pub fn open_dir<N>(
         &mut self,
         parent_dir: Directory,
-        name: &str,
-    ) -> Result<Directory, Error<D::Error>> {
+        name: N,
+    ) -> Result<Directory, Error<D::Error>>
+    where
+        N: ToShortFileName,
+    {
         if self.open_dirs.is_full() {
             return Err(Error::TooManyOpenDirs);
         }
@@ -223,12 +226,13 @@ where
         // Find dir by ID
         let parent_dir_idx = self.get_dir_by_id(parent_dir)?;
         let volume_idx = self.get_volume_by_id(self.open_dirs[parent_dir_idx].volume_id)?;
+        let short_file_name = name.to_short_filename().map_err(Error::FilenameError)?;
 
         // Open the directory
         let parent_dir_info = &self.open_dirs[parent_dir_idx];
         let dir_entry = match &self.open_volumes[volume_idx].volume_type {
             VolumeType::Fat(fat) => {
-                fat.find_directory_entry(&self.block_device, parent_dir_info, name)?
+                fat.find_directory_entry(&self.block_device, parent_dir_info, &short_file_name)?
             }
         };
 
@@ -281,16 +285,20 @@ where
     }
 
     /// Look in a directory for a named file.
-    pub fn find_directory_entry(
+    pub fn find_directory_entry<N>(
         &mut self,
         directory: Directory,
-        name: &str,
-    ) -> Result<DirEntry, Error<D::Error>> {
+        name: N,
+    ) -> Result<DirEntry, Error<D::Error>>
+    where
+        N: ToShortFileName,
+    {
         let directory_idx = self.get_dir_by_id(directory)?;
         let volume_idx = self.get_volume_by_id(self.open_dirs[directory_idx].volume_id)?;
         match &self.open_volumes[volume_idx].volume_type {
             VolumeType::Fat(fat) => {
-                fat.find_directory_entry(&self.block_device, &self.open_dirs[directory_idx], name)
+                let sfn = name.to_short_filename().map_err(Error::FilenameError)?;
+                fat.find_directory_entry(&self.block_device, &self.open_dirs[directory_idx], &sfn)
             }
         }
     }
@@ -405,12 +413,15 @@ where
     }
 
     /// Open a file with the given full path. A file can only be opened once.
-    pub fn open_file_in_dir(
+    pub fn open_file_in_dir<N>(
         &mut self,
         directory: Directory,
-        name: &str,
+        name: N,
         mode: Mode,
-    ) -> Result<File, Error<D::Error>> {
+    ) -> Result<File, Error<D::Error>>
+    where
+        N: ToShortFileName,
+    {
         if self.open_files.is_full() {
             return Err(Error::TooManyOpenFiles);
         }
@@ -420,10 +431,11 @@ where
         let volume_id = self.open_dirs[directory_idx].volume_id;
         let volume_idx = self.get_volume_by_id(volume_id)?;
         let volume_info = &self.open_volumes[volume_idx];
+        let sfn = name.to_short_filename().map_err(Error::FilenameError)?;
 
         let dir_entry = match &volume_info.volume_type {
             VolumeType::Fat(fat) => {
-                fat.find_directory_entry(&self.block_device, directory_info, name)
+                fat.find_directory_entry(&self.block_device, directory_info, &sfn)
             }
         };
 
@@ -463,8 +475,6 @@ where
                 if dir_entry.is_some() {
                     return Err(Error::FileAlreadyExists);
                 }
-                let file_name =
-                    ShortFileName::create_from_str(name).map_err(Error::FilenameError)?;
                 let att = Attributes::create_from_fat(0);
                 let volume_idx = self.get_volume_by_id(volume_id)?;
                 let entry = match &mut self.open_volumes[volume_idx].volume_type {
@@ -472,7 +482,7 @@ where
                         &self.block_device,
                         &self.time_source,
                         directory_info,
-                        file_name,
+                        sfn,
                         att,
                     )?,
                 };
@@ -505,19 +515,21 @@ where
     }
 
     /// Delete a closed file with the given filename, if it exists.
-    pub fn delete_file_in_dir(
+    pub fn delete_file_in_dir<N>(
         &mut self,
         directory: Directory,
-        name: &str,
-    ) -> Result<(), Error<D::Error>> {
-        debug!("delete_file(directory={:?}, filename={:?}", directory, name);
-
+        name: N,
+    ) -> Result<(), Error<D::Error>>
+    where
+        N: ToShortFileName,
+    {
         let dir_idx = self.get_dir_by_id(directory)?;
         let dir_info = &self.open_dirs[dir_idx];
         let volume_idx = self.get_volume_by_id(dir_info.volume_id)?;
+        let sfn = name.to_short_filename().map_err(Error::FilenameError)?;
 
         let dir_entry = match &self.open_volumes[volume_idx].volume_type {
-            VolumeType::Fat(fat) => fat.find_directory_entry(&self.block_device, dir_info, name),
+            VolumeType::Fat(fat) => fat.find_directory_entry(&self.block_device, dir_info, &sfn),
         }?;
 
         if dir_entry.attributes.is_directory() {
@@ -533,7 +545,7 @@ where
         let volume_idx = self.get_volume_by_id(dir_info.volume_id)?;
         match &self.open_volumes[volume_idx].volume_type {
             VolumeType::Fat(fat) => {
-                fat.delete_directory_entry(&self.block_device, dir_info, name)?
+                fat.delete_directory_entry(&self.block_device, dir_info, &sfn)?
             }
         }
 
@@ -787,6 +799,12 @@ where
     pub fn file_length(&self, file: File) -> Result<u32, Error<D::Error>> {
         let file_idx = self.get_file_by_id(file)?;
         Ok(self.open_files[file_idx].length())
+    }
+
+    /// Get the current offset of a file
+    pub fn file_offset(&self, file: File) -> Result<u32, Error<D::Error>> {
+        let file_idx = self.get_file_by_id(file)?;
+        Ok(self.open_files[file_idx].current_offset)
     }
 
     fn get_volume_by_id(&self, volume: Volume) -> Result<usize, Error<D::Error>> {

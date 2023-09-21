@@ -25,11 +25,13 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 
 ### Added
 
-- None
+- New examples, `append_file`, `create_file`, `delete_file`, `list_dir`
+- New test cases `tests/directories.rs`, `tests/read_file.rs`
 
 ### Removed
 
 - __Breaking Change__: `Controller` alias for `VolumeManager` removed.
+- Old examples `create_test`, `test_mount`, `write_test`, `delete_test`
 
 ## [Version 0.5.0](https://github.com/rust-embedded-community/embedded-sdmmc-rs/releases/tag/v0.5.0) - 2023-05-20
 

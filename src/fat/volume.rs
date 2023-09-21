@@ -514,12 +514,11 @@ impl FatVolume {
         &self,
         block_device: &D,
         dir: &DirectoryInfo,
-        name: &str,
+        match_name: &ShortFileName,
     ) -> Result<DirEntry, Error<D::Error>>
     where
         D: BlockDevice,
     {
-        let match_name = ShortFileName::create_from_str(name).map_err(Error::FilenameError)?;
         match &self.fat_specific_info {
             FatSpecificInfo::Fat16(fat16_info) => {
                 let mut current_cluster = Some(dir.cluster);
@@ -541,7 +540,7 @@ impl FatVolume {
                         match self.find_entry_in_block(
                             block_device,
                             FatType::Fat16,
-                            &match_name,
+                            match_name,
                             block,
                         ) {
                             Err(Error::NotInBlock) => continue,
@@ -575,7 +574,7 @@ impl FatVolume {
                         match self.find_entry_in_block(
                             block_device,
                             FatType::Fat32,
-                            &match_name,
+                            match_name,
                             block,
                         ) {
                             Err(Error::NotInBlock) => continue,
@@ -630,12 +629,11 @@ impl FatVolume {
         &self,
         block_device: &D,
         dir: &DirectoryInfo,
-        name: &str,
+        match_name: &ShortFileName,
     ) -> Result<(), Error<D::Error>>
     where
         D: BlockDevice,
     {
-        let match_name = ShortFileName::create_from_str(name).map_err(Error::FilenameError)?;
         match &self.fat_specific_info {
             FatSpecificInfo::Fat16(fat16_info) => {
                 let mut current_cluster = Some(dir.cluster);
@@ -653,7 +651,7 @@ impl FatVolume {
 
                 while let Some(cluster) = current_cluster {
                     for block in first_dir_block_num.range(dir_size) {
-                        match self.delete_entry_in_block(block_device, &match_name, block) {
+                        match self.delete_entry_in_block(block_device, match_name, block) {
                             Err(Error::NotInBlock) => continue,
                             x => return x,
                         }
@@ -682,7 +680,7 @@ impl FatVolume {
                 while let Some(cluster) = current_cluster {
                     let block_idx = self.cluster_to_block(cluster);
                     for block in block_idx.range(BlockCount(u32::from(self.blocks_per_cluster))) {
-                        match self.delete_entry_in_block(block_device, &match_name, block) {
+                        match self.delete_entry_in_block(block_device, match_name, block) {
                             Err(Error::NotInBlock) => continue,
                             x => return x,
                         }
