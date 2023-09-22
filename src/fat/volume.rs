@@ -320,7 +320,7 @@ impl FatVolume {
                                 let entry = DirEntry::new(
                                     name,
                                     attributes,
-                                    ClusterId(0),
+                                    ClusterId::EMPTY,
                                     ctime,
                                     block,
                                     start as u32,

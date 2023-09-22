@@ -370,7 +370,7 @@ where
         }
 
         // Check it's not already open
-        if self.file_is_open(volume, dir_entry.cluster) {
+        if self.file_is_open(volume, &dir_entry) {
             return Err(Error::FileAlreadyOpen);
         }
 
@@ -488,7 +488,7 @@ where
 
         // Check if it's open already
         if let Some(dir_entry) = &dir_entry {
-            if self.file_is_open(volume_info.volume_id, dir_entry.cluster) {
+            if self.file_is_open(volume_info.volume_id, &dir_entry) {
                 return Err(Error::FileAlreadyOpen);
             }
         }
@@ -562,7 +562,7 @@ where
             return Err(Error::DeleteDirAsFile);
         }
 
-        if self.file_is_open(dir_info.volume_id, dir_entry.cluster) {
+        if self.file_is_open(dir_info.volume_id, &dir_entry) {
             return Err(Error::FileAlreadyOpen);
         }
 
@@ -579,9 +579,12 @@ where
     /// Check if a file is open
     ///
     /// Returns `true` if it's open, `false`, otherwise.
-    fn file_is_open(&self, volume: Volume, starting_cluster: ClusterId) -> bool {
+    fn file_is_open(&self, volume: Volume, dir_entry: &DirEntry) -> bool {
         for f in self.open_files.iter() {
-            if f.volume_id == volume && f.entry.cluster == starting_cluster {
+            if f.volume_id == volume
+                && f.entry.entry_block == dir_entry.entry_block
+                && f.entry.entry_offset == dir_entry.entry_offset
+            {
                 return true;
             }
         }
