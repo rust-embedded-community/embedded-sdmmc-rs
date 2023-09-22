@@ -126,6 +126,7 @@ impl FatVolume {
                 block_device
                     .read(&mut blocks, this_fat_block_num, "read_fat")
                     .map_err(Error::DeviceError)?;
+                // See <https://en.wikipedia.org/wiki/Design_of_the_FAT_file_system>
                 let entry = match new_value {
                     ClusterId::INVALID => 0xFFF6,
                     ClusterId::BAD => 0xFFF7,

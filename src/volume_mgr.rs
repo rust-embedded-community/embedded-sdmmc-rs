@@ -273,21 +273,13 @@ where
     /// Close a directory. You cannot perform operations on an open directory
     /// and so must close it if you want to do something with it.
     pub fn close_dir(&mut self, directory: Directory) -> Result<(), Error<D::Error>> {
-        let mut found_idx = None;
         for (idx, info) in self.open_dirs.iter().enumerate() {
             if directory == info.directory_id {
-                found_idx = Some(idx);
-                break;
-            }
-        }
-
-        match found_idx {
-            None => Err(Error::BadHandle),
-            Some(idx) => {
                 self.open_dirs.swap_remove(idx);
-                Ok(())
+                return Ok(());
             }
         }
+        Err(Error::BadHandle)
     }
 
     /// Close a volume
@@ -357,6 +349,7 @@ where
         dir_entry: DirEntry,
         mode: Mode,
     ) -> Result<File, Error<D::Error>> {
+        // This check is load-bearing - we do an unchecked push later.
         if self.open_files.is_full() {
             return Err(Error::TooManyOpenFiles);
         }
@@ -449,6 +442,7 @@ where
     where
         N: ToShortFileName,
     {
+        // This check is load-bearing - we do an unchecked push later.
         if self.open_files.is_full() {
             return Err(Error::TooManyOpenFiles);
         }
@@ -524,7 +518,7 @@ where
                     dirty: false,
                 };
 
-                // Remember this open file
+                // Remember this open file - can't be full as we checked already
                 unsafe {
                     self.open_files.push_unchecked(file);
                 }
