@@ -1,4 +1,4 @@
-use crate::{BlockCount, BlockIdx, Cluster};
+use crate::{BlockCount, BlockIdx, ClusterId};
 use byteorder::{ByteOrder, LittleEndian};
 
 /// Indentifies the supported types of FAT format
@@ -17,7 +17,7 @@ pub enum FatSpecificInfo {
 pub struct Fat32Info {
     /// The root directory does not have a reserved area in FAT32. This is the
     /// cluster it starts in (nominally 2).
-    pub(crate) first_root_dir_cluster: Cluster,
+    pub(crate) first_root_dir_cluster: ClusterId,
     /// Block idx of the info sector
     pub(crate) info_location: BlockIdx,
 }
@@ -78,11 +78,11 @@ impl<'a> InfoSector<'a> {
     }
 
     /// Return the number of the next free cluster, if known.
-    pub fn next_free_cluster(&self) -> Option<Cluster> {
+    pub fn next_free_cluster(&self) -> Option<ClusterId> {
         match self.next_free() {
             // 0 and 1 are reserved clusters
             0xFFFF_FFFF | 0 | 1 => None,
-            n => Some(Cluster(n)),
+            n => Some(ClusterId(n)),
         }
     }
 }

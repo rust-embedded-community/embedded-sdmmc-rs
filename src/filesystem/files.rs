@@ -1,5 +1,5 @@
 use crate::{
-    filesystem::{Cluster, DirEntry, SearchId},
+    filesystem::{ClusterId, DirEntry, SearchId},
     Volume,
 };
 
@@ -32,7 +32,7 @@ pub(crate) struct FileInfo {
     /// The unique ID for the volume this directory is on
     pub(crate) volume_id: Volume,
     /// The current cluster, and how many bytes that short-cuts us
-    pub(crate) current_cluster: (u32, Cluster),
+    pub(crate) current_cluster: (u32, ClusterId),
     /// How far through the file we've read (in bytes).
     pub(crate) current_offset: u32,
     /// What mode the file was opened in

@@ -1,6 +1,6 @@
 //! Directory Entry as stored on-disk
 
-use crate::{fat::FatType, Attributes, BlockIdx, Cluster, DirEntry, ShortFileName, Timestamp};
+use crate::{fat::FatType, Attributes, BlockIdx, ClusterId, DirEntry, ShortFileName, Timestamp};
 use byteorder::{ByteOrder, LittleEndian};
 
 /// Represents a 32-byte directory entry as stored on-disk in a directory file.
@@ -129,16 +129,16 @@ impl<'a> OnDiskDirEntry<'a> {
     }
 
     /// Which cluster, if any, does this file start at? Assumes this is from a FAT32 volume.
-    pub fn first_cluster_fat32(&self) -> Cluster {
+    pub fn first_cluster_fat32(&self) -> ClusterId {
         let cluster_no =
             (u32::from(self.first_cluster_hi()) << 16) | u32::from(self.first_cluster_lo());
-        Cluster(cluster_no)
+        ClusterId(cluster_no)
     }
 
     /// Which cluster, if any, does this file start at? Assumes this is from a FAT16 volume.
-    fn first_cluster_fat16(&self) -> Cluster {
+    fn first_cluster_fat16(&self) -> ClusterId {
         let cluster_no = u32::from(self.first_cluster_lo());
-        Cluster(cluster_no)
+        ClusterId(cluster_no)
     }
 
     /// Convert the on-disk format into a DirEntry

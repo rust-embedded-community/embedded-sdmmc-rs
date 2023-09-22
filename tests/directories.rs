@@ -1,5 +1,7 @@
 //! Directory related tests
 
+use embedded_sdmmc::ShortFileName;
+
 mod utils;
 
 #[derive(Debug, Clone)]
@@ -135,9 +137,16 @@ fn fat16_sub_directory_listing() {
     ];
 
     let mut listing = Vec::new();
+    let mut count = 0;
 
     volume_mgr
         .iterate_dir(test_dir, |d| {
+            if count == 0 {
+                assert!(d.name == ShortFileName::this_dir());
+            } else if count == 1 {
+                assert!(d.name == ShortFileName::parent_dir());
+            }
+            count += 1;
             listing.push(d.clone());
         })
         .expect("iterate directory");

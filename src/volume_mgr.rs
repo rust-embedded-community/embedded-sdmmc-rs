@@ -8,7 +8,7 @@ use core::convert::TryFrom;
 use crate::fat::{self, BlockCache, RESERVED_ENTRIES};
 
 use crate::filesystem::{
-    Attributes, Cluster, DirEntry, Directory, DirectoryInfo, File, FileInfo, Mode,
+    Attributes, ClusterId, DirEntry, Directory, DirectoryInfo, File, FileInfo, Mode,
     SearchIdGenerator, TimeSource, ToShortFileName, MAX_FILE_SIZE,
 };
 use crate::{
@@ -191,7 +191,7 @@ where
     /// use `open_file_in_dir`.
     pub fn open_root_dir(&mut self, volume: Volume) -> Result<Directory, Error<D::Error>> {
         for dir in self.open_dirs.iter() {
-            if dir.cluster == Cluster::ROOT_DIR && dir.volume_id == volume {
+            if dir.cluster == ClusterId::ROOT_DIR && dir.volume_id == volume {
                 return Err(Error::DirAlreadyOpen);
             }
         }
@@ -199,7 +199,7 @@ where
         let directory_id = Directory(self.id_generator.get());
         let dir_info = DirectoryInfo {
             volume_id: volume,
-            cluster: Cluster::ROOT_DIR,
+            cluster: ClusterId::ROOT_DIR,
             directory_id,
         };
 
@@ -345,12 +345,13 @@ where
         }
     }
 
-    /// Open a file from DirEntry. This is obtained by calling iterate_dir.
+    /// Open a file from a DirEntry. This is obtained by calling iterate_dir.
     ///
-    /// A file can only be opened once.
+    /// # Safety
     ///
-    /// Do not drop the returned file handle - pass it to [`VolumeManager::close_file`].
-    pub fn open_dir_entry(
+    /// The DirEntry must be a valid DirEntry read from disk, and not just
+    /// random numbers.
+    unsafe fn open_dir_entry(
         &mut self,
         volume: Volume,
         dir_entry: DirEntry,
@@ -369,10 +370,8 @@ where
         }
 
         // Check it's not already open
-        for f in self.open_files.iter() {
-            if f.volume_id == volume && f.entry.cluster == dir_entry.cluster {
-                return Err(Error::DirAlreadyOpen);
-            }
+        if self.file_is_open(volume, dir_entry.cluster) {
+            return Err(Error::FileAlreadyOpen);
         }
 
         let mode = solve_mode_variant(mode, true);
@@ -489,10 +488,8 @@ where
 
         // Check if it's open already
         if let Some(dir_entry) = &dir_entry {
-            for f in self.open_files.iter() {
-                if f.volume_id == volume_info.volume_id && f.entry.cluster == dir_entry.cluster {
-                    return Err(Error::FileAlreadyOpen);
-                }
+            if self.file_is_open(volume_info.volume_id, dir_entry.cluster) {
+                return Err(Error::FileAlreadyOpen);
             }
         }
 
@@ -537,7 +534,8 @@ where
             _ => {
                 // Safe to unwrap, since we actually have an entry if we got here
                 let dir_entry = dir_entry.unwrap();
-                self.open_dir_entry(volume_id, dir_entry, mode)
+                // Safety: We read this dir entry off disk and didn't change it
+                unsafe { self.open_dir_entry(volume_id, dir_entry, mode) }
             }
         }
     }
@@ -564,10 +562,8 @@ where
             return Err(Error::DeleteDirAsFile);
         }
 
-        for f in self.open_files.iter() {
-            if f.entry.cluster == dir_entry.cluster && f.volume_id == dir_info.volume_id {
-                return Err(Error::FileIsOpen);
-            }
+        if self.file_is_open(dir_info.volume_id, dir_entry.cluster) {
+            return Err(Error::FileAlreadyOpen);
         }
 
         let volume_idx = self.get_volume_by_id(dir_info.volume_id)?;
@@ -578,6 +574,18 @@ where
         }
 
         Ok(())
+    }
+
+    /// Check if a file is open
+    ///
+    /// Returns `true` if it's open, `false`, otherwise.
+    fn file_is_open(&self, volume: Volume, starting_cluster: ClusterId) -> bool {
+        for f in self.open_files.iter() {
+            if f.volume_id == volume && f.entry.cluster == starting_cluster {
+                return true;
+            }
+        }
+        false
     }
 
     /// Read from an open file.
@@ -868,7 +876,7 @@ where
     fn find_data_on_disk(
         &self,
         volume_idx: usize,
-        start: &mut (u32, Cluster),
+        start: &mut (u32, ClusterId),
         desired_offset: u32,
     ) -> Result<(BlockIdx, usize, usize), Error<D::Error>> {
         let bytes_per_cluster = match &self.open_volumes[volume_idx].volume_type {
@@ -1211,7 +1219,7 @@ mod tests {
                     next_free_cluster: None,
                     cluster_count: 965_788,
                     fat_specific_info: fat::FatSpecificInfo::Fat32(fat::Fat32Info {
-                        first_root_dir_cluster: Cluster(2),
+                        first_root_dir_cluster: ClusterId(2),
                         info_location: BlockIdx(1) + BlockCount(1),
                     })
                 })

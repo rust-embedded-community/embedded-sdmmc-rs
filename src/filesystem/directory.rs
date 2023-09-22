@@ -2,7 +2,7 @@ use core::convert::TryFrom;
 
 use crate::blockdevice::BlockIdx;
 use crate::fat::{FatType, OnDiskDirEntry};
-use crate::filesystem::{Attributes, Cluster, SearchId, ShortFileName, Timestamp};
+use crate::filesystem::{Attributes, ClusterId, SearchId, ShortFileName, Timestamp};
 use crate::Volume;
 
 /// Represents a directory entry, which tells you about
@@ -19,7 +19,7 @@ pub struct DirEntry {
     /// The file attributes (Read Only, Archive, etc)
     pub attributes: Attributes,
     /// The starting cluster of the file. The FAT tells us the following Clusters.
-    pub cluster: Cluster,
+    pub cluster: ClusterId,
     /// The size of the file in bytes.
     pub size: u32,
     /// The disk block of this entry
@@ -57,7 +57,7 @@ pub(crate) struct DirectoryInfo {
     /// The unique ID for the volume this directory is on
     pub(crate) volume_id: Volume,
     /// The starting point of the directory listing.
-    pub(crate) cluster: Cluster,
+    pub(crate) cluster: ClusterId,
 }
 
 impl DirEntry {
@@ -92,7 +92,7 @@ impl DirEntry {
     pub(crate) fn new(
         name: ShortFileName,
         attributes: Attributes,
-        cluster: Cluster,
+        cluster: ClusterId,
         ctime: Timestamp,
         entry_block: BlockIdx,
         entry_offset: u32,

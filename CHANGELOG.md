@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 - Calling `SdCard::get_card_type` will now perform card initialisation ([#87] and [#90]).
 - Removed warning about unused arguments.
 - Types are now documented at the top level ([#86]).
+- Renamed `Cluster` to `ClusterId` and stopped you adding two together
 
 [#72]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/issues/72
 [#86]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/issues/86
@@ -31,6 +32,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 ### Removed
 
 - __Breaking Change__: `Controller` alias for `VolumeManager` removed.
+- __Breaking Change__: `VolumeManager::open_dir_entry` removed, as it was unsafe to the user to randomly pick a starting cluster.
 - Old examples `create_test`, `test_mount`, `write_test`, `delete_test`
 
 ## [Version 0.5.0](https://github.com/rust-embedded-community/embedded-sdmmc-rs/releases/tag/v0.5.0) - 2023-05-20
@@ -60,7 +62,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 - Optionally use [defmt](https://github.com/knurling-rs/defmt) for logging.
     Controlled by `defmt-log` feature flag.
 - __Breaking Change__: Use SPI blocking traits instead to ease SPI peripheral sharing.
-  See: https://github.com/rust-embedded-community/embedded-sdmmc-rs/issues/28
+  See: <https://github.com/rust-embedded-community/embedded-sdmmc-rs/issues/28>
 - Added `Controller::has_open_handles` and `Controller::free` methods.
 - __Breaking Change__: Changed interface to enforce correct SD state at compile time.
 - __Breaking Change__: Added custom error type for `File` operations.
@@ -81,7 +83,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 - Added `Info_Sector` tracking for FAT32.
 - Change directory iteration to look in all the directory's clusters.
 - Added `write_test` and `create_test`.
-- De-duplicated FAT16 and FAT32 code (https://github.com/thejpster/embedded-sdmmc-rs/issues/10)
+- De-duplicated FAT16 and FAT32 code (<https://github.com/thejpster/embedded-sdmmc-rs/issues/10>)
 
 ## [Version 0.2.1](https://github.com/rust-embedded-community/embedded-sdmmc-rs/releases/tag/v0.2.1) - 2019-02-19
 

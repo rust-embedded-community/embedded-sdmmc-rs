@@ -66,7 +66,7 @@ use crate::{Block, BlockDevice, BlockIdx, Error};
 mod test {
 
     use super::*;
-    use crate::{Attributes, BlockIdx, Cluster, DirEntry, ShortFileName, Timestamp};
+    use crate::{Attributes, BlockIdx, ClusterId, DirEntry, ShortFileName, Timestamp};
 
     fn parse(input: &str) -> Vec<u8> {
         let mut output = Vec::new();
@@ -143,7 +143,7 @@ mod test {
                 mtime: Timestamp::from_calendar(2015, 11, 21, 19, 35, 18).unwrap(),
                 ctime: Timestamp::from_calendar(2015, 11, 21, 19, 35, 18).unwrap(),
                 attributes: Attributes::create_from_fat(Attributes::VOLUME),
-                cluster: Cluster(0),
+                cluster: ClusterId(0),
                 size: 0,
                 entry_block: BlockIdx(0),
                 entry_offset: 0,
@@ -161,7 +161,7 @@ mod test {
                 mtime: Timestamp::from_calendar(2016, 3, 1, 19, 56, 54).unwrap(),
                 ctime: Timestamp::from_calendar(2016, 3, 1, 19, 56, 54).unwrap(),
                 attributes: Attributes::create_from_fat(Attributes::DIRECTORY),
-                cluster: Cluster(3),
+                cluster: ClusterId(3),
                 size: 0,
                 entry_block: BlockIdx(0),
                 entry_offset: 0,
@@ -186,7 +186,7 @@ mod test {
                 mtime: Timestamp::from_calendar(2016, 3, 1, 19, 56, 34).unwrap(),
                 ctime: Timestamp::from_calendar(2016, 3, 1, 19, 56, 34).unwrap(),
                 attributes: Attributes::create_from_fat(Attributes::ARCHIVE),
-                cluster: Cluster(9),
+                cluster: ClusterId(9),
                 size: 11120,
                 entry_block: BlockIdx(0),
                 entry_offset: 0,
@@ -203,7 +203,7 @@ mod test {
                 mtime: Timestamp::from_calendar(2016, 3, 1, 19, 56, 30).unwrap(),
                 ctime: Timestamp::from_calendar(2016, 3, 1, 19, 56, 30).unwrap(),
                 attributes: Attributes::create_from_fat(Attributes::ARCHIVE),
-                cluster: Cluster(5),
+                cluster: ClusterId(5),
                 size: 18693,
                 entry_block: BlockIdx(0),
                 entry_offset: 0,
@@ -228,7 +228,7 @@ mod test {
                 mtime: Timestamp::from_calendar(2016, 3, 1, 19, 56, 34).unwrap(),
                 ctime: Timestamp::from_calendar(2016, 3, 1, 19, 56, 34).unwrap(),
                 attributes: Attributes::create_from_fat(Attributes::ARCHIVE),
-                cluster: Cluster(8),
+                cluster: ClusterId(8),
                 size: 1494,
                 entry_block: BlockIdx(0),
                 entry_offset: 0,
@@ -253,7 +253,7 @@ mod test {
                 mtime: Timestamp::from_calendar(2016, 3, 1, 19, 56, 36).unwrap(),
                 ctime: Timestamp::from_calendar(2016, 3, 1, 19, 56, 36).unwrap(),
                 attributes: Attributes::create_from_fat(Attributes::ARCHIVE),
-                cluster: Cluster(15),
+                cluster: ClusterId(15),
                 size: 12108,
                 entry_block: BlockIdx(0),
                 entry_offset: 0,

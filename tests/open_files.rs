@@ -71,14 +71,15 @@ fn open_files() {
         .expect("open file");
 
     volume_mgr.write(f3, b"12345").expect("write to file");
+    volume_mgr.write(f3, b"67890").expect("write to file");
     volume_mgr.close_file(f3).expect("close file");
 
     // Open our new file
     let f3 = volume_mgr
         .open_file_in_dir(root_dir, "NEWFILE.DAT", Mode::ReadOnly)
         .expect("open file");
-    // Should have 5 bytes in it
-    assert_eq!(volume_mgr.file_length(f3).expect("file length"), 5);
+    // Should have 10 bytes in it
+    assert_eq!(volume_mgr.file_length(f3).expect("file length"), 10);
     volume_mgr.close_file(f3).expect("close file");
 
     volume_mgr.close_dir(root_dir).expect("close dir");

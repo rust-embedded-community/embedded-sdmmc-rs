@@ -111,8 +111,8 @@ pub use crate::fat::FatVolume;
 
 #[doc(inline)]
 pub use crate::filesystem::{
-    Attributes, Cluster, DirEntry, Directory, File, FilenameError, Mode, ShortFileName, TimeSource,
-    Timestamp, MAX_FILE_SIZE,
+    Attributes, ClusterId, DirEntry, Directory, File, FilenameError, Mode, ShortFileName,
+    TimeSource, Timestamp, MAX_FILE_SIZE,
 };
 
 use filesystem::DirectoryInfo;
@@ -188,7 +188,7 @@ where
     BadHandle,
     /// That file doesn't exist
     FileNotFound,
-    /// You can't open a file twice
+    /// You can't open a file twice or delete an open file
     FileAlreadyOpen,
     /// You can't open a directory twice
     DirAlreadyOpen,
@@ -198,8 +198,6 @@ where
     OpenedFileAsDir,
     /// You can't delete a directory as a file
     DeleteDirAsFile,
-    /// You can't delete an open file
-    FileIsOpen,
     /// You can't close a volume with open files or directories
     VolumeStillInUse,
     /// You can't open a volume twice
@@ -216,16 +214,14 @@ where
     NotEnoughSpace,
     /// Cluster was not properly allocated by the library
     AllocationError,
-    /// Jumped to free space during fat traversing
-    JumpedFree,
+    /// Jumped to free space during FAT traversing
+    UnterminatedFatChain,
     /// Tried to open Read-Only file with write mode
     ReadOnly,
     /// Tried to create an existing file
     FileAlreadyExists,
     /// Bad block size - only 512 byte blocks supported
     BadBlockSize(u16),
-    /// Entry not found in the block
-    NotInBlock,
     /// Bad offset given when seeking
     InvalidOffset,
 }
