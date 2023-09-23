@@ -74,6 +74,7 @@ impl BlockDevice for LinuxBlockDevice {
     }
 }
 
+#[derive(Debug)]
 pub struct Clock;
 
 impl TimeSource for Clock {
