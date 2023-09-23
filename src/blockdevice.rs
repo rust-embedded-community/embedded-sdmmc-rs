@@ -177,6 +177,24 @@ impl BlockIdx {
 }
 
 impl BlockCount {
+    /// How many blocks are required to hold this many bytes.
+    ///
+    /// ```
+    /// # use embedded_sdmmc::BlockCount;
+    /// assert_eq!(BlockCount::from_bytes(511), BlockCount(1));
+    /// assert_eq!(BlockCount::from_bytes(512), BlockCount(1));
+    /// assert_eq!(BlockCount::from_bytes(513), BlockCount(2));
+    /// assert_eq!(BlockCount::from_bytes(1024), BlockCount(2));
+    /// assert_eq!(BlockCount::from_bytes(1025), BlockCount(3));
+    /// ```
+    pub const fn from_bytes(byte_count: u32) -> BlockCount {
+        let mut count = byte_count / Block::LEN_U32;
+        if (count * Block::LEN_U32) != byte_count {
+            count += 1;
+        }
+        BlockCount(count)
+    }
+
     /// Take a number of blocks and increment by the integer number of blocks
     /// required to get to the block that holds the byte at the given offset.
     pub fn offset_bytes(self, offset: u32) -> Self {
@@ -187,7 +205,7 @@ impl BlockCount {
 impl BlockIter {
     /// Create a new `BlockIter`, from the given start block, through (and
     /// including) the given end block.
-    pub fn new(start: BlockIdx, inclusive_end: BlockIdx) -> BlockIter {
+    pub const fn new(start: BlockIdx, inclusive_end: BlockIdx) -> BlockIter {
         BlockIter {
             inclusive_end,
             current: start,

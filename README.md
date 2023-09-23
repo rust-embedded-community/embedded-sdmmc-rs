@@ -23,36 +23,35 @@ let mut volume_mgr = embedded_sdmmc::VolumeManager::new(sdcard, time_source);
 // It doesn't hold a reference to the Volume Manager and so must be passed back
 // to every Volume Manager API call. This makes it easier to handle multiple
 // volumes in parallel.
-let mut volume0 = volume_mgr.get_volume(embedded_sdmmc::VolumeIdx(0))?;
+let volume0 = volume_mgr.get_volume(embedded_sdmmc::VolumeIdx(0))?;
 println!("Volume 0: {:?}", volume0);
 // Open the root directory (passing in the volume we're using).
 let root_dir = volume_mgr.open_root_dir(&volume0)?;
 // Open a file called "MY_FILE.TXT" in the root directory
-let mut my_file = volume_mgr.open_file_in_dir(
-    &mut volume0,
-    &root_dir,
+let my_file = volume_mgr.open_file_in_dir(
+    root_dir,
     "MY_FILE.TXT",
     embedded_sdmmc::Mode::ReadOnly,
 )?;
 // Print the contents of the file
-while !my_file.eof() {
+while !volume_manager.file_eof(my_file).unwrap() {
     let mut buffer = [0u8; 32];
     let num_read = volume_mgr.read(&volume0, &mut my_file, &mut buffer)?;
     for b in &buffer[0..num_read] {
         print!("{}", *b as char);
     }
 }
-volume_mgr.close_file(&volume0, my_file)?;
-volume_mgr.close_dir(&volume0, root_dir);
+volume_mgr.close_file(my_file)?;
+volume_mgr.close_dir(root_dir)?;
 ```
 
 ### Open directories and files
 
-By default the `VolumeManager` will initialize with a maximum number of `4` open directories and files. This can be customized by specifying the `MAX_DIR` and `MAX_FILES` generic consts of the `VolumeManager`:
+By default the `VolumeManager` will initialize with a maximum number of `4` open directories, files and volumes. This can be customized by specifying the `MAX_DIR`, `MAX_FILES` and `MAX_VOLUMES` generic consts of the `VolumeManager`:
 
 ```rust
-// Create a volume manager with a maximum of 6 open directories and 12 open files
-let mut cont: VolumeManager<_, _, 6, 12> = VolumeManager::new_with_limits(block, time_source);
+// Create a volume manager with a maximum of 6 open directories, 12 open files, and 4 volumes (or partitions)
+let mut cont: VolumeManager<_, _, 6, 12, 4> = VolumeManager::new_with_limits(block, time_source);
 ```
 
 ## Supported features

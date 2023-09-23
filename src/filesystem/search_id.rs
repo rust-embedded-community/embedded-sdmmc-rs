@@ -2,21 +2,25 @@ use core::num::Wrapping;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
-/// Unique ID used to search for files and directories in the open File/Directory lists
+/// Unique ID used to search for files and directories in the open Volume/File/Directory lists
 pub struct SearchId(pub(crate) u32);
 
-/// ID generator intented to be used in a static context.
+/// A Search ID generator.
 ///
 /// This object will always return a different ID.
-pub struct IdGenerator {
+///
+/// Well, it will wrap after `2**32` IDs. But most systems won't open that many
+/// files, and if they do, they are unlikely to hold one file open and then
+/// open/close `2**32 - 1` others.
+pub struct SearchIdGenerator {
     next_id: Wrapping<u32>,
 }
 
-impl IdGenerator {
-    /// Create a new [`IdGenerator`].
-    pub const fn new() -> Self {
+impl SearchIdGenerator {
+    /// Create a new generator of Search IDs.
+    pub const fn new(offset: u32) -> Self {
         Self {
-            next_id: Wrapping(0),
+            next_id: Wrapping(offset),
         }
     }
 
@@ -27,3 +31,9 @@ impl IdGenerator {
         SearchId(id.0)
     }
 }
+
+// ****************************************************************************
+//
+// End Of File
+//
+// ****************************************************************************

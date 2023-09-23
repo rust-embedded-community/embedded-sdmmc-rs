@@ -1,4 +1,4 @@
-//! embedded-sdmmc-rs - Generic File System structures
+//! Generic File System structures
 //!
 //! Implements generic file system components. These should be applicable to
 //! most (if not all) supported filesystems.
@@ -15,9 +15,18 @@ mod search_id;
 mod timestamp;
 
 pub use self::attributes::Attributes;
-pub use self::cluster::Cluster;
+pub use self::cluster::ClusterId;
 pub use self::directory::{DirEntry, Directory};
-pub use self::filename::{FilenameError, ShortFileName};
+pub use self::filename::{FilenameError, ShortFileName, ToShortFileName};
 pub use self::files::{File, FileError, Mode};
-pub use self::search_id::{IdGenerator, SearchId};
+pub use self::search_id::{SearchId, SearchIdGenerator};
 pub use self::timestamp::{TimeSource, Timestamp};
+
+pub(crate) use self::directory::DirectoryInfo;
+pub(crate) use self::files::FileInfo;
+
+// ****************************************************************************
+//
+// End Of File
+//
+// ****************************************************************************

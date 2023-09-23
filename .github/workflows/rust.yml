@@ -19,18 +19,5 @@ jobs:
     - uses: actions/checkout@v1
     - name: Build
       run: cargo build --no-default-features --features ${{matrix.features}} --verbose
-    - name: Unpack Disk
-      run: gunzip -fk disk.img.gz
-    - name: Run Test Mount example
-      run: cargo run --no-default-features --features ${{matrix.features}} --example test_mount ./disk.img
-    - name: Unpack Disk
-      run: gunzip -fk disk.img.gz
-    - name: Run Create Test example
-      run: cargo run --no-default-features --features ${{matrix.features}} --example create_test ./disk.img
-    - name: Unpack Disk
-      run: gunzip -fk disk.img.gz
-    - name: Run Write Test example
-      run: cargo run --no-default-features --features ${{matrix.features}} --example write_test ./disk.img
-    - name: Run Unit Tests
+    - name: Run Tests
       run: cargo test --no-default-features --features ${{matrix.features}} --verbose
-
