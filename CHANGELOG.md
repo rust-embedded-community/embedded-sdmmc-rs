@@ -26,7 +26,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 
 ### Added
 
-- New examples, `append_file`, `create_file`, `delete_file`, `list_dir`
+- New examples, `append_file`, `create_file`, `delete_file`, `list_dir`, `shell`
 - New test cases `tests/directories.rs`, `tests/read_file.rs`
 
 ### Removed
