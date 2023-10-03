@@ -65,7 +65,6 @@ fn main() -> Result<(), Error<std::io::Error>> {
         let mut line = String::new();
         stdin.read_line(&mut line)?;
         let line = line.trim();
-        log::info!("Got command: {line:?}");
         if line == "quit" {
             break;
         } else if line == "help" {
