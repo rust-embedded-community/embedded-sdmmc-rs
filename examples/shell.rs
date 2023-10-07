@@ -59,15 +59,8 @@ impl Context {
             };
             self.volume_mgr.iterate_dir(s.directory, |entry| {
                 println!(
-                    "{:12} {:9} {} {}",
-                    entry.name,
-                    entry.size,
-                    entry.mtime,
-                    if entry.attributes.is_directory() {
-                        "<DIR>"
-                    } else {
-                        ""
-                    }
+                    "{:12} {:9} {} {:?}",
+                    entry.name, entry.size, entry.mtime, entry.attributes
                 );
             })?;
         } else if let Some(arg) = line.strip_prefix("cd ") {
