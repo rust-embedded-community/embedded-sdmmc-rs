@@ -1,9 +1,11 @@
 //! Reading related tests
 
+use sha2::Digest;
+
 mod utils;
 
-static TEST_DAT_SHA256_SUM: &str =
-    "59e3468e3bef8bfe37e60a8221a1896e105b80a61a23637612ac8cd24ca04a75";
+static TEST_DAT_SHA256_SUM: &[u8] =
+    b"\x59\xe3\x46\x8e\x3b\xef\x8b\xfe\x37\xe6\x0a\x82\x21\xa1\x89\x6e\x10\x5b\x80\xa6\x1a\x23\x63\x76\x12\xac\x8c\xd2\x4c\xa0\x4a\x75";
 
 #[test]
 fn read_file_512_blocks() {
@@ -41,8 +43,10 @@ fn read_file_512_blocks() {
         contents.extend(&buffer[0..len]);
     }
 
-    let hash = sha256::digest(contents);
-    assert_eq!(&hash, TEST_DAT_SHA256_SUM);
+    let mut hasher = sha2::Sha256::new();
+    hasher.update(contents);
+    let hash = hasher.finalize();
+    assert_eq!(&hash[..], TEST_DAT_SHA256_SUM);
 }
 
 #[test]
@@ -73,8 +77,10 @@ fn read_file_all() {
         panic!("Failed to read all of TEST.DAT");
     }
 
-    let hash = sha256::digest(&contents[0..3500]);
-    assert_eq!(&hash, TEST_DAT_SHA256_SUM);
+    let mut hasher = sha2::Sha256::new();
+    hasher.update(&contents[0..3500]);
+    let hash = hasher.finalize();
+    assert_eq!(&hash[..], TEST_DAT_SHA256_SUM);
 }
 
 #[test]
@@ -114,8 +120,10 @@ fn read_file_prime_blocks() {
         contents.extend(&buffer[0..len]);
     }
 
-    let hash = sha256::digest(contents);
-    assert_eq!(&hash, TEST_DAT_SHA256_SUM);
+    let mut hasher = sha2::Sha256::new();
+    hasher.update(&contents[0..3500]);
+    let hash = hasher.finalize();
+    assert_eq!(&hash[..], TEST_DAT_SHA256_SUM);
 }
 
 #[test]
@@ -166,8 +174,10 @@ fn read_file_backwards() {
 
     let flat: Vec<u8> = contents.iter().flatten().copied().collect();
 
-    let hash = sha256::digest(flat);
-    assert_eq!(&hash, TEST_DAT_SHA256_SUM);
+    let mut hasher = sha2::Sha256::new();
+    hasher.update(flat);
+    let hash = hasher.finalize();
+    assert_eq!(&hash[..], TEST_DAT_SHA256_SUM);
 }
 
 // ****************************************************************************

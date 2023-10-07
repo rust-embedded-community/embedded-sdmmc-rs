@@ -21,7 +21,7 @@ log = {version = "0.4", default-features = false, optional = true}
 env_logger = "0.9"
 hex-literal = "0.3"
 flate2 = "1.0"
-sha256 = "1.4"
+sha2 = "0.10"
 chrono = "0.4"
 
 [features]
