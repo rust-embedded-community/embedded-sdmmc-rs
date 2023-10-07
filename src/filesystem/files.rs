@@ -1,6 +1,6 @@
 use crate::{
     filesystem::{ClusterId, DirEntry, SearchId},
-    Volume,
+    RawVolume, VolumeManager,
 };
 
 /// Represents an open file on disk.
@@ -21,26 +21,133 @@ use crate::{
 /// reason we did it this way.
 #[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub struct File(pub(crate) SearchId);
+pub struct RawFile(pub(crate) SearchId);
 
-/// Internal metadata about an open file
+impl RawFile {
+    /// Convert a raw file into a droppable [`File`]
+    pub fn to_file<D, T, const MAX_DIRS: usize, const MAX_FILES: usize, const MAX_VOLUMES: usize>(
+        self,
+        volume_mgr: &mut VolumeManager<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>,
+    ) -> File<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>
+    where
+        D: crate::BlockDevice,
+        T: crate::TimeSource,
+    {
+        File::new(self, volume_mgr)
+    }
+}
+
+/// Represents an open file on disk.
+///
+/// If you drop a value of this type, it closes the file automatically. However,
+/// it holds a mutable reference to its parent `VolumeManager`, which restricts
+/// which operations you can perform.
 #[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
-#[derive(Debug, Clone)]
-pub(crate) struct FileInfo {
-    /// Unique ID for this file
-    pub(crate) file_id: File,
-    /// The unique ID for the volume this directory is on
-    pub(crate) volume_id: Volume,
-    /// The current cluster, and how many bytes that short-cuts us
-    pub(crate) current_cluster: (u32, ClusterId),
-    /// How far through the file we've read (in bytes).
-    pub(crate) current_offset: u32,
-    /// What mode the file was opened in
-    pub(crate) mode: Mode,
-    /// DirEntry of this file
-    pub(crate) entry: DirEntry,
-    /// Did we write to this file?
-    pub(crate) dirty: bool,
+pub struct File<'a, D, T, const MAX_DIRS: usize, const MAX_FILES: usize, const MAX_VOLUMES: usize>
+where
+    D: crate::BlockDevice,
+    T: crate::TimeSource,
+{
+    raw_file: RawFile,
+    volume_mgr: &'a mut VolumeManager<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>,
+}
+
+impl<'a, D, T, const MAX_DIRS: usize, const MAX_FILES: usize, const MAX_VOLUMES: usize>
+    File<'a, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>
+where
+    D: crate::BlockDevice,
+    T: crate::TimeSource,
+{
+    /// Create a new `File` from a `RawFile`
+    pub fn new(
+        raw_file: RawFile,
+        volume_mgr: &'a mut VolumeManager<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>,
+    ) -> File<'a, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES> {
+        File {
+            raw_file,
+            volume_mgr,
+        }
+    }
+
+    /// Read from the file
+    ///
+    /// Returns how many bytes were read, or an error.
+    pub fn read(&mut self, buffer: &mut [u8]) -> Result<usize, crate::Error<D::Error>> {
+        self.volume_mgr.read(self.raw_file, buffer)
+    }
+
+    /// Write to the file
+    pub fn write(&mut self, buffer: &[u8]) -> Result<(), crate::Error<D::Error>> {
+        self.volume_mgr.write(self.raw_file, buffer)
+    }
+
+    /// Check if a file is at End Of File.
+    pub fn is_eof(&self) -> bool {
+        self.volume_mgr
+            .file_eof(self.raw_file)
+            .expect("Corrupt file ID")
+    }
+
+    /// Seek a file with an offset from the current position.
+    pub fn seek_from_current(&mut self, offset: i32) -> Result<(), crate::Error<D::Error>> {
+        self.volume_mgr
+            .file_seek_from_current(self.raw_file, offset)
+    }
+
+    /// Seek a file with an offset from the start of the file.
+    pub fn seek_from_start(&mut self, offset: u32) -> Result<(), crate::Error<D::Error>> {
+        self.volume_mgr.file_seek_from_start(self.raw_file, offset)
+    }
+
+    /// Seek a file with an offset back from the end of the file.
+    pub fn seek_from_end(&mut self, offset: u32) -> Result<(), crate::Error<D::Error>> {
+        self.volume_mgr.file_seek_from_end(self.raw_file, offset)
+    }
+
+    /// Get the length of a file
+    pub fn length(&self) -> u32 {
+        self.volume_mgr
+            .file_length(self.raw_file)
+            .expect("Corrupt file ID")
+    }
+
+    /// Get the current offset of a file
+    pub fn offset(&self) -> u32 {
+        self.volume_mgr
+            .file_offset(self.raw_file)
+            .expect("Corrupt file ID")
+    }
+
+    /// Convert back to a raw file
+    pub fn to_raw_file(self) -> RawFile {
+        let f = self.raw_file;
+        core::mem::forget(self);
+        f
+    }
+}
+
+impl<'a, D, T, const MAX_DIRS: usize, const MAX_FILES: usize, const MAX_VOLUMES: usize> Drop
+    for File<'a, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>
+where
+    D: crate::BlockDevice,
+    T: crate::TimeSource,
+{
+    fn drop(&mut self) {
+        self.volume_mgr
+            .close_file(self.raw_file)
+            .expect("Failed to close file");
+    }
+}
+
+impl<'a, D, T, const MAX_DIRS: usize, const MAX_FILES: usize, const MAX_VOLUMES: usize>
+    core::fmt::Debug for File<'a, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>
+where
+    D: crate::BlockDevice,
+    T: crate::TimeSource,
+{
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "File({})", self.raw_file.0 .0)
+    }
 }
 
 /// Errors related to file operations
@@ -67,6 +174,26 @@ pub enum Mode {
     ReadWriteCreateOrTruncate,
     /// Create a new empty file, or append to an existing file.
     ReadWriteCreateOrAppend,
+}
+
+/// Internal metadata about an open file
+#[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
+#[derive(Debug, Clone)]
+pub(crate) struct FileInfo {
+    /// Unique ID for this file
+    pub(crate) file_id: RawFile,
+    /// The unique ID for the volume this directory is on
+    pub(crate) volume_id: RawVolume,
+    /// The current cluster, and how many bytes that short-cuts us
+    pub(crate) current_cluster: (u32, ClusterId),
+    /// How far through the file we've read (in bytes).
+    pub(crate) current_offset: u32,
+    /// What mode the file was opened in
+    pub(crate) mode: Mode,
+    /// DirEntry of this file
+    pub(crate) entry: DirEntry,
+    /// Did we write to this file?
+    pub(crate) dirty: bool,
 }
 
 impl FileInfo {

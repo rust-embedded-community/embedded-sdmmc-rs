@@ -87,26 +87,21 @@ fn main() -> Result<(), Error> {
     let mut volume_mgr = embedded_sdmmc::VolumeManager::new(sdcard, time_source);
     // Try and access Volume 0 (i.e. the first partition).
     // The volume object holds information about the filesystem on that volume.
-    // It doesn't hold a reference to the Volume Manager and so must be passed back
-    // to every Volume Manager API call. This makes it easier to handle multiple
-    // volumes in parallel.
-    let volume0 = volume_mgr.open_volume(embedded_sdmmc::VolumeIdx(0))?;
+    let mut volume0 = volume_mgr.open_volume(embedded_sdmmc::VolumeIdx(0))?;
     println!("Volume 0: {:?}", volume0);
-    // Open the root directory (passing in the volume we're using).
-    let root_dir = volume_mgr.open_root_dir(volume0)?;
+    // Open the root directory (mutably borrows from the volume).
+    let mut root_dir = volume0.open_root_dir()?;
     // Open a file called "MY_FILE.TXT" in the root directory
-    let my_file =
-        volume_mgr.open_file_in_dir(root_dir, "MY_FILE.TXT", embedded_sdmmc::Mode::ReadOnly)?;
+    // This mutably borrows the directory.
+    let mut my_file = root_dir.open_file_in_dir("MY_FILE.TXT", embedded_sdmmc::Mode::ReadOnly)?;
     // Print the contents of the file
-    while !volume_mgr.file_eof(my_file).unwrap() {
+    while !my_file.is_eof() {
         let mut buffer = [0u8; 32];
-        let num_read = volume_mgr.read(my_file, &mut buffer)?;
+        let num_read = my_file.read(&mut buffer)?;
         for b in &buffer[0..num_read] {
             print!("{}", *b as char);
         }
     }
-    volume_mgr.close_file(my_file)?;
-    volume_mgr.close_dir(root_dir)?;
     Ok(())
 }
 

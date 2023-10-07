@@ -4,15 +4,15 @@
 
 use std::io::prelude::*;
 
-use embedded_sdmmc::{Directory, Error, Volume, VolumeIdx, VolumeManager};
+use embedded_sdmmc::{Error, RawDirectory, RawVolume, VolumeIdx, VolumeManager};
 
 use crate::linux::{Clock, LinuxBlockDevice};
 
 mod linux;
 
 struct VolumeState {
-    directory: Directory,
-    volume: Volume,
+    directory: RawDirectory,
+    volume: RawVolume,
     path: Vec<String>,
 }
 
@@ -81,79 +81,83 @@ impl Context {
                 println!("This volume isn't available");
                 return Ok(());
             };
-            let f = self.volume_mgr.open_file_in_dir(
-                s.directory,
-                arg,
-                embedded_sdmmc::Mode::ReadOnly,
-            )?;
-            let mut inner = || -> Result<(), Error<std::io::Error>> {
-                let mut data = Vec::new();
-                while !self.volume_mgr.file_eof(f)? {
-                    let mut buffer = vec![0u8; 65536];
-                    let n = self.volume_mgr.read(f, &mut buffer)?;
-                    // read n bytes
-                    data.extend_from_slice(&buffer[0..n]);
-                    println!("Read {} bytes, making {} total", n, data.len());
-                }
-                if let Ok(s) = std::str::from_utf8(&data) {
-                    println!("{}", s);
-                } else {
-                    println!("I'm afraid that file isn't UTF-8 encoded");
-                }
-                Ok(())
-            };
-            let r = inner();
-            self.volume_mgr.close_file(f)?;
-            r?;
+            let mut f = self
+                .volume_mgr
+                .open_file_in_dir(s.directory, arg, embedded_sdmmc::Mode::ReadOnly)?
+                .to_file(&mut self.volume_mgr);
+            let mut data = Vec::new();
+            while !f.is_eof() {
+                let mut buffer = vec![0u8; 65536];
+                let n = f.read(&mut buffer)?;
+                // read n bytes
+                data.extend_from_slice(&buffer[0..n]);
+                println!("Read {} bytes, making {} total", n, data.len());
+            }
+            if let Ok(s) = std::str::from_utf8(&data) {
+                println!("{}", s);
+            } else {
+                println!("I'm afraid that file isn't UTF-8 encoded");
+            }
         } else if let Some(arg) = line.strip_prefix("hexdump ") {
             let Some(s) = &mut self.volumes[self.current_volume] else {
                 println!("This volume isn't available");
                 return Ok(());
             };
-            let f = self.volume_mgr.open_file_in_dir(
-                s.directory,
-                arg,
-                embedded_sdmmc::Mode::ReadOnly,
-            )?;
-            let mut inner = || -> Result<(), Error<std::io::Error>> {
-                let mut data = Vec::new();
-                while !self.volume_mgr.file_eof(f)? {
-                    let mut buffer = vec![0u8; 65536];
-                    let n = self.volume_mgr.read(f, &mut buffer)?;
-                    // read n bytes
-                    data.extend_from_slice(&buffer[0..n]);
-                    println!("Read {} bytes, making {} total", n, data.len());
+            let mut f = self
+                .volume_mgr
+                .open_file_in_dir(s.directory, arg, embedded_sdmmc::Mode::ReadOnly)?
+                .to_file(&mut self.volume_mgr);
+            let mut data = Vec::new();
+            while !f.is_eof() {
+                let mut buffer = vec![0u8; 65536];
+                let n = f.read(&mut buffer)?;
+                // read n bytes
+                data.extend_from_slice(&buffer[0..n]);
+                println!("Read {} bytes, making {} total", n, data.len());
+            }
+            for (idx, chunk) in data.chunks(16).enumerate() {
+                print!("{:08x} | ", idx * 16);
+                for b in chunk {
+                    print!("{:02x} ", b);
                 }
-                for (idx, chunk) in data.chunks(16).enumerate() {
-                    print!("{:08x} | ", idx * 16);
-                    for b in chunk {
-                        print!("{:02x} ", b);
-                    }
-                    for _padding in 0..(16 - chunk.len()) {
-                        print!("   ");
-                    }
-                    print!("| ");
-                    for b in chunk {
-                        print!(
-                            "{}",
-                            if b.is_ascii_graphic() {
-                                *b as char
-                            } else {
-                                '.'
-                            }
-                        );
-                    }
-                    println!();
+                for _padding in 0..(16 - chunk.len()) {
+                    print!("   ");
                 }
-                Ok(())
-            };
-            let r = inner();
-            self.volume_mgr.close_file(f)?;
-            r?;
+                print!("| ");
+                for b in chunk {
+                    print!(
+                        "{}",
+                        if b.is_ascii_graphic() {
+                            *b as char
+                        } else {
+                            '.'
+                        }
+                    );
+                }
+                println!();
+            }
         } else {
             println!("Unknown command {line:?} - try 'help' for help");
         }
         Ok(())
+    }
+}
+
+impl Drop for Context {
+    fn drop(&mut self) {
+        for v in self.volumes.iter_mut() {
+            if let Some(v) = v {
+                println!("Closing directory {:?}", v.directory);
+                self.volume_mgr
+                    .close_dir(v.directory)
+                    .expect("Closing directory");
+                println!("Closing volume {:?}", v.volume);
+                self.volume_mgr
+                    .close_volume(v.volume)
+                    .expect("Closing volume");
+            }
+            *v = None;
+        }
     }
 }
 
@@ -174,7 +178,7 @@ fn main() -> Result<(), Error<std::io::Error>> {
 
     let mut current_volume = None;
     for volume_no in 0..4 {
-        match ctx.volume_mgr.open_volume(VolumeIdx(volume_no)) {
+        match ctx.volume_mgr.open_raw_volume(VolumeIdx(volume_no)) {
             Ok(volume) => {
                 println!("Volume # {}: found", volume_no,);
                 match ctx.volume_mgr.open_root_dir(volume) {
@@ -223,21 +227,6 @@ fn main() -> Result<(), Error<std::io::Error>> {
             break;
         } else if let Err(e) = ctx.process_line(line) {
             println!("Error: {:?}", e);
-        }
-    }
-
-    for (idx, s) in ctx.volumes.into_iter().enumerate() {
-        if let Some(state) = s {
-            println!("Closing current dir for {idx}...");
-            let r = ctx.volume_mgr.close_dir(state.directory);
-            if let Err(e) = r {
-                println!("Error closing directory: {e:?}");
-            }
-            println!("Unmounting {idx}...");
-            let r = ctx.volume_mgr.close_volume(state.volume);
-            if let Err(e) = r {
-                println!("Error closing volume: {e:?}");
-            }
         }
     }
 

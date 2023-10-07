@@ -32,13 +32,11 @@ fn main() -> Result<(), embedded_sdmmc::Error<std::io::Error>> {
     let lbd = LinuxBlockDevice::new(filename, print_blocks).map_err(Error::DeviceError)?;
     let mut volume_mgr: VolumeManager<LinuxBlockDevice, Clock, 8, 8, 4> =
         VolumeManager::new_with_limits(lbd, Clock, 0xAA00_0000);
-    let volume = volume_mgr.open_volume(VolumeIdx(0))?;
-    let root_dir = volume_mgr.open_root_dir(volume)?;
+    let mut volume = volume_mgr.open_volume(VolumeIdx(0))?;
+    let mut root_dir = volume.open_root_dir()?;
     println!("\nCreating file {}...", FILE_TO_APPEND);
-    let f = volume_mgr.open_file_in_dir(root_dir, FILE_TO_APPEND, Mode::ReadWriteAppend)?;
-    volume_mgr.write(f, b"\r\n\r\nThis has been added to your file.\r\n")?;
-    volume_mgr.close_file(f)?;
-    volume_mgr.close_dir(root_dir)?;
+    let mut f = root_dir.open_file_in_dir(FILE_TO_APPEND, Mode::ReadWriteAppend)?;
+    f.write(b"\r\n\r\nThis has been added to your file.\r\n")?;
     Ok(())
 }
 

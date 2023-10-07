@@ -49,15 +49,14 @@ fn main() -> Result<(), embedded_sdmmc::Error<std::io::Error>> {
     let lbd = LinuxBlockDevice::new(filename, print_blocks).map_err(Error::DeviceError)?;
     let mut volume_mgr: VolumeManager<LinuxBlockDevice, Clock, 8, 8, 4> =
         VolumeManager::new_with_limits(lbd, Clock, 0xAA00_0000);
-    let volume = volume_mgr.open_volume(VolumeIdx(0))?;
-    let root_dir = volume_mgr.open_root_dir(volume)?;
+    let mut volume = volume_mgr.open_volume(VolumeIdx(0))?;
+    let mut root_dir = volume.open_root_dir()?;
     println!("\nReading file {}...", FILE_TO_READ);
-    let f = volume_mgr.open_file_in_dir(root_dir, FILE_TO_READ, Mode::ReadOnly)?;
-    volume_mgr.close_dir(root_dir)?;
-    while !volume_mgr.file_eof(f)? {
+    let mut f = root_dir.open_file_in_dir(FILE_TO_READ, Mode::ReadOnly)?;
+    while !f.is_eof() {
         let mut buffer = [0u8; 16];
-        let offset = volume_mgr.file_offset(f)?;
-        let mut len = volume_mgr.read(f, &mut buffer)?;
+        let offset = f.offset();
+        let mut len = f.read(&mut buffer)?;
         print!("{:08x} {:02x?}", offset, &buffer[0..len]);
         while len < buffer.len() {
             print!("    ");
@@ -74,7 +73,6 @@ fn main() -> Result<(), embedded_sdmmc::Error<std::io::Error>> {
         }
         println!("|");
     }
-    volume_mgr.close_file(f)?;
     Ok(())
 }
 

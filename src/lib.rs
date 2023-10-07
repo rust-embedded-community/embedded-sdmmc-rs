@@ -50,23 +50,19 @@
 //! # let time_source = DummyTimeSource;
 //! # let delayer = DummyDelayer;
 //! let sdcard = embedded_sdmmc::SdCard::new(sdmmc_spi, sdmmc_cs, delayer);
-//! println!("Card size {} bytes", sdcard.num_bytes()?);
-//! let mut volume_mgr = VolumeManager::new(sdcard, time_source);
-//! println!("Card size is still {} bytes", volume_mgr.device().num_bytes()?);
-//! let volume0 = volume_mgr.open_volume(embedded_sdmmc::VolumeIdx(0))?;
+//! println!("Card size is {} bytes", sdcard.num_bytes()?);
+//! let mut volume_mgr = embedded_sdmmc::VolumeManager::new(sdcard, time_source);
+//! let mut volume0 = volume_mgr.open_volume(embedded_sdmmc::VolumeIdx(0))?;
 //! println!("Volume 0: {:?}", volume0);
-//! let root_dir = volume_mgr.open_root_dir(volume0)?;
-//! let my_file = volume_mgr.open_file_in_dir(
-//!     root_dir, "MY_FILE.TXT", embedded_sdmmc::Mode::ReadOnly)?;
-//! while !volume_mgr.file_eof(my_file).unwrap() {
+//! let mut root_dir = volume0.open_root_dir()?;
+//! let mut my_file = root_dir.open_file_in_dir("MY_FILE.TXT", embedded_sdmmc::Mode::ReadOnly)?;
+//! while !my_file.is_eof() {
 //!     let mut buffer = [0u8; 32];
-//!     let num_read = volume_mgr.read(my_file, &mut buffer)?;
+//!     let num_read = my_file.read(&mut buffer)?;
 //!     for b in &buffer[0..num_read] {
 //!         print!("{}", *b as char);
 //!     }
 //! }
-//! volume_mgr.close_file(my_file)?;
-//! volume_mgr.close_dir(root_dir)?;
 //! # Ok(())
 //! # }
 //! ```
@@ -111,8 +107,8 @@ pub use crate::fat::FatVolume;
 
 #[doc(inline)]
 pub use crate::filesystem::{
-    Attributes, ClusterId, DirEntry, Directory, File, FilenameError, Mode, ShortFileName,
-    TimeSource, Timestamp, MAX_FILE_SIZE,
+    Attributes, ClusterId, DirEntry, Directory, File, FilenameError, Mode, RawDirectory, RawFile,
+    ShortFileName, TimeSource, Timestamp, MAX_FILE_SIZE,
 };
 
 use filesystem::DirectoryInfo;
@@ -224,6 +220,8 @@ where
     BadBlockSize(u16),
     /// Bad offset given when seeking
     InvalidOffset,
+    /// Disk is full
+    DiskFull,
 }
 
 impl<E> From<E> for Error<E>
@@ -238,14 +236,109 @@ where
 /// Represents a partition with a filesystem within it.
 #[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub struct Volume(SearchId);
+pub struct RawVolume(SearchId);
+
+impl RawVolume {
+    /// Convert a raw volume into a droppable [`Volume`]
+    pub fn to_volume<
+        D,
+        T,
+        const MAX_DIRS: usize,
+        const MAX_FILES: usize,
+        const MAX_VOLUMES: usize,
+    >(
+        self,
+        volume_mgr: &mut VolumeManager<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>,
+    ) -> Volume<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>
+    where
+        D: crate::BlockDevice,
+        T: crate::TimeSource,
+    {
+        Volume::new(self, volume_mgr)
+    }
+}
+
+/// Represents an open volume on disk.
+///
+/// If you drop a value of this type, it closes the volume automatically. However,
+/// it holds a mutable reference to its parent `VolumeManager`, which restricts
+/// which operations you can perform.
+#[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
+pub struct Volume<'a, D, T, const MAX_DIRS: usize, const MAX_FILES: usize, const MAX_VOLUMES: usize>
+where
+    D: crate::BlockDevice,
+    T: crate::TimeSource,
+{
+    raw_volume: RawVolume,
+    volume_mgr: &'a mut VolumeManager<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>,
+}
+
+impl<'a, D, T, const MAX_DIRS: usize, const MAX_FILES: usize, const MAX_VOLUMES: usize>
+    Volume<'a, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>
+where
+    D: crate::BlockDevice,
+    T: crate::TimeSource,
+{
+    /// Create a new `Volume` from a `RawVolume`
+    pub fn new(
+        raw_volume: RawVolume,
+        volume_mgr: &'a mut VolumeManager<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>,
+    ) -> Volume<'a, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES> {
+        Volume {
+            raw_volume,
+            volume_mgr,
+        }
+    }
+
+    /// Open the volume's root directory.
+    ///
+    /// You can then read the directory entries with `iterate_dir`, or you can
+    /// use `open_file_in_dir`.
+    pub fn open_root_dir(
+        &mut self,
+    ) -> Result<crate::Directory<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>, Error<D::Error>> {
+        let d = self.volume_mgr.open_root_dir(self.raw_volume)?;
+        Ok(d.to_directory(self.volume_mgr))
+    }
+
+    /// Convert back to a raw volume
+    pub fn to_raw_volume(self) -> RawVolume {
+        let v = self.raw_volume;
+        core::mem::forget(self);
+        v
+    }
+}
+
+impl<'a, D, T, const MAX_DIRS: usize, const MAX_FILES: usize, const MAX_VOLUMES: usize> Drop
+    for Volume<'a, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>
+where
+    D: crate::BlockDevice,
+    T: crate::TimeSource,
+{
+    fn drop(&mut self) {
+        self.volume_mgr
+            .close_volume(self.raw_volume)
+            .expect("Failed to close volume");
+    }
+}
+
+impl<'a, D, T, const MAX_DIRS: usize, const MAX_FILES: usize, const MAX_VOLUMES: usize>
+    core::fmt::Debug for Volume<'a, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>
+where
+    D: crate::BlockDevice,
+    T: crate::TimeSource,
+{
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "Volume({})", self.raw_volume.0 .0)
+    }
+}
 
 /// Internal information about a Volume
 #[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct VolumeInfo {
     /// Search ID for this volume.
-    volume_id: Volume,
+    volume_id: RawVolume,
     /// TODO: some kind of index
     idx: VolumeIdx,
     /// What kind of volume this is
