@@ -26,4 +26,5 @@ chrono = "0.4"
 
 [features]
 default = ["log"]
-defmt-log = ["defmt"]
+defmt-log = ["dep:defmt"]
+log = ["dep:log"]

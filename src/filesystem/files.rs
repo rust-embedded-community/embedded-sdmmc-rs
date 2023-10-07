@@ -42,7 +42,6 @@ impl RawFile {
 /// If you drop a value of this type, it closes the file automatically. However,
 /// it holds a mutable reference to its parent `VolumeManager`, which restricts
 /// which operations you can perform.
-#[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
 pub struct File<'a, D, T, const MAX_DIRS: usize, const MAX_FILES: usize, const MAX_VOLUMES: usize>
 where
     D: crate::BlockDevice,
@@ -147,6 +146,18 @@ where
 {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "File({})", self.raw_file.0 .0)
+    }
+}
+
+#[cfg(feature = "defmt-log")]
+impl<'a, D, T, const MAX_DIRS: usize, const MAX_FILES: usize, const MAX_VOLUMES: usize>
+    defmt::Format for File<'a, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>
+where
+    D: crate::BlockDevice,
+    T: crate::TimeSource,
+{
+    fn format(&self, fmt: defmt::Formatter) {
+        defmt::write!(fmt, "File({})", self.raw_file.0 .0)
     }
 }
 
