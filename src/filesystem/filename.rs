@@ -85,6 +85,12 @@ impl ShortFileName {
         let mut sfn = ShortFileName {
             contents: [b' '; Self::FILENAME_MAX_LEN],
         };
+
+        // Special case `..`, which means "parent directory".
+        if name == ".." {
+            return Ok(ShortFileName::parent_dir());
+        }
+
         let mut idx = 0;
         let mut seen_dot = false;
         for ch in name.bytes() {

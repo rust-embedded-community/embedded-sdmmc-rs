@@ -12,6 +12,7 @@ pub struct SearchId(pub(crate) u32);
 /// Well, it will wrap after `2**32` IDs. But most systems won't open that many
 /// files, and if they do, they are unlikely to hold one file open and then
 /// open/close `2**32 - 1` others.
+#[derive(Debug)]
 pub struct SearchIdGenerator {
     next_id: Wrapping<u32>,
 }

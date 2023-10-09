@@ -20,6 +20,7 @@ use heapless::Vec;
 
 /// A `VolumeManager` wraps a block device and gives access to the FAT-formatted
 /// volumes within it.
+#[derive(Debug)]
 pub struct VolumeManager<
     D,
     T,
@@ -241,6 +242,8 @@ where
                 fat.find_directory_entry(&self.block_device, parent_dir_info, &short_file_name)?
             }
         };
+
+        debug!("Found dir entry: {:?}", dir_entry);
 
         if !dir_entry.attributes.is_directory() {
             return Err(Error::OpenedFileAsDir);
@@ -482,7 +485,7 @@ where
 
         // Check if it's open already
         if let Some(dir_entry) = &dir_entry {
-            if self.file_is_open(volume_info.volume_id, &dir_entry) {
+            if self.file_is_open(volume_info.volume_id, dir_entry) {
                 return Err(Error::FileAlreadyOpen);
             }
         }

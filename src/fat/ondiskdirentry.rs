@@ -148,17 +148,26 @@ impl<'a> OnDiskDirEntry<'a> {
         entry_block: BlockIdx,
         entry_offset: u32,
     ) -> DirEntry {
+        let attributes = Attributes::create_from_fat(self.raw_attr());
         let mut result = DirEntry {
             name: ShortFileName {
                 contents: [0u8; 11],
             },
             mtime: Timestamp::from_fat(self.write_date(), self.write_time()),
             ctime: Timestamp::from_fat(self.create_date(), self.create_time()),
-            attributes: Attributes::create_from_fat(self.raw_attr()),
-            cluster: if fat_type == FatType::Fat32 {
-                self.first_cluster_fat32()
-            } else {
-                self.first_cluster_fat16()
+            attributes,
+            cluster: {
+                let cluster = if fat_type == FatType::Fat32 {
+                    self.first_cluster_fat32()
+                } else {
+                    self.first_cluster_fat16()
+                };
+                if cluster == ClusterId::EMPTY && attributes.is_directory() {
+                    // FAT16/FAT32 uses a cluster ID of `0` in the ".." entry to mean 'root directory'
+                    ClusterId::ROOT_DIR
+                } else {
+                    cluster
+                }
             },
             size: self.file_size(),
             entry_block,
