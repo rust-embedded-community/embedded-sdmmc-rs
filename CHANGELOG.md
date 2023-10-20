@@ -2,10 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
-The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/)
-and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
+The format is based on [Keep a Changelog] and this project adheres to [Semantic Versioning].
 
-## [Unreleased](https://github.com/rust-embedded-community/embedded-sdmmc-rs/compare/v0.5.0...develop)
+## [Unreleased]
+
+* None
+
+## [Version 0.6.0] - 2023-10-20
 
 ### Changed
 
@@ -35,9 +38,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 - __Breaking Change__: `VolumeManager::open_dir_entry` removed, as it was unsafe to the user to randomly pick a starting cluster.
 - Old examples `create_test`, `test_mount`, `write_test`, `delete_test`
 
-## [Version 0.5.0](https://github.com/rust-embedded-community/embedded-sdmmc-rs/releases/tag/v0.5.0) - 2023-05-20
+## [Version 0.5.0] - 2023-05-20
 
-### Changes in v0.5.0
+### Changed
 
 - __Breaking Change__: Renamed `Controller` to `VolumeManager`, to better describe what it does.
 - __Breaking Change__: Renamed `SdMmcSpi` to `SdCard`
@@ -47,19 +50,19 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 - More robust card intialisation procedure, with added retries
 - Supports building with neither `defmt` nor `log` logging
 
-### Added in v0.5.0
+### Added
 
 - Added `mark_card_as_init` method, if you know the card is initialised and want to skip the initialisation step
 
-### Removed in v0.5.0
+### Removed
 
 - __Breaking Change__: Removed `BlockSpi` type - card initialisation now handled as an internal state variable
 
-## [Version 0.4.0](https://github.com/rust-embedded-community/embedded-sdmmc-rs/releases/tag/v0.4.0) - 2023-01-18
+## [Version 0.4.0] - 2023-01-18
 
-### Changes in v0.4.0
+### Changed
 
-- Optionally use [defmt](https://github.com/knurling-rs/defmt) for logging.
+- Optionally use [defmt] s/defmt) for logging.
     Controlled by `defmt-log` feature flag.
 - __Breaking Change__: Use SPI blocking traits instead to ease SPI peripheral sharing.
   See: <https://github.com/rust-embedded-community/embedded-sdmmc-rs/issues/28>
@@ -73,9 +76,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 - Add new constructor method `Controller::new_with_limits(block_device: D, timesource: T) -> Controller<D, T, MAX_DIRS, MAX_FILES>`
   to create a `Controller` with custom limits.
 
-## [Version 0.3.0](https://github.com/rust-embedded-community/embedded-sdmmc-rs/releases/tag/v0.3.0) - 2019-12-16
+## [Version 0.3.0] - 2019-12-16
 
-### Changes in v0.3.0
+### Changed
 
 - Updated to `v2` embedded-hal traits.
 - Added open support for all modes.
@@ -85,23 +88,34 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 - Added `write_test` and `create_test`.
 - De-duplicated FAT16 and FAT32 code (<https://github.com/thejpster/embedded-sdmmc-rs/issues/10>)
 
-## [Version 0.2.1](https://github.com/rust-embedded-community/embedded-sdmmc-rs/releases/tag/v0.2.1) - 2019-02-19
+## [Version 0.2.1] - 2019-02-19
 
-### Changes in v0.2.1
+### Changed
 
 - Added `readme=README.md` to `Cargo.toml`
 
-## [Version 0.2.0](https://github.com/rust-embedded-community/embedded-sdmmc-rs/releases/tag/v0.2.0) - 2019-01-24
+## [Version 0.2.0] - 2019-01-24
 
-### Changes in v0.2.0
+### Changed
 
 - Reduce delay waiting for response. Big speed improvements.
 
-## [Version 0.1.0](https://github.com/rust-embedded-community/embedded-sdmmc-rs/releases/tag/v0.1.1) - 2018-12-23
+## [Version 0.1.0] - 2018-12-23
 
-### Changes in v0.1.0
+### Changed
 
 - Can read blocks from an SD Card using an `embedded_hal::SPI` device and a
   `embedded_hal::OutputPin` for Chip Select.
 - Can read partition tables and open a FAT32 or FAT16 formatted partition.
 - Can open and iterate the root directory of a FAT16 formatted partition.
+
+[Keep a Changelog]: http://keepachangelog.com/en/1.0.0/
+[Semantic Versioning]: http://semver.org/spec/v2.0.0.html
+[Unreleased]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/compare/v0.6.0...develop
+[Version 0.6.0]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/compare/v0.6.0...v0.5.0
+[Version 0.5.0]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/compare/v0.5.0...v0.4.0
+[Version 0.4.0]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/compare/v0.4.0...v0.3.0
+[Version 0.3.0]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/compare/v0.3.0...v0.2.1
+[Version 0.2.1]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/compare/v0.2.1...v0.2.0
+[Version 0.2.0]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/compare/v0.2.0...v0.1.1
+[Version 0.1.1]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/releases/tag/v0.1.1
