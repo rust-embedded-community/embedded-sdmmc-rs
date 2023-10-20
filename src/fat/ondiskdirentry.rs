@@ -1,6 +1,6 @@
 //! Directory Entry as stored on-disk
 
-use crate::{fat::FatType, Attributes, BlockIdx, Cluster, DirEntry, ShortFileName, Timestamp};
+use crate::{fat::FatType, Attributes, BlockIdx, ClusterId, DirEntry, ShortFileName, Timestamp};
 use byteorder::{ByteOrder, LittleEndian};
 
 /// Represents a 32-byte directory entry as stored on-disk in a directory file.
@@ -129,16 +129,16 @@ impl<'a> OnDiskDirEntry<'a> {
     }
 
     /// Which cluster, if any, does this file start at? Assumes this is from a FAT32 volume.
-    pub fn first_cluster_fat32(&self) -> Cluster {
+    pub fn first_cluster_fat32(&self) -> ClusterId {
         let cluster_no =
             (u32::from(self.first_cluster_hi()) << 16) | u32::from(self.first_cluster_lo());
-        Cluster(cluster_no)
+        ClusterId(cluster_no)
     }
 
     /// Which cluster, if any, does this file start at? Assumes this is from a FAT16 volume.
-    fn first_cluster_fat16(&self) -> Cluster {
+    fn first_cluster_fat16(&self) -> ClusterId {
         let cluster_no = u32::from(self.first_cluster_lo());
-        Cluster(cluster_no)
+        ClusterId(cluster_no)
     }
 
     /// Convert the on-disk format into a DirEntry
@@ -148,17 +148,26 @@ impl<'a> OnDiskDirEntry<'a> {
         entry_block: BlockIdx,
         entry_offset: u32,
     ) -> DirEntry {
+        let attributes = Attributes::create_from_fat(self.raw_attr());
         let mut result = DirEntry {
             name: ShortFileName {
                 contents: [0u8; 11],
             },
             mtime: Timestamp::from_fat(self.write_date(), self.write_time()),
             ctime: Timestamp::from_fat(self.create_date(), self.create_time()),
-            attributes: Attributes::create_from_fat(self.raw_attr()),
-            cluster: if fat_type == FatType::Fat32 {
-                self.first_cluster_fat32()
-            } else {
-                self.first_cluster_fat16()
+            attributes,
+            cluster: {
+                let cluster = if fat_type == FatType::Fat32 {
+                    self.first_cluster_fat32()
+                } else {
+                    self.first_cluster_fat16()
+                };
+                if cluster == ClusterId::EMPTY && attributes.is_directory() {
+                    // FAT16/FAT32 uses a cluster ID of `0` in the ".." entry to mean 'root directory'
+                    ClusterId::ROOT_DIR
+                } else {
+                    cluster
+                }
             },
             size: self.file_size(),
             entry_block,
@@ -168,3 +177,9 @@ impl<'a> OnDiskDirEntry<'a> {
         result
     }
 }
+
+// ****************************************************************************
+//
+// End Of File
+//
+// ****************************************************************************

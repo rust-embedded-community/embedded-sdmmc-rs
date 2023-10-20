@@ -60,6 +60,12 @@ pub const CMD55: u8 = 0x37;
 pub const CMD58: u8 = 0x3A;
 /// CRC_ON_OFF - enable or disable CRC checking
 pub const CMD59: u8 = 0x3B;
+/// Pre-erased before writing
+///
+/// > It is recommended using this command preceding CMD25, some of the cards will be faster for Multiple
+/// > Write Blocks operation. Note that the host should send ACMD23 just before WRITE command if the host
+/// > wants to use the pre-erased feature
+pub const ACMD23: u8 = 0x17;
 /// SD_SEND_OP_COMD - Sends host capacity support information and activates
 /// the card's initialization process
 pub const ACMD41: u8 = 0x29;
@@ -234,6 +240,12 @@ pub fn crc16(data: &[u8]) -> u16 {
     }
     crc
 }
+
+// ****************************************************************************
+//
+// Unit Tests
+//
+// ****************************************************************************
 
 #[cfg(test)]
 mod test {

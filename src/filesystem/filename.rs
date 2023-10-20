@@ -1,10 +1,4 @@
-/// An MS-DOS 8.3 filename. 7-bit ASCII only. All lower-case is converted to
-/// upper-case by default.
-#[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
-#[derive(PartialEq, Eq, Clone)]
-pub struct ShortFileName {
-    pub(crate) contents: [u8; 11],
-}
+//! Filename related types
 
 /// Various filename related errors that can occur.
 #[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
@@ -22,11 +16,55 @@ pub enum FilenameError {
     Utf8Error,
 }
 
-impl FilenameError {}
+/// Describes things we can convert to short 8.3 filenames
+pub trait ToShortFileName {
+    /// Try and convert this value into a [`ShortFileName`].
+    fn to_short_filename(self) -> Result<ShortFileName, FilenameError>;
+}
+
+impl ToShortFileName for ShortFileName {
+    fn to_short_filename(self) -> Result<ShortFileName, FilenameError> {
+        Ok(self)
+    }
+}
+
+impl ToShortFileName for &ShortFileName {
+    fn to_short_filename(self) -> Result<ShortFileName, FilenameError> {
+        Ok(self.clone())
+    }
+}
+
+impl ToShortFileName for &str {
+    fn to_short_filename(self) -> Result<ShortFileName, FilenameError> {
+        ShortFileName::create_from_str(self)
+    }
+}
+
+/// An MS-DOS 8.3 filename. 7-bit ASCII only. All lower-case is converted to
+/// upper-case by default.
+#[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
+#[derive(PartialEq, Eq, Clone)]
+pub struct ShortFileName {
+    pub(crate) contents: [u8; 11],
+}
 
 impl ShortFileName {
     const FILENAME_BASE_MAX_LEN: usize = 8;
     const FILENAME_MAX_LEN: usize = 11;
+
+    /// Get a short file name containing "..", which means "parent directory".
+    pub const fn parent_dir() -> Self {
+        Self {
+            contents: *b"..         ",
+        }
+    }
+
+    /// Get a short file name containing "..", which means "this directory".
+    pub const fn this_dir() -> Self {
+        Self {
+            contents: *b".          ",
+        }
+    }
 
     /// Get base name (name without extension) of file name
     pub fn base_name(&self) -> &[u8] {
@@ -47,6 +85,12 @@ impl ShortFileName {
         let mut sfn = ShortFileName {
             contents: [b' '; Self::FILENAME_MAX_LEN],
         };
+
+        // Special case `..`, which means "parent directory".
+        if name == ".." {
+            return Ok(ShortFileName::parent_dir());
+        }
+
         let mut idx = 0;
         let mut seen_dot = false;
         for ch in name.bytes() {
@@ -196,6 +240,12 @@ impl core::fmt::Debug for ShortFileName {
     }
 }
 
+// ****************************************************************************
+//
+// Unit Tests
+//
+// ****************************************************************************
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -276,3 +326,9 @@ mod test {
         assert!(ShortFileName::create_from_str("12345678.ABCD").is_err());
     }
 }
+
+// ****************************************************************************
+//
+// End Of File
+//
+// ****************************************************************************

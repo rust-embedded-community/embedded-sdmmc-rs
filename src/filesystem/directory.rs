@@ -2,7 +2,8 @@ use core::convert::TryFrom;
 
 use crate::blockdevice::BlockIdx;
 use crate::fat::{FatType, OnDiskDirEntry};
-use crate::filesystem::{Attributes, Cluster, ShortFileName, Timestamp};
+use crate::filesystem::{Attributes, ClusterId, SearchId, ShortFileName, Timestamp};
+use crate::Volume;
 
 /// Represents a directory entry, which tells you about
 /// other files and directories.
@@ -18,7 +19,7 @@ pub struct DirEntry {
     /// The file attributes (Read Only, Archive, etc)
     pub attributes: Attributes,
     /// The starting cluster of the file. The FAT tells us the following Clusters.
-    pub cluster: Cluster,
+    pub cluster: ClusterId,
     /// The size of the file in bytes.
     pub size: u32,
     /// The disk block of this entry
@@ -28,13 +29,35 @@ pub struct DirEntry {
 }
 
 /// Represents an open directory on disk.
+///
+/// Do NOT drop this object! It doesn't hold a reference to the Volume Manager
+/// it was created from and if you drop it, the VolumeManager will think you
+/// still have the directory open, and it won't let you open the directory
+/// again.
+///
+/// Instead you must pass it to [`crate::VolumeManager::close_dir`] to close it
+/// cleanly.
+///
+/// If you want your directories to close themselves on drop, create your own
+/// `Directory` type that wraps this one and also holds a `VolumeManager`
+/// reference. You'll then also need to put your `VolumeManager` in some kind of
+/// Mutex or RefCell, and deal with the fact you can't put them both in the same
+/// struct any more because one refers to the other. Basically, it's complicated
+/// and there's a reason we did it this way.
 #[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
-#[derive(Debug)]
-pub struct Directory {
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct Directory(pub(crate) SearchId);
+
+/// Holds information about an open file on disk
+#[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
+#[derive(Debug, Clone)]
+pub(crate) struct DirectoryInfo {
+    /// Unique ID for this directory.
+    pub(crate) directory_id: Directory,
+    /// The unique ID for the volume this directory is on
+    pub(crate) volume_id: Volume,
     /// The starting point of the directory listing.
-    pub(crate) cluster: Cluster,
-    /// Dir Entry of this directory, None for the root directory
-    pub(crate) entry: Option<DirEntry>,
+    pub(crate) cluster: ClusterId,
 }
 
 impl DirEntry {
@@ -69,7 +92,7 @@ impl DirEntry {
     pub(crate) fn new(
         name: ShortFileName,
         attributes: Attributes,
-        cluster: Cluster,
+        cluster: ClusterId,
         ctime: Timestamp,
         entry_block: BlockIdx,
         entry_offset: u32,
@@ -87,4 +110,8 @@ impl DirEntry {
     }
 }
 
-impl Directory {}
+// ****************************************************************************
+//
+// End Of File
+//
+// ****************************************************************************
