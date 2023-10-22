@@ -5,14 +5,14 @@
 
 struct FakeSpi();
 
-impl embedded_hal::blocking::spi::Transfer<u8> for FakeSpi {
+impl embedded_hal::spi::SpiDevice<u8> for FakeSpi {
     type Error = core::convert::Infallible;
     fn transfer<'w>(&mut self, words: &'w mut [u8]) -> Result<&'w [u8], Self::Error> {
         Ok(words)
     }
 }
 
-impl embedded_hal::blocking::spi::Write<u8> for FakeSpi {
+impl embedded_hal::spi::SpiDevice<u8> for FakeSpi {
     type Error = core::convert::Infallible;
     fn write(&mut self, _words: &[u8]) -> Result<(), Self::Error> {
         Ok(())
@@ -21,7 +21,7 @@ impl embedded_hal::blocking::spi::Write<u8> for FakeSpi {
 
 struct FakeCs();
 
-impl embedded_hal::digital::v2::OutputPin for FakeCs {
+impl embedded_hal::digital::OutputPin for FakeCs {
     type Error = core::convert::Infallible;
     fn set_low(&mut self) -> Result<(), Self::Error> {
         Ok(())
@@ -34,7 +34,7 @@ impl embedded_hal::digital::v2::OutputPin for FakeCs {
 
 struct FakeDelayer();
 
-impl embedded_hal::blocking::delay::DelayUs<u8> for FakeDelayer {
+impl embedded_hal::delay::DelayUs for FakeDelayer {
     fn delay_us(&mut self, us: u8) {
         std::thread::sleep(std::time::Duration::from_micros(u64::from(us)));
     }
