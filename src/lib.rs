@@ -22,16 +22,37 @@
 //! # struct DummyUart;
 //! # struct DummyTimeSource;
 //! # struct DummyDelayer;
-//! # impl embedded_hal::spi::SpiDevice<u8> for  DummySpi {
-//! #   type Error = ();
-//! #   fn transfer<'w>(&mut self, data: &'w mut [u8]) -> Result<&'w [u8], Self::Error> { Ok(&[0]) }
+//! # use embedded_hal::spi::Operation;
+//! # use embedded_hal::spi::ErrorType;
+//! # impl ErrorType for DummySpi {
+//! #     type Error = ();
 //! # }
-//! # impl embedded_hal::spi::SpiDevice<u8> for  DummySpi {
-//! #   type Error = ();
-//! #   fn write(&mut self, data: &[u8]) -> Result<(), Self::Error> { Ok(()) }
+//! # impl embedded_hal::spi::SpiDevice<u8> for DummySpi {
+//! #
+//! # fn transaction(&mut self, operations: &mut [Operation<'_, u8>]) -> Result<(), Self::Error> {
+//! #         Ok(())
+//! #     }
+//! #
+//! # fn read(&mut self, buf: &mut [u8]) -> Result<(), Self::Error> {
+//! #         Ok(())
+//! #     }
+//! #
+//! # fn write(&mut self, buf: &[u8]) -> Result<(), Self::Error> {
+//! #         Ok(())
+//! #     }
+//! #
+//! # fn transfer(&mut self, read: &mut [u8], write: &[u8]) -> Result<(), Self::Error> {
+//! #         Ok(())
+//! #     }
+//! #
+//! # fn transfer_in_place(&mut self, buf: &mut [u8]) -> Result<(), Self::Error> {
+//! #         Ok(())
+//! #     }
+//! # }
+//! # impl embedded_hal::digital::ErrorType for DummyCsPin {
+//! #     type Error = ();
 //! # }
 //! # impl embedded_hal::digital::OutputPin for DummyCsPin {
-//! #   type Error = ();
 //! #   fn set_low(&mut self) -> Result<(), ()> { Ok(()) }
 //! #   fn set_high(&mut self) -> Result<(), ()> { Ok(()) }
 //! # }
@@ -41,7 +62,9 @@
 //! # impl embedded_hal::delay::DelayUs for DummyDelayer {
 //! #   fn delay_us(&mut self, us: u8) {}
 //! # }
-//! # impl std::fmt::Write for DummyUart { fn write_str(&mut self, s: &str) -> std::fmt::Result { Ok(()) } }
+//! # impl std::fmt::Write for DummyUart {
+//! #     fn write_str(&mut self, s: &str) -> std::fmt::Result { Ok(()) }
+//! # }
 //! # use std::fmt::Write;
 //! # use embedded_sdmmc::VolumeManager;
 //! # fn main() -> Result<(), embedded_sdmmc::Error<embedded_sdmmc::SdCardError>> {
@@ -49,20 +72,20 @@
 //! # let mut sdmmc_cs = DummyCsPin;
 //! # let time_source = DummyTimeSource;
 //! # let delayer = DummyDelayer;
-//! let sdcard = embedded_sdmmc::SdCard::new(sdmmc_spi, sdmmc_cs, delayer);
-//! println!("Card size is {} bytes", sdcard.num_bytes()?);
-//! let mut volume_mgr = embedded_sdmmc::VolumeManager::new(sdcard, time_source);
-//! let mut volume0 = volume_mgr.open_volume(embedded_sdmmc::VolumeIdx(0))?;
-//! println!("Volume 0: {:?}", volume0);
-//! let mut root_dir = volume0.open_root_dir()?;
-//! let mut my_file = root_dir.open_file_in_dir("MY_FILE.TXT", embedded_sdmmc::Mode::ReadOnly)?;
-//! while !my_file.is_eof() {
-//!     let mut buffer = [0u8; 32];
-//!     let num_read = my_file.read(&mut buffer)?;
-//!     for b in &buffer[0..num_read] {
-//!         print!("{}", *b as char);
-//!     }
-//! }
+//! # let sdcard = embedded_sdmmc::SdCard::new(sdmmc_spi, sdmmc_cs, delayer);
+//! # println!("Card size is {} bytes", sdcard.num_bytes()?);
+//! # let mut volume_mgr = embedded_sdmmc::VolumeManager::new(sdcard, time_source);
+//! # let mut volume0 = volume_mgr.open_volume(embedded_sdmmc::VolumeIdx(0))?;
+//! # println!("Volume 0: {:?}", volume0);
+//! # let mut root_dir = volume0.open_root_dir()?;
+//! # let mut my_file = root_dir.open_file_in_dir("MY_FILE.TXT", embedded_sdmmc::Mode::ReadOnly)?;
+//! # while !my_file.is_eof() {
+//! #     let mut buffer = [0u8; 32];
+//! #     let num_read = my_file.read(&mut buffer)?;
+//! #     for b in &buffer[0..num_read] {
+//! #         print!("{}", *b as char);
+//! #     }
+//! # }
 //! # Ok(())
 //! # }
 //! ```
