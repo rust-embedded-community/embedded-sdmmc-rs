@@ -22,15 +22,15 @@
 //! # struct DummyUart;
 //! # struct DummyTimeSource;
 //! # struct DummyDelayer;
-//! # impl embedded_hal::blocking::spi::Transfer<u8> for  DummySpi {
+//! # impl embedded_hal::spi::SpiDevice<u8> for  DummySpi {
 //! #   type Error = ();
 //! #   fn transfer<'w>(&mut self, data: &'w mut [u8]) -> Result<&'w [u8], Self::Error> { Ok(&[0]) }
 //! # }
-//! # impl embedded_hal::blocking::spi::Write<u8> for  DummySpi {
+//! # impl embedded_hal::spi::SpiDevice<u8> for  DummySpi {
 //! #   type Error = ();
 //! #   fn write(&mut self, data: &[u8]) -> Result<(), Self::Error> { Ok(()) }
 //! # }
-//! # impl embedded_hal::digital::v2::OutputPin for DummyCsPin {
+//! # impl embedded_hal::digital::OutputPin for DummyCsPin {
 //! #   type Error = ();
 //! #   fn set_low(&mut self) -> Result<(), ()> { Ok(()) }
 //! #   fn set_high(&mut self) -> Result<(), ()> { Ok(()) }
@@ -38,7 +38,7 @@
 //! # impl embedded_sdmmc::TimeSource for DummyTimeSource {
 //! #   fn get_timestamp(&self) -> embedded_sdmmc::Timestamp { embedded_sdmmc::Timestamp::from_fat(0, 0) }
 //! # }
-//! # impl embedded_hal::blocking::delay::DelayUs<u8> for DummyDelayer {
+//! # impl embedded_hal::delay::DelayUs for DummyDelayer {
 //! #   fn delay_us(&mut self, us: u8) {}
 //! # }
 //! # impl std::fmt::Write for DummyUart { fn write_str(&mut self, s: &str) -> std::fmt::Result { Ok(()) } }

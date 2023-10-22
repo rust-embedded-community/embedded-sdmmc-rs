@@ -30,22 +30,18 @@ use crate::{debug, warn};
 /// All the APIs take `&self` - mutability is handled using an inner `RefCell`.
 pub struct SdCard<SPI, CS, DELAYER>
 where
-    SPI: embedded_hal::blocking::spi::Transfer<u8> + embedded_hal::blocking::spi::Write<u8>,
-    CS: embedded_hal::digital::v2::OutputPin,
-    <SPI as embedded_hal::blocking::spi::Transfer<u8>>::Error: core::fmt::Debug,
-    <SPI as embedded_hal::blocking::spi::Write<u8>>::Error: core::fmt::Debug,
-    DELAYER: embedded_hal::blocking::delay::DelayUs<u8>,
+    SPI: embedded_hal::spi::SpiDevice<u8>,
+    CS: embedded_hal::digital::OutputPin,
+    DELAYER: embedded_hal::delay::DelayUs,
 {
     inner: RefCell<SdCardInner<SPI, CS, DELAYER>>,
 }
 
 impl<SPI, CS, DELAYER> SdCard<SPI, CS, DELAYER>
 where
-    SPI: embedded_hal::blocking::spi::Transfer<u8> + embedded_hal::blocking::spi::Write<u8>,
-    CS: embedded_hal::digital::v2::OutputPin,
-    <SPI as embedded_hal::blocking::spi::Transfer<u8>>::Error: core::fmt::Debug,
-    <SPI as embedded_hal::blocking::spi::Write<u8>>::Error: core::fmt::Debug,
-    DELAYER: embedded_hal::blocking::delay::DelayUs<u8>,
+    SPI: embedded_hal::spi::SpiDevice<u8> + embedded_hal::spi::SpiDevice<u8>,
+    CS: embedded_hal::digital::OutputPin,
+    DELAYER: embedded_hal::delay::DelayUs,
 {
     /// Create a new SD/MMC Card driver using a raw SPI interface.
     ///
@@ -152,11 +148,9 @@ where
 
 impl<SPI, CS, DELAYER> BlockDevice for SdCard<SPI, CS, DELAYER>
 where
-    SPI: embedded_hal::blocking::spi::Transfer<u8> + embedded_hal::blocking::spi::Write<u8>,
-    CS: embedded_hal::digital::v2::OutputPin,
-    <SPI as embedded_hal::blocking::spi::Transfer<u8>>::Error: core::fmt::Debug,
-    <SPI as embedded_hal::blocking::spi::Write<u8>>::Error: core::fmt::Debug,
-    DELAYER: embedded_hal::blocking::delay::DelayUs<u8>,
+    SPI: embedded_hal::spi::SpiDevice<u8> + embedded_hal::spi::SpiDevice<u8>,
+    CS: embedded_hal::digital::OutputPin,
+    DELAYER: embedded_hal::delay::DelayUs,
 {
     type Error = Error;
 
@@ -205,11 +199,9 @@ where
 /// All the APIs required `&mut self`.
 struct SdCardInner<SPI, CS, DELAYER>
 where
-    SPI: embedded_hal::blocking::spi::Transfer<u8> + embedded_hal::blocking::spi::Write<u8>,
-    CS: embedded_hal::digital::v2::OutputPin,
-    <SPI as embedded_hal::blocking::spi::Transfer<u8>>::Error: core::fmt::Debug,
-    <SPI as embedded_hal::blocking::spi::Write<u8>>::Error: core::fmt::Debug,
-    DELAYER: embedded_hal::blocking::delay::DelayUs<u8>,
+    SPI: embedded_hal::spi::SpiDevice<u8> + embedded_hal::spi::SpiDevice<u8>,
+    CS: embedded_hal::digital::OutputPin,
+    DELAYER: embedded_hal::delay::DelayUs,
 {
     spi: SPI,
     cs: CS,
@@ -220,11 +212,9 @@ where
 
 impl<SPI, CS, DELAYER> SdCardInner<SPI, CS, DELAYER>
 where
-    SPI: embedded_hal::blocking::spi::Transfer<u8> + embedded_hal::blocking::spi::Write<u8>,
-    CS: embedded_hal::digital::v2::OutputPin,
-    <SPI as embedded_hal::blocking::spi::Transfer<u8>>::Error: core::fmt::Debug,
-    <SPI as embedded_hal::blocking::spi::Write<u8>>::Error: core::fmt::Debug,
-    DELAYER: embedded_hal::blocking::delay::DelayUs<u8>,
+    SPI: embedded_hal::spi::SpiDevice<u8> + embedded_hal::spi::SpiDevice<u8>,
+    CS: embedded_hal::digital::OutputPin,
+    DELAYER: embedded_hal::delay::DelayUs,
 {
     /// Read one or more blocks, starting at the given block index.
     fn read(&mut self, blocks: &mut [Block], start_block_idx: BlockIdx) -> Result<(), Error> {
@@ -583,13 +573,14 @@ where
 
     /// Send one byte and receive one byte over the SPI bus.
     fn transfer_byte(&mut self, out: u8) -> Result<u8, Error> {
+        let mut read_buf = [0u8;1];
         self.spi
-            .transfer(&mut [out])
-            .map(|b| b[0])
-            .map_err(|_e| Error::Transport)
+            .transfer(&mut read_buf,&[out])
+            .map_err(|_| Error::Transport)?;
+        Ok(read_buf[0])
     }
 
-    /// Send mutiple bytes and ignore what comes back over the SPI bus.
+    /// Send multiple bytes and ignore what comes back over the SPI bus.
     fn write_bytes(&mut self, out: &[u8]) -> Result<(), Error> {
         self.spi.write(out).map_err(|_e| Error::Transport)?;
         Ok(())
@@ -597,7 +588,7 @@ where
 
     /// Send multiple bytes and replace them with what comes back over the SPI bus.
     fn transfer_bytes(&mut self, in_out: &mut [u8]) -> Result<(), Error> {
-        self.spi.transfer(in_out).map_err(|_e| Error::Transport)?;
+        self.spi.transfer_in_place(in_out).map_err(|_e| Error::Transport)?;
         Ok(())
     }
 
@@ -753,7 +744,7 @@ impl Delay {
     /// `Ok(())`.
     fn delay<T>(&mut self, delayer: &mut T, err: Error) -> Result<(), Error>
     where
-        T: embedded_hal::blocking::delay::DelayUs<u8>,
+        T: embedded_hal::delay::DelayUs,
     {
         if self.retries_left == 0 {
             Err(err)
