@@ -39,7 +39,7 @@ where
 
 impl<SPI, CS, DELAYER> SdCard<SPI, CS, DELAYER>
 where
-    SPI: embedded_hal::spi::SpiDevice<u8> + embedded_hal::spi::SpiDevice<u8>,
+    SPI: embedded_hal::spi::SpiDevice<u8>,
     CS: embedded_hal::digital::OutputPin,
     DELAYER: embedded_hal::delay::DelayUs,
 {
@@ -148,7 +148,7 @@ where
 
 impl<SPI, CS, DELAYER> BlockDevice for SdCard<SPI, CS, DELAYER>
 where
-    SPI: embedded_hal::spi::SpiDevice<u8> + embedded_hal::spi::SpiDevice<u8>,
+    SPI: embedded_hal::spi::SpiDevice<u8>,
     CS: embedded_hal::digital::OutputPin,
     DELAYER: embedded_hal::delay::DelayUs,
 {
@@ -199,7 +199,7 @@ where
 /// All the APIs required `&mut self`.
 struct SdCardInner<SPI, CS, DELAYER>
 where
-    SPI: embedded_hal::spi::SpiDevice<u8> + embedded_hal::spi::SpiDevice<u8>,
+    SPI: embedded_hal::spi::SpiDevice<u8>,
     CS: embedded_hal::digital::OutputPin,
     DELAYER: embedded_hal::delay::DelayUs,
 {
@@ -212,7 +212,7 @@ where
 
 impl<SPI, CS, DELAYER> SdCardInner<SPI, CS, DELAYER>
 where
-    SPI: embedded_hal::spi::SpiDevice<u8> + embedded_hal::spi::SpiDevice<u8>,
+    SPI: embedded_hal::spi::SpiDevice<u8>,
     CS: embedded_hal::digital::OutputPin,
     DELAYER: embedded_hal::delay::DelayUs,
 {
