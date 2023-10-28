@@ -6,7 +6,8 @@ The format is based on [Keep a Changelog] and this project adheres to [Semantic 
 
 ## [Unreleased]
 
-* None
+* `Volume`, `Directory` and `File` are now smart! They hold references to the thing they were made from, and will clean themselves up when dropped. The trade-off is you can can't open multiple volumes, directories or files at the same time.
+* Renamed the old types to `RawVolume`, `RawDirectory` and `RawFile`
 
 ## [Version 0.6.0] - 2023-10-20
 

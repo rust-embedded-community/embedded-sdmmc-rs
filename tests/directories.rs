@@ -1,6 +1,6 @@
 //! Directory related tests
 
-use embedded_sdmmc::ShortFileName;
+use embedded_sdmmc::{Mode, ShortFileName};
 
 mod utils;
 
@@ -41,7 +41,7 @@ fn fat16_root_directory_listing() {
     let mut volume_mgr = embedded_sdmmc::VolumeManager::new(disk, time_source);
 
     let fat16_volume = volume_mgr
-        .open_volume(embedded_sdmmc::VolumeIdx(0))
+        .open_raw_volume(embedded_sdmmc::VolumeIdx(0))
         .expect("open volume 0");
     let root_dir = volume_mgr
         .open_root_dir(fat16_volume)
@@ -103,7 +103,7 @@ fn fat16_sub_directory_listing() {
     let mut volume_mgr = embedded_sdmmc::VolumeManager::new(disk, time_source);
 
     let fat16_volume = volume_mgr
-        .open_volume(embedded_sdmmc::VolumeIdx(0))
+        .open_raw_volume(embedded_sdmmc::VolumeIdx(0))
         .expect("open volume 0");
     let root_dir = volume_mgr
         .open_root_dir(fat16_volume)
@@ -168,7 +168,7 @@ fn fat32_root_directory_listing() {
     let mut volume_mgr = embedded_sdmmc::VolumeManager::new(disk, time_source);
 
     let fat32_volume = volume_mgr
-        .open_volume(embedded_sdmmc::VolumeIdx(1))
+        .open_raw_volume(embedded_sdmmc::VolumeIdx(1))
         .expect("open volume 1");
     let root_dir = volume_mgr
         .open_root_dir(fat32_volume)
@@ -230,39 +230,39 @@ fn open_dir_twice() {
     let mut volume_mgr = embedded_sdmmc::VolumeManager::new(disk, time_source);
 
     let fat32_volume = volume_mgr
-        .open_volume(embedded_sdmmc::VolumeIdx(1))
+        .open_raw_volume(embedded_sdmmc::VolumeIdx(1))
         .expect("open volume 1");
 
     let root_dir = volume_mgr
         .open_root_dir(fat32_volume)
         .expect("open root dir");
 
-    let r = volume_mgr.open_root_dir(fat32_volume);
-    let Err(embedded_sdmmc::Error::DirAlreadyOpen) = r else {
-        panic!("Expected to fail opening the root dir twice: {r:?}");
-    };
+    assert!(matches!(
+        volume_mgr.open_root_dir(fat32_volume),
+        Err(embedded_sdmmc::Error::DirAlreadyOpen)
+    ));
 
-    let r = volume_mgr.open_dir(root_dir, "README.TXT");
-    let Err(embedded_sdmmc::Error::OpenedFileAsDir) = r else {
-        panic!("Expected to fail opening file as dir: {r:?}");
-    };
+    assert!(matches!(
+        volume_mgr.open_dir(root_dir, "README.TXT"),
+        Err(embedded_sdmmc::Error::OpenedFileAsDir)
+    ));
 
     let test_dir = volume_mgr
         .open_dir(root_dir, "TEST")
         .expect("open test dir");
 
-    let r = volume_mgr.open_dir(root_dir, "TEST");
-    let Err(embedded_sdmmc::Error::DirAlreadyOpen) = r else {
-        panic!("Expected to fail opening the dir twice: {r:?}");
-    };
+    assert!(matches!(
+        volume_mgr.open_dir(root_dir, "TEST"),
+        Err(embedded_sdmmc::Error::DirAlreadyOpen)
+    ));
 
     volume_mgr.close_dir(root_dir).expect("close root dir");
     volume_mgr.close_dir(test_dir).expect("close test dir");
 
-    let r = volume_mgr.close_dir(test_dir);
-    let Err(embedded_sdmmc::Error::BadHandle) = r else {
-        panic!("Expected to fail closing the dir twice: {r:?}");
-    };
+    assert!(matches!(
+        volume_mgr.close_dir(test_dir),
+        Err(embedded_sdmmc::Error::BadHandle)
+    ));
 }
 
 #[test]
@@ -278,15 +278,16 @@ fn open_too_many_dirs() {
     > = embedded_sdmmc::VolumeManager::new_with_limits(disk, time_source, 0x1000_0000);
 
     let fat32_volume = volume_mgr
-        .open_volume(embedded_sdmmc::VolumeIdx(1))
+        .open_raw_volume(embedded_sdmmc::VolumeIdx(1))
         .expect("open volume 1");
     let root_dir = volume_mgr
         .open_root_dir(fat32_volume)
         .expect("open root dir");
 
-    let Err(embedded_sdmmc::Error::TooManyOpenDirs) = volume_mgr.open_dir(root_dir, "TEST") else {
-        panic!("Expected to fail at opening too many dirs");
-    };
+    assert!(matches!(
+        volume_mgr.open_dir(root_dir, "TEST"),
+        Err(embedded_sdmmc::Error::TooManyOpenDirs)
+    ));
 }
 
 #[test]
@@ -296,7 +297,7 @@ fn find_dir_entry() {
     let mut volume_mgr = embedded_sdmmc::VolumeManager::new(disk, time_source);
 
     let fat32_volume = volume_mgr
-        .open_volume(embedded_sdmmc::VolumeIdx(1))
+        .open_raw_volume(embedded_sdmmc::VolumeIdx(1))
         .expect("open volume 1");
 
     let root_dir = volume_mgr
@@ -313,10 +314,55 @@ fn find_dir_entry() {
     assert!(!dir_entry.attributes.is_system());
     assert!(!dir_entry.attributes.is_volume());
 
-    let r = volume_mgr.find_directory_entry(root_dir, "README.TXS");
-    let Err(embedded_sdmmc::Error::FileNotFound) = r else {
-        panic!("Expected not to find file: {r:?}");
-    };
+    assert!(matches!(
+        volume_mgr.find_directory_entry(root_dir, "README.TXS"),
+        Err(embedded_sdmmc::Error::FileNotFound)
+    ));
+}
+
+#[test]
+fn delete_file() {
+    let time_source = utils::make_time_source();
+    let disk = utils::make_block_device(utils::DISK_SOURCE).unwrap();
+    let mut volume_mgr = embedded_sdmmc::VolumeManager::new(disk, time_source);
+
+    let fat32_volume = volume_mgr
+        .open_raw_volume(embedded_sdmmc::VolumeIdx(1))
+        .expect("open volume 1");
+
+    let root_dir = volume_mgr
+        .open_root_dir(fat32_volume)
+        .expect("open root dir");
+
+    let file = volume_mgr
+        .open_file_in_dir(root_dir, "README.TXT", Mode::ReadOnly)
+        .unwrap();
+
+    assert!(matches!(
+        volume_mgr.delete_file_in_dir(root_dir, "README.TXT"),
+        Err(embedded_sdmmc::Error::FileAlreadyOpen)
+    ));
+
+    assert!(matches!(
+        volume_mgr.delete_file_in_dir(root_dir, "README2.TXT"),
+        Err(embedded_sdmmc::Error::FileNotFound)
+    ));
+
+    volume_mgr.close_file(file).unwrap();
+
+    volume_mgr
+        .delete_file_in_dir(root_dir, "README.TXT")
+        .unwrap();
+
+    assert!(matches!(
+        volume_mgr.delete_file_in_dir(root_dir, "README.TXT"),
+        Err(embedded_sdmmc::Error::FileNotFound)
+    ));
+
+    assert!(matches!(
+        volume_mgr.open_file_in_dir(root_dir, "README.TXT", Mode::ReadOnly),
+        Err(embedded_sdmmc::Error::FileNotFound)
+    ));
 }
 
 // ****************************************************************************
