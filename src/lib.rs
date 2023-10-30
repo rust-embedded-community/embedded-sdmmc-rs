@@ -24,8 +24,10 @@
 //! # struct DummyDelayer;
 //! # use embedded_hal::spi::Operation;
 //! # use embedded_hal::spi::ErrorType;
+//! # use core::convert::Infallible;
+//! # use core::fmt;
 //! # impl ErrorType for DummySpi {
-//! #     type Error = ();
+//! #     type Error = Infallible;
 //! # }
 //! # impl embedded_hal::spi::SpiDevice<u8> for DummySpi {
 //! #
@@ -50,22 +52,21 @@
 //! #     }
 //! # }
 //! # impl embedded_hal::digital::ErrorType for DummyCsPin {
-//! #     type Error = ();
+//! #     type Error = Infallible;
 //! # }
 //! # impl embedded_hal::digital::OutputPin for DummyCsPin {
-//! #   fn set_low(&mut self) -> Result<(), ()> { Ok(()) }
-//! #   fn set_high(&mut self) -> Result<(), ()> { Ok(()) }
+//! #   fn set_low(&mut self) -> Result<(), Self::Error> { Ok(()) }
+//! #   fn set_high(&mut self) -> Result<(), Self::Error> { Ok(()) }
 //! # }
 //! # impl embedded_sdmmc::TimeSource for DummyTimeSource {
 //! #   fn get_timestamp(&self) -> embedded_sdmmc::Timestamp { embedded_sdmmc::Timestamp::from_fat(0, 0) }
 //! # }
 //! # impl embedded_hal::delay::DelayUs for DummyDelayer {
-//! #   fn delay_us(&mut self, us: u8) {}
+//! #   fn delay_us(&mut self, us: u32) {}
 //! # }
-//! # impl std::fmt::Write for DummyUart {
-//! #     fn write_str(&mut self, s: &str) -> std::fmt::Result { Ok(()) }
+//! # impl fmt::Write for DummyUart {
+//! #     fn write_str(&mut self, s: &str) -> fmt::Result { Ok(()) }
 //! # }
-//! # use std::fmt::Write;
 //! # use embedded_sdmmc::VolumeManager;
 //! # fn main() -> Result<(), embedded_sdmmc::Error<embedded_sdmmc::SdCardError>> {
 //! # let mut sdmmc_spi = DummySpi;
@@ -74,7 +75,7 @@
 //! # let delayer = DummyDelayer;
 //! # let sdcard = embedded_sdmmc::SdCard::new(sdmmc_spi, sdmmc_cs, delayer);
 //! # println!("Card size is {} bytes", sdcard.num_bytes()?);
-//! # let mut volume_mgr = embedded_sdmmc::VolumeManager::new(sdcard, time_source);
+//! # let mut volume_mgr = VolumeManager::new(sdcard, time_source);
 //! # let mut volume0 = volume_mgr.open_volume(embedded_sdmmc::VolumeIdx(0))?;
 //! # println!("Volume 0: {:?}", volume0);
 //! # let mut root_dir = volume0.open_root_dir()?;
