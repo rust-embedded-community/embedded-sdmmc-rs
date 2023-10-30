@@ -3,26 +3,45 @@
 //! We add enough stuff to make it compile, but it won't run because our fake
 //! SPI doesn't do any replies.
 
-struct FakeSpi();
+use core::cell::RefCell;
 
-impl embedded_hal::spi::SpiDevice<u8> for FakeSpi {
+use embedded_sdmmc::sdcard::DummyCsPin;
+
+struct FakeSpiBus();
+
+impl embedded_hal::spi::ErrorType for FakeSpiBus {
     type Error = core::convert::Infallible;
-    fn transfer<'w>(&mut self, words: &'w mut [u8]) -> Result<&'w [u8], Self::Error> {
-        Ok(words)
-    }
 }
 
-impl embedded_hal::spi::SpiDevice<u8> for FakeSpi {
-    type Error = core::convert::Infallible;
-    fn write(&mut self, _words: &[u8]) -> Result<(), Self::Error> {
+impl embedded_hal::spi::SpiBus<u8> for FakeSpiBus {
+    fn read(&mut self, _: &mut [u8]) -> Result<(), Self::Error> {
+        Ok(())
+    }
+
+    fn write(&mut self, _: &[u8]) -> Result<(), Self::Error> {
+        Ok(())
+    }
+
+    fn transfer(&mut self, _: &mut [u8], _: &[u8]) -> Result<(), Self::Error> {
+        Ok(())
+    }
+
+    fn transfer_in_place(&mut self, _: &mut [u8]) -> Result<(), Self::Error> {
+        Ok(())
+    }
+
+    fn flush(&mut self) -> Result<(), Self::Error> {
         Ok(())
     }
 }
 
 struct FakeCs();
 
-impl embedded_hal::digital::OutputPin for FakeCs {
+impl embedded_hal::digital::ErrorType for FakeCs {
     type Error = core::convert::Infallible;
+}
+
+impl embedded_hal::digital::OutputPin for FakeCs {
     fn set_low(&mut self) -> Result<(), Self::Error> {
         Ok(())
     }
@@ -32,10 +51,11 @@ impl embedded_hal::digital::OutputPin for FakeCs {
     }
 }
 
+#[derive(Clone, Copy)]
 struct FakeDelayer();
 
 impl embedded_hal::delay::DelayUs for FakeDelayer {
-    fn delay_us(&mut self, us: u8) {
+    fn delay_us(&mut self, us: u32) {
         std::thread::sleep(std::time::Duration::from_micros(u64::from(us)));
     }
 }
@@ -74,9 +94,10 @@ impl From<embedded_sdmmc::SdCardError> for Error {
 }
 
 fn main() -> Result<(), Error> {
-    let sdmmc_spi = FakeSpi();
-    let sdmmc_cs = FakeCs();
+    let spi_bus = RefCell::new(FakeSpiBus());
     let delay = FakeDelayer();
+    let sdmmc_spi = embedded_hal_bus::spi::RefCellDevice::new(&spi_bus, DummyCsPin, delay);
+    let sdmmc_cs = FakeCs();
     let time_source = FakeTimesource();
     // Build an SD Card interface out of an SPI device, a chip-select pin and the delay object
     let sdcard = embedded_sdmmc::SdCard::new(sdmmc_spi, sdmmc_cs, delay);
