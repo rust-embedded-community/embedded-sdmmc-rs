@@ -51,7 +51,7 @@ pub struct DirEntry {
 pub struct RawDirectory(pub(crate) SearchId);
 
 impl RawDirectory {
-    /// Convert a raw file into a droppable [`File`]
+    /// Convert a raw directory into a droppable [`Directory`]
     pub fn to_directory<
         D,
         T,
