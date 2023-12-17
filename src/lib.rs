@@ -222,6 +222,8 @@ where
     InvalidOffset,
     /// Disk is full
     DiskFull,
+    /// A directory with that name already exists
+    DirAlreadyExists,
 }
 
 impl<E> From<E> for Error<E>

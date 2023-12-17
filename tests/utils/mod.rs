@@ -179,6 +179,14 @@ pub fn make_time_source() -> TestTimeSource {
     }
 }
 
+/// Get the test time source time, as a string.
+///
+/// We apply the FAT 2-second rounding here.
+#[allow(unused)]
+pub fn get_time_source_string() -> &'static str {
+    "2003-04-04 13:30:04"
+}
+
 // ****************************************************************************
 //
 // End Of File

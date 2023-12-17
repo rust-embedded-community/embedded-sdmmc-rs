@@ -278,7 +278,7 @@ impl FatVolume {
         &mut self,
         block_device: &D,
         time_source: &T,
-        dir: &DirectoryInfo,
+        dir_cluster: ClusterId,
         name: ShortFileName,
         attributes: Attributes,
     ) -> Result<DirEntry, Error<D::Error>>
@@ -292,12 +292,12 @@ impl FatVolume {
                 // a specially reserved space on disk (see
                 // `first_root_dir_block`). Other directories can have any size
                 // as they are made of regular clusters.
-                let mut current_cluster = Some(dir.cluster);
-                let mut first_dir_block_num = match dir.cluster {
+                let mut current_cluster = Some(dir_cluster);
+                let mut first_dir_block_num = match dir_cluster {
                     ClusterId::ROOT_DIR => self.lba_start + fat16_info.first_root_dir_block,
-                    _ => self.cluster_to_block(dir.cluster),
+                    _ => self.cluster_to_block(dir_cluster),
                 };
-                let dir_size = match dir.cluster {
+                let dir_size = match dir_cluster {
                     ClusterId::ROOT_DIR => {
                         let len_bytes =
                             u32::from(fat16_info.root_entries_count) * OnDiskDirEntry::LEN_U32;
@@ -363,11 +363,11 @@ impl FatVolume {
             FatSpecificInfo::Fat32(fat32_info) => {
                 // All directories on FAT32 have a cluster chain but the root
                 // dir starts in a specified cluster.
-                let mut current_cluster = match dir.cluster {
+                let mut current_cluster = match dir_cluster {
                     ClusterId::ROOT_DIR => Some(fat32_info.first_root_dir_cluster),
-                    _ => Some(dir.cluster),
+                    _ => Some(dir_cluster),
                 };
-                let mut first_dir_block_num = self.cluster_to_block(dir.cluster);
+                let mut first_dir_block_num = self.cluster_to_block(dir_cluster);
                 let mut blocks = [Block::new()];
 
                 let dir_size = BlockCount(u32::from(self.blocks_per_cluster));
@@ -1004,6 +1004,34 @@ impl FatVolume {
                 *number_free_cluster += 1;
             };
         }
+        Ok(())
+    }
+
+    /// Writes a Directory Entry to the disk
+    pub(crate) fn write_entry_to_disk<D>(
+        &self,
+        block_device: &D,
+        entry: &DirEntry,
+    ) -> Result<(), Error<D::Error>>
+    where
+        D: BlockDevice,
+    {
+        let fat_type = match self.fat_specific_info {
+            FatSpecificInfo::Fat16(_) => FatType::Fat16,
+            FatSpecificInfo::Fat32(_) => FatType::Fat32,
+        };
+        let mut blocks = [Block::new()];
+        block_device
+            .read(&mut blocks, entry.entry_block, "read")
+            .map_err(Error::DeviceError)?;
+        let block = &mut blocks[0];
+
+        let start = usize::try_from(entry.entry_offset).map_err(|_| Error::ConversionError)?;
+        block[start..start + 32].copy_from_slice(&entry.serialize(fat_type)[..]);
+
+        block_device
+            .write(&blocks, entry.entry_block)
+            .map_err(Error::DeviceError)?;
         Ok(())
     }
 }
