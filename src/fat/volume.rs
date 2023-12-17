@@ -179,6 +179,9 @@ impl FatVolume {
     where
         D: BlockDevice,
     {
+        if cluster.0 > (u32::MAX / 4) {
+            panic!("next_cluster called on invalid cluster {:x?}", cluster);
+        }
         match &self.fat_specific_info {
             FatSpecificInfo::Fat16(_fat16_info) => {
                 let fat_offset = cluster.0 * 2;
@@ -360,19 +363,24 @@ impl FatVolume {
             FatSpecificInfo::Fat32(fat32_info) => {
                 // All directories on FAT32 have a cluster chain but the root
                 // dir starts in a specified cluster.
-                let mut first_dir_block_num = match dir.cluster {
-                    ClusterId::ROOT_DIR => self.cluster_to_block(fat32_info.first_root_dir_cluster),
-                    _ => self.cluster_to_block(dir.cluster),
+                let mut current_cluster = match dir.cluster {
+                    ClusterId::ROOT_DIR => Some(fat32_info.first_root_dir_cluster),
+                    _ => Some(dir.cluster),
                 };
-                let mut current_cluster = Some(dir.cluster);
+                let mut first_dir_block_num = self.cluster_to_block(dir.cluster);
                 let mut blocks = [Block::new()];
 
                 let dir_size = BlockCount(u32::from(self.blocks_per_cluster));
+                // Walk the cluster chain until we run out of clusters
                 while let Some(cluster) = current_cluster {
+                    // Loop through the blocks in the cluster
                     for block in first_dir_block_num.range(dir_size) {
+                        // Read a block of directory entries
                         block_device
                             .read(&mut blocks, block, "read_dir")
                             .map_err(Error::DeviceError)?;
+                        // Are any entries in the block we just loaded blank? If so
+                        // we can use them.
                         for entry in 0..Block::LEN / OnDiskDirEntry::LEN {
                             let start = entry * OnDiskDirEntry::LEN;
                             let end = (entry + 1) * OnDiskDirEntry::LEN;
@@ -397,6 +405,8 @@ impl FatVolume {
                             }
                         }
                     }
+                    // Well none of the blocks in that cluster had any space in
+                    // them, let's fetch another one.
                     let mut block_cache = BlockCache::empty();
                     current_cluster =
                         match self.next_cluster(block_device, cluster, &mut block_cache) {
@@ -412,6 +422,8 @@ impl FatVolume {
                             _ => None,
                         };
                 }
+                // We ran out of clusters in the chain, and apparently we weren't
+                // able to make the chain longer, so the disk must be full.
                 Err(Error::NotEnoughSpace)
             }
         }
