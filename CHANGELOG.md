@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog] and this project adheres to [Semantic 
 
 * `Volume`, `Directory` and `File` are now smart! They hold references to the thing they were made from, and will clean themselves up when dropped. The trade-off is you can can't open multiple volumes, directories or files at the same time.
 * Renamed the old types to `RawVolume`, `RawDirectory` and `RawFile`
+* New method `make_dir_in_dir`
+* Fixed long-standing bug that caused an integer overflow when a FAT32 directory
+  was longer than one cluster ([#74])
+
+[#74]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/issues/74
 
 ## [Version 0.6.0] - 2023-10-20
 

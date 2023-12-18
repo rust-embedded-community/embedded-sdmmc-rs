@@ -5,7 +5,7 @@
 use byteorder::{ByteOrder, LittleEndian};
 use core::convert::TryFrom;
 
-use crate::fat::{self, BlockCache, RESERVED_ENTRIES};
+use crate::fat::{self, BlockCache, FatType, OnDiskDirEntry, RESERVED_ENTRIES};
 
 use crate::filesystem::{
     Attributes, ClusterId, DirEntry, DirectoryInfo, FileInfo, Mode, RawDirectory, RawFile,
@@ -432,8 +432,7 @@ where
                 match &self.open_volumes[volume_idx].volume_type {
                     VolumeType::Fat(fat) => {
                         file.entry.mtime = self.time_source.get_timestamp();
-                        let fat_type = fat.get_fat_type();
-                        self.write_entry_to_disk(fat_type, &file.entry)?;
+                        fat.write_entry_to_disk(&self.block_device, &file.entry)?;
                     }
                 };
 
@@ -518,7 +517,7 @@ where
                     VolumeType::Fat(fat) => fat.write_new_directory_entry(
                         &self.block_device,
                         &self.time_source,
-                        directory_info,
+                        directory_info.cluster,
                         sfn,
                         att,
                     )?,
@@ -789,8 +788,7 @@ where
                         // If you have a length, you must have a cluster
                         assert!(file_info.entry.cluster.0 != 0);
                     }
-                    let fat_type = fat.get_fat_type();
-                    self.write_entry_to_disk(fat_type, &file_info.entry)?;
+                    fat.write_entry_to_disk(&self.block_device, &file_info.entry)?;
                 }
             };
         }
@@ -866,6 +864,146 @@ where
         Ok(self.open_files[file_idx].current_offset)
     }
 
+    /// Create a directory in a given directory.
+    pub fn make_dir_in_dir<N>(
+        &mut self,
+        directory: RawDirectory,
+        name: N,
+    ) -> Result<(), Error<D::Error>>
+    where
+        N: ToShortFileName,
+    {
+        // This check is load-bearing - we do an unchecked push later.
+        if self.open_dirs.is_full() {
+            return Err(Error::TooManyOpenDirs);
+        }
+
+        let parent_directory_idx = self.get_dir_by_id(directory)?;
+        let parent_directory_info = &self.open_dirs[parent_directory_idx];
+        let volume_id = self.open_dirs[parent_directory_idx].volume_id;
+        let volume_idx = self.get_volume_by_id(volume_id)?;
+        let volume_info = &self.open_volumes[volume_idx];
+        let sfn = name.to_short_filename().map_err(Error::FilenameError)?;
+
+        debug!("Creating directory '{}'", sfn);
+        debug!(
+            "Parent dir is in cluster {:?}",
+            parent_directory_info.cluster
+        );
+
+        // Does an entry exist with this name?
+        let maybe_dir_entry = match &volume_info.volume_type {
+            VolumeType::Fat(fat) => {
+                fat.find_directory_entry(&self.block_device, parent_directory_info, &sfn)
+            }
+        };
+
+        match maybe_dir_entry {
+            Ok(entry) if entry.attributes.is_directory() => {
+                return Err(Error::DirAlreadyExists);
+            }
+            Ok(_entry) => {
+                return Err(Error::FileAlreadyExists);
+            }
+            Err(Error::FileNotFound) => {
+                // perfect, let's make it
+            }
+            Err(e) => {
+                // Some other error - tell them about it
+                return Err(e);
+            }
+        };
+
+        let att = Attributes::create_from_fat(Attributes::DIRECTORY);
+
+        // Need mutable access for this
+        match &mut self.open_volumes[volume_idx].volume_type {
+            VolumeType::Fat(fat) => {
+                debug!("Making dir entry");
+                let mut new_dir_entry_in_parent = fat.write_new_directory_entry(
+                    &self.block_device,
+                    &self.time_source,
+                    parent_directory_info.cluster,
+                    sfn,
+                    att,
+                )?;
+                if new_dir_entry_in_parent.cluster == ClusterId::EMPTY {
+                    new_dir_entry_in_parent.cluster =
+                        fat.alloc_cluster(&self.block_device, None, false)?;
+                    // update the parent dir with the cluster of the new dir
+                    fat.write_entry_to_disk(&self.block_device, &new_dir_entry_in_parent)?;
+                }
+                let new_dir_start_block = fat.cluster_to_block(new_dir_entry_in_parent.cluster);
+                debug!("Made new dir entry {:?}", new_dir_entry_in_parent);
+                let now = self.time_source.get_timestamp();
+                let fat_type = fat.get_fat_type();
+                // A blank block
+                let mut blocks = [Block::new()];
+                // make the "." entry
+                let dot_entry_in_child = DirEntry {
+                    name: crate::ShortFileName::this_dir(),
+                    mtime: now,
+                    ctime: now,
+                    attributes: att,
+                    // point at ourselves
+                    cluster: new_dir_entry_in_parent.cluster,
+                    size: 0,
+                    entry_block: new_dir_start_block,
+                    entry_offset: 0,
+                };
+                debug!("New dir has {:?}", dot_entry_in_child);
+                let mut offset = 0;
+                blocks[0][offset..offset + OnDiskDirEntry::LEN]
+                    .copy_from_slice(&dot_entry_in_child.serialize(fat_type)[..]);
+                offset += OnDiskDirEntry::LEN;
+                // make the ".." entry
+                let dot_dot_entry_in_child = DirEntry {
+                    name: crate::ShortFileName::parent_dir(),
+                    mtime: now,
+                    ctime: now,
+                    attributes: att,
+                    // point at our parent
+                    cluster: match fat_type {
+                        FatType::Fat16 => {
+                            // On FAT16, indicate parent is root using Cluster(0)
+                            if parent_directory_info.cluster == ClusterId::ROOT_DIR {
+                                ClusterId::EMPTY
+                            } else {
+                                parent_directory_info.cluster
+                            }
+                        }
+                        FatType::Fat32 => parent_directory_info.cluster,
+                    },
+                    size: 0,
+                    entry_block: new_dir_start_block,
+                    entry_offset: OnDiskDirEntry::LEN_U32,
+                };
+                debug!("New dir has {:?}", dot_dot_entry_in_child);
+                blocks[0][offset..offset + OnDiskDirEntry::LEN]
+                    .copy_from_slice(&dot_dot_entry_in_child.serialize(fat_type)[..]);
+
+                self.block_device
+                    .write(&blocks, new_dir_start_block)
+                    .map_err(Error::DeviceError)?;
+
+                // Now zero the rest of the cluster
+                for b in blocks[0].iter_mut() {
+                    *b = 0;
+                }
+                for block in new_dir_start_block
+                    .range(BlockCount(u32::from(fat.blocks_per_cluster)))
+                    .skip(1)
+                {
+                    self.block_device
+                        .write(&blocks, block)
+                        .map_err(Error::DeviceError)?;
+                }
+            }
+        };
+
+        Ok(())
+    }
+
     fn get_volume_by_id(&self, volume: RawVolume) -> Result<usize, Error<D::Error>> {
         for (idx, v) in self.open_volumes.iter().enumerate() {
             if v.volume_id == volume {
@@ -927,27 +1065,6 @@ where
         let block_offset = (desired_offset % Block::LEN_U32) as usize;
         let available = Block::LEN - block_offset;
         Ok((block_idx, block_offset, available))
-    }
-
-    /// Writes a Directory Entry to the disk
-    fn write_entry_to_disk(
-        &self,
-        fat_type: fat::FatType,
-        entry: &DirEntry,
-    ) -> Result<(), Error<D::Error>> {
-        let mut blocks = [Block::new()];
-        self.block_device
-            .read(&mut blocks, entry.entry_block, "read")
-            .map_err(Error::DeviceError)?;
-        let block = &mut blocks[0];
-
-        let start = usize::try_from(entry.entry_offset).map_err(|_| Error::ConversionError)?;
-        block[start..start + 32].copy_from_slice(&entry.serialize(fat_type)[..]);
-
-        self.block_device
-            .write(&blocks, entry.entry_block)
-            .map_err(Error::DeviceError)?;
-        Ok(())
     }
 }
 

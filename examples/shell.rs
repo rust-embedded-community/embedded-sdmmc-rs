@@ -41,6 +41,7 @@ impl Context {
             println!("\thexdump <file>      -> print a binary file");
             println!("\tcd ..               -> go up a level");
             println!("\tcd <dir>            -> change into <dir>");
+            println!("\tmkdir <dir>         -> create a directory called <dir>");
             println!("\tquit                -> exits the program");
         } else if line == "0:" {
             self.current_volume = 0;
@@ -59,11 +60,17 @@ impl Context {
             };
             self.volume_mgr.iterate_dir(s.directory, |entry| {
                 println!(
-                    "{:12} {:9} {} {:?}",
-                    entry.name, entry.size, entry.mtime, entry.attributes
+                    "{:12} {:9} {} {} {:X?} {:?}",
+                    entry.name,
+                    entry.size,
+                    entry.ctime,
+                    entry.mtime,
+                    entry.cluster,
+                    entry.attributes
                 );
             })?;
         } else if let Some(arg) = line.strip_prefix("cd ") {
+            let arg = arg.trim();
             let Some(s) = &mut self.volumes[self.current_volume] else {
                 println!("This volume isn't available");
                 return Ok(());
@@ -77,6 +84,7 @@ impl Context {
                 s.path.push(arg.to_owned());
             }
         } else if let Some(arg) = line.strip_prefix("cat ") {
+            let arg = arg.trim();
             let Some(s) = &mut self.volumes[self.current_volume] else {
                 println!("This volume isn't available");
                 return Ok(());
@@ -99,6 +107,7 @@ impl Context {
                 println!("I'm afraid that file isn't UTF-8 encoded");
             }
         } else if let Some(arg) = line.strip_prefix("hexdump ") {
+            let arg = arg.trim();
             let Some(s) = &mut self.volumes[self.current_volume] else {
                 println!("This volume isn't available");
                 return Ok(());
@@ -136,6 +145,14 @@ impl Context {
                 }
                 println!();
             }
+        } else if let Some(arg) = line.strip_prefix("mkdir ") {
+            let arg = arg.trim();
+            let Some(s) = &mut self.volumes[self.current_volume] else {
+                println!("This volume isn't available");
+                return Ok(());
+            };
+            // make the dir
+            self.volume_mgr.make_dir_in_dir(s.directory, arg)?;
         } else {
             println!("Unknown command {line:?} - try 'help' for help");
         }
