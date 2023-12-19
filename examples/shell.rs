@@ -1,6 +1,73 @@
 //! A simple shell demo for embedded-sdmmc
 //!
-//! Presents a basic command prompt which implements some basic MS-DOS style shell commands.
+//! Presents a basic command prompt which implements some basic MS-DOS style
+//! shell commands.
+//!
+//! Note that `embedded_sdmmc` itself does not care about 'paths' - only
+//! accessing files and directories on on disk, relative to some previously
+//! opened directory. A 'path' is an operating-system level construct, and can
+//! vary greatly (see MS-DOS paths vs POSIX paths). This example, however,
+//! implements an MS-DOS style Path API over the top of embedded-sdmmc. Feel
+//! free to copy it if it suits your particular application.
+//!
+//! The four primary partitions are scanned on the given disk image on start-up.
+//! Any valid FAT16 or FAT32 volumes are mounted, and given volume labels from
+//! `A:` to `C:`, like MS-DOS. Also like MS-DOS, file and directory names use
+//! the `8.3` format, like `FILENAME.TXT`. Long filenames are not supported.
+//!
+//! Unlike MS-DOS, this application uses the POSIX `/` as the directory
+//! separator.
+//!
+//! Every volume has its own *current working directory*. The shell has one
+//! *current volume* selected but it remembers the *current working directory*
+//! for the unselected volumes.
+//!
+//! A path comprises:
+//!
+//! * An optional volume specifier, like `A:`
+//!   * If the volume specifier is not given, the current volume is used.
+//! * An optional `/` to indicate this is an absolute path, not a relative path
+//!   * If this is a relative path, traversal starts at the Current Working
+//!     Directory for the volume
+//! * An optional sequence of directory names, each followed by a `/`
+//! * An optional final filename
+//!   * If this is missing, then `.` is the default (which selects the
+//!     containing directory)
+//!
+//! An *expanded path* has all optional components, and works independently of
+//! whichever volume is currently selected, or the current working directory
+//! within that volume. The empty path (`""`) is invalid, but commands may
+//! assume that in the absence of a path argument they are to use the current
+//! working directory on the current volume.
+//!
+//! As an example, imagine that volume `A:` is the current volume, and we have
+//! these current working directories:
+//!
+//! * `A:` has a CWD of `/CATS`
+//! * `B:` has a CWD of `/DOGS`
+//!
+//! The following path expansions would occur:
+//!
+//! | Given Path                  | Volume  | Absolute | Directory Names    | Final Filename | Expanded Path                  |
+//! | --------------------------- | ------- | -------- | ------------------ | -------------- | ------------------------------ |
+//! | `NAMES.CSV`                 | Current | No       | `[]`               | `NAMES.CSV`    | `A:/CATS/NAMES.CSV`            |
+//! | `./NAMES.CSV`               | Current | No       | `[.]`              | `NAMES.CSV`    | `A:/CATS/NAMES.CSV`            |
+//! | `BACKUP.000/`               | Current | No       | `[BACKUP.000]`     | None           | `A:/CATS/BACKUP.000/.`         |
+//! | `BACKUP.000/NAMES.CSV`      | Current | No       | `[BACKUP.000]`     | `NAMES.CSV`    | `A:/CATS/BACKUP.000/NAMES.CSV` |
+//! | `/BACKUP.000/NAMES.CSV`     | Current | Yes      | `[BACKUP.000]`     | `NAMES.CSV`    | `A:/BACKUP.000/NAMES.CSV`      |
+//! | `../BACKUP.000/NAMES.CSV`   | Current | No       | `[.., BACKUP.000]` | `NAMES.CSV`    | `A:/BACKUP.000/NAMES.CSV`      |
+//! | `A:NAMES.CSV`               | `A:`    | No       | `[]`               | `NAMES.CSV`    | `A:/CATS/NAMES.CSV`            |
+//! | `A:./NAMES.CSV`             | `A:`    | No       | `[.]`              | `NAMES.CSV`    | `A:/CATS/NAMES.CSV`            |
+//! | `A:BACKUP.000/`             | `A:`    | No       | `[BACKUP.000]`     | None           | `A:/CATS/BACKUP.000/.`         |
+//! | `A:BACKUP.000/NAMES.CSV`    | `A:`    | No       | `[BACKUP.000]`     | `NAMES.CSV`    | `A:/CATS/BACKUP.000/NAMES.CSV` |
+//! | `A:/BACKUP.000/NAMES.CSV`   | `A:`    | Yes      | `[BACKUP.000]`     | `NAMES.CSV`    | `A:/BACKUP.000/NAMES.CSV`      |
+//! | `A:../BACKUP.000/NAMES.CSV` | `A:`    | No       | `[.., BACKUP.000]` | `NAMES.CSV`    | `A:/BACKUP.000/NAMES.CSV`      |
+//! | `B:NAMES.CSV`               | `B:`    | No       | `[]`               | `NAMES.CSV`    | `B:/DOGS/NAMES.CSV`            |
+//! | `B:./NAMES.CSV`             | `B:`    | No       | `[.]`              | `NAMES.CSV`    | `B:/DOGS/NAMES.CSV`            |
+//! | `B:BACKUP.000/`             | `B:`    | No       | `[BACKUP.000]`     | None           | `B:/DOGS/BACKUP.000/.`         |
+//! | `B:BACKUP.000/NAMES.CSV`    | `B:`    | No       | `[BACKUP.000]`     | `NAMES.CSV`    | `B:/DOGS/BACKUP.000/NAMES.CSV` |
+//! | `B:/BACKUP.000/NAMES.CSV`   | `B:`    | Yes      | `[BACKUP.000]`     | `NAMES.CSV`    | `B:/BACKUP.000/NAMES.CSV`      |
+//! | `B:../BACKUP.000/NAMES.CSV` | `B:`    | No       | `[.., BACKUP.000]` | `NAMES.CSV`    | `B:/BACKUP.000/NAMES.CSV`      |
 
 use std::io::prelude::*;
 
@@ -11,6 +78,100 @@ use crate::linux::{Clock, LinuxBlockDevice};
 type Error = EsError<std::io::Error>;
 
 mod linux;
+
+/// Represents a path on a volume within `embedded_sdmmc`.
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[repr(transparent)]
+struct Path(str);
+
+impl std::ops::Deref for Path {
+    type Target = str;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl Path {
+    /// Create a new Path from a string slice.
+    ///
+    /// The `Path` borrows the string slice. No validation is performed on the
+    /// path.
+    fn new<S: AsRef<str> + ?Sized>(s: &S) -> &Path {
+        unsafe { &*(s.as_ref() as *const str as *const Path) }
+    }
+
+    /// Does this path specify a volume?
+    fn volume(&self) -> Option<char> {
+        let mut char_iter = self.chars();
+        match (char_iter.next(), char_iter.next()) {
+            (Some(volume), Some(':')) => Some(volume),
+            _ => None,
+        }
+    }
+
+    /// Is this an absolute path?
+    fn is_absolute(&self) -> bool {
+        let tail = self.without_volume();
+        tail.starts_with('/')
+    }
+
+    /// Iterate through the directory components.
+    ///
+    /// This will exclude the final path component (i.e. it will not include the
+    /// 'basename').
+    fn iterate_dirs(&self) -> impl Iterator<Item = &str> {
+        let path = self.without_volume();
+        let path = path.strip_prefix('/').unwrap_or(path);
+        if let Some((directories, _basename)) = path.rsplit_once('/') {
+            directories.split('/')
+        } else {
+            "".split('/')
+        }
+    }
+
+    /// Iterate through all the components.
+    ///
+    /// This will include the final path component (i.e. it will include the
+    /// 'basename').
+    fn iterate_components(&self) -> impl Iterator<Item = &str> {
+        let path = self.without_volume();
+        let path = path.strip_prefix('/').unwrap_or(path);
+        path.split('/')
+    }
+
+    /// Get the final component of this path (the 'basename').
+    fn basename(&self) -> Option<&str> {
+        if let Some((_, basename)) = self.rsplit_once('/') {
+            if basename.is_empty() {
+                None
+            } else {
+                Some(basename)
+            }
+        } else {
+            let path = self.without_volume();
+            Some(path)
+        }
+    }
+
+    /// Return this [`Path`], but without a leading volume.
+    fn without_volume(&self) -> &Path {
+        if let Some((volume, tail)) = self.split_once(':') {
+            // only support single char drive letters
+            if volume.chars().count() == 1 {
+                return Path::new(tail);
+            }
+        }
+        self
+    }
+}
+
+impl PartialEq<str> for Path {
+    fn eq(&self, other: &str) -> bool {
+        let s: &str = self;
+        s == other
+    }
+}
 
 struct VolumeState {
     directory: RawDirectory,
@@ -61,42 +222,52 @@ impl Context {
     }
 
     /// Print a directory listing
-    fn dir(&mut self, path: &str) -> Result<(), Error> {
+    fn dir(&mut self, path: &Path) -> Result<(), Error> {
         println!("Directory listing of {:?}", path);
         let dir = self.resolve_existing_directory(path)?;
         let mut dir = dir.to_directory(&mut self.volume_mgr);
         dir.iterate_dir(|entry| {
             println!(
-                "{:12} {:9} {} {} {:X?} {:?}",
+                "{:12} {:9} {} {} {:08X?} {:?}",
                 entry.name, entry.size, entry.ctime, entry.mtime, entry.cluster, entry.attributes
             );
         })?;
         Ok(())
     }
 
-    /// Change into <dir>
+    /// Change into `<dir>`
     ///
-    /// An arg of `..` goes up one level
-    fn cd(&mut self, filename: &str) -> Result<(), Error> {
-        let Some(s) = &mut self.volumes[self.current_volume] else {
-            println!("This volume isn't available");
-            return Ok(());
+    /// * An arg of `..` goes up one level
+    /// * A relative arg like `../FOO` goes up a level and then into the `FOO`
+    ///   sub-folder, starting from the current directory on the current volume
+    /// * An absolute path like `1:/FOO` changes the CWD on Volume 1 to path
+    ///   `/FOO`
+    fn cd(&mut self, full_path: &Path) -> Result<(), Error> {
+        let volume_idx = self.resolve_volume(full_path)?;
+        let d = self.resolve_existing_directory(full_path)?;
+        let Some(s) = &mut self.volumes[volume_idx] else {
+            self.volume_mgr.close_dir(d).expect("close open dir");
+            return Err(Error::NoSuchVolume);
         };
-        let d = self.volume_mgr.open_dir(s.directory, filename)?;
         self.volume_mgr
             .close_dir(s.directory)
             .expect("close open dir");
         s.directory = d;
-        if filename == ".." {
-            s.path.pop();
-        } else {
-            s.path.push(filename.to_owned());
+        if full_path.is_absolute() {
+            s.path.clear();
+        }
+        for fragment in full_path.iterate_components().filter(|s| !s.is_empty()) {
+            if fragment == ".." {
+                s.path.pop();
+            } else {
+                s.path.push(fragment.to_owned());
+            }
         }
         Ok(())
     }
 
     /// print a text file
-    fn cat(&mut self, filename: &str) -> Result<(), Error> {
+    fn cat(&mut self, filename: &Path) -> Result<(), Error> {
         let (dir, filename) = self.resolve_filename(filename)?;
         let mut dir = dir.to_directory(&mut self.volume_mgr);
         let mut f = dir.open_file_in_dir(filename, embedded_sdmmc::Mode::ReadOnly)?;
@@ -117,7 +288,7 @@ impl Context {
     }
 
     /// print a binary file
-    fn hexdump(&mut self, filename: &str) -> Result<(), Error> {
+    fn hexdump(&mut self, filename: &Path) -> Result<(), Error> {
         let (dir, filename) = self.resolve_filename(filename)?;
         let mut dir = dir.to_directory(&mut self.volume_mgr);
         let mut f = dir.open_file_in_dir(filename, embedded_sdmmc::Mode::ReadOnly)?;
@@ -154,7 +325,7 @@ impl Context {
     }
 
     /// create a directory
-    fn mkdir(&mut self, dir_name: &str) -> Result<(), Error> {
+    fn mkdir(&mut self, dir_name: &Path) -> Result<(), Error> {
         let (dir, filename) = self.resolve_filename(dir_name)?;
         let mut dir = dir.to_directory(&mut self.volume_mgr);
         dir.make_dir_in_dir(filename)
@@ -163,28 +334,28 @@ impl Context {
     fn process_line(&mut self, line: &str) -> Result<(), Error> {
         if line == "help" {
             self.help()?;
-        } else if line == "0:" {
+        } else if line == "A:" || line == "a:" {
             self.current_volume = 0;
-        } else if line == "1:" {
+        } else if line == "B:" || line == "b:" {
             self.current_volume = 1;
-        } else if line == "2:" {
+        } else if line == "C:" || line == "c:" {
             self.current_volume = 2;
-        } else if line == "3:" {
+        } else if line == "D:" || line == "d:" {
             self.current_volume = 3;
         } else if line == "dir" {
-            self.dir(".")?;
-        } else if let Some(dirname) = line.strip_prefix("dir ") {
-            self.dir(dirname.trim())?;
+            self.dir(Path::new("."))?;
+        } else if let Some(path) = line.strip_prefix("dir ") {
+            self.dir(Path::new(path.trim()))?;
         } else if line == "stat" {
             self.stat()?;
-        } else if let Some(dirname) = line.strip_prefix("cd ") {
-            self.cd(dirname.trim())?;
-        } else if let Some(filename) = line.strip_prefix("cat ") {
-            self.cat(filename.trim())?;
-        } else if let Some(filename) = line.strip_prefix("hexdump ") {
-            self.hexdump(filename.trim())?;
-        } else if let Some(dirname) = line.strip_prefix("mkdir ") {
-            self.mkdir(dirname.trim())?;
+        } else if let Some(path) = line.strip_prefix("cd ") {
+            self.cd(Path::new(path.trim()))?;
+        } else if let Some(path) = line.strip_prefix("cat ") {
+            self.cat(Path::new(path.trim()))?;
+        } else if let Some(path) = line.strip_prefix("hexdump ") {
+            self.hexdump(Path::new(path.trim()))?;
+        } else if let Some(path) = line.strip_prefix("mkdir ") {
+            self.mkdir(Path::new(path.trim()))?;
         } else {
             println!("Unknown command {line:?} - try 'help' for help");
         }
@@ -200,11 +371,23 @@ impl Context {
     /// * Relative names, like `../SOMEDIR` or `./SOMEDIR`, traverse
     ///   starting at the current volume and directory.
     /// * Absolute, like `1:/SOMEDIR/OTHERDIR` start at the given volume.
-    fn resolve_existing_directory(&mut self, full_path: &str) -> Result<RawDirectory, Error> {
+    fn resolve_existing_directory(&mut self, full_path: &Path) -> Result<RawDirectory, Error> {
         let (dir, fragment) = self.resolve_filename(full_path)?;
         let mut work_dir = dir.to_directory(&mut self.volume_mgr);
         work_dir.change_dir(fragment)?;
         Ok(work_dir.to_raw_directory())
+    }
+
+    /// Either get the volume from the path, or pick the current volume.
+    fn resolve_volume(&self, path: &Path) -> Result<usize, Error> {
+        match path.volume() {
+            None => Ok(self.current_volume),
+            Some('A' | 'a') => Ok(0),
+            Some('B' | 'b') => Ok(1),
+            Some('C' | 'c') => Ok(2),
+            Some('D' | 'd') => Ok(3),
+            Some(_) => Err(Error::NoSuchVolume),
+        }
     }
 
     /// Resolves a filename.
@@ -219,22 +402,13 @@ impl Context {
     /// * Absolute, like `1:/SOMEDIR/SOMEFILE` start at the given volume.
     fn resolve_filename<'path>(
         &mut self,
-        full_path: &'path str,
+        full_path: &'path Path,
     ) -> Result<(RawDirectory, &'path str), Error> {
-        let mut volume_idx = self.current_volume;
-        let mut path_fragments = if full_path.is_empty() { "." } else { full_path };
-        let mut is_absolute = false;
-        if let Some((given_volume_idx, remainder)) =
-            Self::is_absolute(full_path, VolumeIdx(self.current_volume))
-        {
-            volume_idx = given_volume_idx.0;
-            path_fragments = remainder;
-            is_absolute = true;
-        }
+        let volume_idx = self.resolve_volume(full_path)?;
         let Some(s) = &mut self.volumes[volume_idx] else {
             return Err(Error::NoSuchVolume);
         };
-        let mut work_dir = if is_absolute {
+        let mut work_dir = if full_path.is_absolute() {
             // relative to root
             self.volume_mgr
                 .open_root_dir(s.volume)?
@@ -246,33 +420,23 @@ impl Context {
                 .to_directory(&mut self.volume_mgr)
         };
 
-        let mut path_iter = path_fragments.split('/').peekable();
-        let mut last_piece = ".";
-        while let Some(fragment) = path_iter.next() {
-            if path_iter.peek().is_none() {
-                // this is the last piece
-                last_piece = fragment;
-                break;
-            }
+        for fragment in full_path.iterate_dirs() {
             work_dir.change_dir(fragment)?;
         }
-
-        Ok((work_dir.to_raw_directory(), last_piece))
+        Ok((
+            work_dir.to_raw_directory(),
+            full_path.basename().unwrap_or("."),
+        ))
     }
 
-    /// Is this an absolute path?
-    fn is_absolute(path: &str, current_volume: VolumeIdx) -> Option<(VolumeIdx, &str)> {
-        if let Some(remainder) = path.strip_prefix("0:/") {
-            Some((VolumeIdx(0), remainder))
-        } else if let Some(remainder) = path.strip_prefix("1:/") {
-            Some((VolumeIdx(1), remainder))
-        } else if let Some(remainder) = path.strip_prefix("2:/") {
-            Some((VolumeIdx(2), remainder))
-        } else if let Some(remainder) = path.strip_prefix("3:/") {
-            Some((VolumeIdx(3), remainder))
-        } else {
-            path.strip_prefix('/')
-                .map(|remainder| (current_volume, remainder))
+    /// Convert a volume index to a letter
+    fn volume_to_letter(volume: usize) -> char {
+        match volume {
+            0 => 'A',
+            1 => 'B',
+            2 => 'C',
+            3 => 'D',
+            _ => panic!("Invalid volume ID"),
         }
     }
 }
@@ -314,7 +478,7 @@ fn main() -> Result<(), Error> {
     for volume_no in 0..4 {
         match ctx.volume_mgr.open_raw_volume(VolumeIdx(volume_no)) {
             Ok(volume) => {
-                println!("Volume # {}: found", volume_no,);
+                println!("Volume # {}: found", Context::volume_to_letter(volume_no));
                 match ctx.volume_mgr.open_root_dir(volume) {
                     Ok(root_dir) => {
                         ctx.volumes[volume_no] = Some(VolumeState {
@@ -350,7 +514,7 @@ fn main() -> Result<(), Error> {
     };
 
     loop {
-        print!("{}:/", ctx.current_volume);
+        print!("{}:/", Context::volume_to_letter(ctx.current_volume));
         print!("{}", ctx.current_path().join("/"));
         print!("> ");
         std::io::stdout().flush().unwrap();
