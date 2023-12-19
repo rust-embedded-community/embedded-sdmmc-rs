@@ -4,9 +4,11 @@
 
 use std::io::prelude::*;
 
-use embedded_sdmmc::{Error, RawDirectory, RawVolume, VolumeIdx, VolumeManager};
+use embedded_sdmmc::{Error as EsError, RawDirectory, RawVolume, VolumeIdx, VolumeManager};
 
 use crate::linux::{Clock, LinuxBlockDevice};
+
+type Error = EsError<std::io::Error>;
 
 mod linux;
 
@@ -30,19 +32,149 @@ impl Context {
         s.path.clone()
     }
 
-    fn process_line(&mut self, line: &str) -> Result<(), Error<std::io::Error>> {
+    /// Print some help text
+    fn help(&mut self) -> Result<(), Error> {
+        println!("Commands:");
+        println!("\thelp                -> this help text");
+        println!("\t<volume>:           -> change volume/partition");
+        println!("\tstat                -> print volume manager status");
+        println!("\tdir [<path>]        -> do a directory listing");
+        println!("\tcd ..               -> go up a level");
+        println!("\tcd <path>           -> change into directory <path>");
+        println!("\tcat <path>          -> print a text file");
+        println!("\thexdump <path>      -> print a binary file");
+        println!("\tmkdir <path>        -> create an empty directory");
+        println!("\tquit                -> exits the program");
+        println!();
+        println!("Paths can be:");
+        println!();
+        println!("\t* Bare names, like `FILE.DAT`");
+        println!("\t* Relative, like `../SOMEDIR/FILE.DAT` or `./FILE.DAT`");
+        println!("\t* Absolute, like `1:/SOMEDIR/FILE.DAT`");
+        Ok(())
+    }
+
+    /// Print volume manager status
+    fn stat(&mut self) -> Result<(), Error> {
+        println!("Status:\n{:#?}", self.volume_mgr);
+        Ok(())
+    }
+
+    /// Print a directory listing
+    fn dir(&mut self) -> Result<(), Error> {
+        let Some(s) = &self.volumes[self.current_volume] else {
+            println!("That volume isn't available");
+            return Ok(());
+        };
+        self.volume_mgr.iterate_dir(s.directory, |entry| {
+            println!(
+                "{:12} {:9} {} {} {:X?} {:?}",
+                entry.name, entry.size, entry.ctime, entry.mtime, entry.cluster, entry.attributes
+            );
+        })?;
+        Ok(())
+    }
+
+    /// Change into <dir>
+    ///
+    /// An arg of `..` goes up one level
+    fn cd(&mut self, filename: &str) -> Result<(), Error> {
+        let Some(s) = &mut self.volumes[self.current_volume] else {
+            println!("This volume isn't available");
+            return Ok(());
+        };
+        let d = self.volume_mgr.open_dir(s.directory, filename)?;
+        self.volume_mgr.close_dir(s.directory)?;
+        s.directory = d;
+        if filename == ".." {
+            s.path.pop();
+        } else {
+            s.path.push(filename.to_owned());
+        }
+        Ok(())
+    }
+
+    /// print a text file
+    fn cat(&mut self, filename: &str) -> Result<(), Error> {
+        let Some(s) = &mut self.volumes[self.current_volume] else {
+            println!("This volume isn't available");
+            return Ok(());
+        };
+        let mut f = self
+            .volume_mgr
+            .open_file_in_dir(s.directory, filename, embedded_sdmmc::Mode::ReadOnly)?
+            .to_file(&mut self.volume_mgr);
+        let mut data = Vec::new();
+        while !f.is_eof() {
+            let mut buffer = vec![0u8; 65536];
+            let n = f.read(&mut buffer)?;
+            // read n bytes
+            data.extend_from_slice(&buffer[0..n]);
+            println!("Read {} bytes, making {} total", n, data.len());
+        }
+        if let Ok(s) = std::str::from_utf8(&data) {
+            println!("{}", s);
+        } else {
+            println!("I'm afraid that file isn't UTF-8 encoded");
+        }
+        Ok(())
+    }
+
+    /// print a binary file
+    fn hexdump(&mut self, filename: &str) -> Result<(), Error> {
+        let Some(s) = &mut self.volumes[self.current_volume] else {
+            println!("This volume isn't available");
+            return Ok(());
+        };
+        let mut f = self
+            .volume_mgr
+            .open_file_in_dir(s.directory, filename, embedded_sdmmc::Mode::ReadOnly)?
+            .to_file(&mut self.volume_mgr);
+        let mut data = Vec::new();
+        while !f.is_eof() {
+            let mut buffer = vec![0u8; 65536];
+            let n = f.read(&mut buffer)?;
+            // read n bytes
+            data.extend_from_slice(&buffer[0..n]);
+            println!("Read {} bytes, making {} total", n, data.len());
+        }
+        for (idx, chunk) in data.chunks(16).enumerate() {
+            print!("{:08x} | ", idx * 16);
+            for b in chunk {
+                print!("{:02x} ", b);
+            }
+            for _padding in 0..(16 - chunk.len()) {
+                print!("   ");
+            }
+            print!("| ");
+            for b in chunk {
+                print!(
+                    "{}",
+                    if b.is_ascii_graphic() {
+                        *b as char
+                    } else {
+                        '.'
+                    }
+                );
+            }
+            println!();
+        }
+        Ok(())
+    }
+
+    /// create a directory
+    fn mkdir(&mut self, dir_name: &str) -> Result<(), Error> {
+        let Some(s) = &mut self.volumes[self.current_volume] else {
+            println!("This volume isn't available");
+            return Ok(());
+        };
+        // make the dir
+        self.volume_mgr.make_dir_in_dir(s.directory, dir_name)
+    }
+
+    fn process_line(&mut self, line: &str) -> Result<(), Error> {
         if line == "help" {
-            println!("Commands:");
-            println!("\thelp                -> this help text");
-            println!("\t<volume>:           -> change volume/partition");
-            println!("\tdir                 -> do a directory listing");
-            println!("\tstat                -> print volume manager status");
-            println!("\tcat <file>          -> print a text file");
-            println!("\thexdump <file>      -> print a binary file");
-            println!("\tcd ..               -> go up a level");
-            println!("\tcd <dir>            -> change into <dir>");
-            println!("\tmkdir <dir>         -> create a directory called <dir>");
-            println!("\tquit                -> exits the program");
+            self.help()?;
         } else if line == "0:" {
             self.current_volume = 0;
         } else if line == "1:" {
@@ -51,108 +183,18 @@ impl Context {
             self.current_volume = 2;
         } else if line == "3:" {
             self.current_volume = 3;
-        } else if line == "stat" {
-            println!("Status:\n{:#?}", self.volume_mgr);
         } else if line == "dir" {
-            let Some(s) = &self.volumes[self.current_volume] else {
-                println!("That volume isn't available");
-                return Ok(());
-            };
-            self.volume_mgr.iterate_dir(s.directory, |entry| {
-                println!(
-                    "{:12} {:9} {} {} {:X?} {:?}",
-                    entry.name,
-                    entry.size,
-                    entry.ctime,
-                    entry.mtime,
-                    entry.cluster,
-                    entry.attributes
-                );
-            })?;
-        } else if let Some(arg) = line.strip_prefix("cd ") {
-            let arg = arg.trim();
-            let Some(s) = &mut self.volumes[self.current_volume] else {
-                println!("This volume isn't available");
-                return Ok(());
-            };
-            let d = self.volume_mgr.open_dir(s.directory, arg)?;
-            self.volume_mgr.close_dir(s.directory)?;
-            s.directory = d;
-            if arg == ".." {
-                s.path.pop();
-            } else {
-                s.path.push(arg.to_owned());
-            }
-        } else if let Some(arg) = line.strip_prefix("cat ") {
-            let arg = arg.trim();
-            let Some(s) = &mut self.volumes[self.current_volume] else {
-                println!("This volume isn't available");
-                return Ok(());
-            };
-            let mut f = self
-                .volume_mgr
-                .open_file_in_dir(s.directory, arg, embedded_sdmmc::Mode::ReadOnly)?
-                .to_file(&mut self.volume_mgr);
-            let mut data = Vec::new();
-            while !f.is_eof() {
-                let mut buffer = vec![0u8; 65536];
-                let n = f.read(&mut buffer)?;
-                // read n bytes
-                data.extend_from_slice(&buffer[0..n]);
-                println!("Read {} bytes, making {} total", n, data.len());
-            }
-            if let Ok(s) = std::str::from_utf8(&data) {
-                println!("{}", s);
-            } else {
-                println!("I'm afraid that file isn't UTF-8 encoded");
-            }
-        } else if let Some(arg) = line.strip_prefix("hexdump ") {
-            let arg = arg.trim();
-            let Some(s) = &mut self.volumes[self.current_volume] else {
-                println!("This volume isn't available");
-                return Ok(());
-            };
-            let mut f = self
-                .volume_mgr
-                .open_file_in_dir(s.directory, arg, embedded_sdmmc::Mode::ReadOnly)?
-                .to_file(&mut self.volume_mgr);
-            let mut data = Vec::new();
-            while !f.is_eof() {
-                let mut buffer = vec![0u8; 65536];
-                let n = f.read(&mut buffer)?;
-                // read n bytes
-                data.extend_from_slice(&buffer[0..n]);
-                println!("Read {} bytes, making {} total", n, data.len());
-            }
-            for (idx, chunk) in data.chunks(16).enumerate() {
-                print!("{:08x} | ", idx * 16);
-                for b in chunk {
-                    print!("{:02x} ", b);
-                }
-                for _padding in 0..(16 - chunk.len()) {
-                    print!("   ");
-                }
-                print!("| ");
-                for b in chunk {
-                    print!(
-                        "{}",
-                        if b.is_ascii_graphic() {
-                            *b as char
-                        } else {
-                            '.'
-                        }
-                    );
-                }
-                println!();
-            }
-        } else if let Some(arg) = line.strip_prefix("mkdir ") {
-            let arg = arg.trim();
-            let Some(s) = &mut self.volumes[self.current_volume] else {
-                println!("This volume isn't available");
-                return Ok(());
-            };
-            // make the dir
-            self.volume_mgr.make_dir_in_dir(s.directory, arg)?;
+            self.dir()?;
+        } else if line == "stat" {
+            self.stat()?;
+        } else if let Some(dirname) = line.strip_prefix("cd ") {
+            self.cd(dirname.trim())?;
+        } else if let Some(filename) = line.strip_prefix("cat ") {
+            self.cat(filename.trim())?;
+        } else if let Some(filename) = line.strip_prefix("hexdump ") {
+            self.hexdump(filename.trim())?;
+        } else if let Some(dirname) = line.strip_prefix("mkdir ") {
+            self.mkdir(dirname.trim())?;
         } else {
             println!("Unknown command {line:?} - try 'help' for help");
         }
@@ -178,7 +220,7 @@ impl Drop for Context {
     }
 }
 
-fn main() -> Result<(), Error<std::io::Error>> {
+fn main() -> Result<(), Error> {
     env_logger::init();
     let mut args = std::env::args().skip(1);
     let filename = args.next().unwrap_or_else(|| "/dev/mmcblk0".into());
