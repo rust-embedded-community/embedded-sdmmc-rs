@@ -316,7 +316,7 @@ fn find_dir_entry() {
 
     assert!(matches!(
         volume_mgr.find_directory_entry(root_dir, "README.TXS"),
-        Err(embedded_sdmmc::Error::FileNotFound)
+        Err(embedded_sdmmc::Error::NotFound)
     ));
 }
 
@@ -345,7 +345,7 @@ fn delete_file() {
 
     assert!(matches!(
         volume_mgr.delete_file_in_dir(root_dir, "README2.TXT"),
-        Err(embedded_sdmmc::Error::FileNotFound)
+        Err(embedded_sdmmc::Error::NotFound)
     ));
 
     volume_mgr.close_file(file).unwrap();
@@ -356,12 +356,12 @@ fn delete_file() {
 
     assert!(matches!(
         volume_mgr.delete_file_in_dir(root_dir, "README.TXT"),
-        Err(embedded_sdmmc::Error::FileNotFound)
+        Err(embedded_sdmmc::Error::NotFound)
     ));
 
     assert!(matches!(
         volume_mgr.open_file_in_dir(root_dir, "README.TXT", Mode::ReadOnly),
-        Err(embedded_sdmmc::Error::FileNotFound)
+        Err(embedded_sdmmc::Error::NotFound)
     ));
 }
 

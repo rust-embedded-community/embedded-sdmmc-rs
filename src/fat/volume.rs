@@ -575,7 +575,7 @@ impl FatVolume {
                             match_name,
                             block,
                         ) {
-                            Err(Error::FileNotFound) => continue,
+                            Err(Error::NotFound) => continue,
                             x => return x,
                         }
                     }
@@ -592,7 +592,7 @@ impl FatVolume {
                         current_cluster = None;
                     }
                 }
-                Err(Error::FileNotFound)
+                Err(Error::NotFound)
             }
             FatSpecificInfo::Fat32(fat32_info) => {
                 let mut current_cluster = match dir.cluster {
@@ -609,7 +609,7 @@ impl FatVolume {
                             match_name,
                             block,
                         ) {
-                            Err(Error::FileNotFound) => continue,
+                            Err(Error::NotFound) => continue,
                             x => return x,
                         }
                     }
@@ -619,7 +619,7 @@ impl FatVolume {
                             _ => None,
                         }
                 }
-                Err(Error::FileNotFound)
+                Err(Error::NotFound)
             }
         }
     }
@@ -653,7 +653,7 @@ impl FatVolume {
                 return Ok(dir_entry.get_entry(fat_type, block, start));
             }
         }
-        Err(Error::FileNotFound)
+        Err(Error::NotFound)
     }
 
     /// Delete an entry from the given directory
@@ -691,7 +691,7 @@ impl FatVolume {
                     // Scan the cluster / root dir a block at a time
                     for block in first_dir_block_num.range(dir_size) {
                         match self.delete_entry_in_block(block_device, match_name, block) {
-                            Err(Error::FileNotFound) => {
+                            Err(Error::NotFound) => {
                                 // Carry on
                             }
                             x => {
@@ -731,7 +731,7 @@ impl FatVolume {
                     let block_idx = self.cluster_to_block(cluster);
                     for block in block_idx.range(BlockCount(u32::from(self.blocks_per_cluster))) {
                         match self.delete_entry_in_block(block_device, match_name, block) {
-                            Err(Error::FileNotFound) => {
+                            Err(Error::NotFound) => {
                                 // Carry on
                                 continue;
                             }
@@ -755,7 +755,7 @@ impl FatVolume {
         }
         // If we get here we never found the right entry in any of the
         // blocks that made up the directory
-        Err(Error::FileNotFound)
+        Err(Error::NotFound)
     }
 
     /// Deletes a directory entry from a block of directory entries.
@@ -790,7 +790,7 @@ impl FatVolume {
                     .map_err(Error::DeviceError);
             }
         }
-        Err(Error::FileNotFound)
+        Err(Error::NotFound)
     }
 
     /// Finds the next free cluster after the start_cluster and before end_cluster

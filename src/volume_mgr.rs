@@ -493,7 +493,7 @@ where
             }
             _ => {
                 // We are opening a non-existant file, and that's not OK.
-                return Err(Error::FileNotFound);
+                return Err(Error::NotFound);
             }
         };
 
@@ -905,7 +905,7 @@ where
             Ok(_entry) => {
                 return Err(Error::FileAlreadyExists);
             }
-            Err(Error::FileNotFound) => {
+            Err(Error::NotFound) => {
                 // perfect, let's make it
             }
             Err(e) => {
