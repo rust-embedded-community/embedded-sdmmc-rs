@@ -12,9 +12,9 @@ use crate::filesystem::{
     SearchIdGenerator, TimeSource, ToShortFileName, MAX_FILE_SIZE,
 };
 use crate::{
-    debug, Block, BlockCount, BlockDevice, BlockIdx, Error, RawVolume, Volume, VolumeIdx,
-    VolumeInfo, VolumeType, PARTITION_ID_FAT16, PARTITION_ID_FAT16_LBA, PARTITION_ID_FAT32_CHS_LBA,
-    PARTITION_ID_FAT32_LBA,
+    debug, Block, BlockCount, BlockDevice, BlockIdx, Error, RawVolume, ShortFileName, Volume,
+    VolumeIdx, VolumeInfo, VolumeType, PARTITION_ID_FAT16, PARTITION_ID_FAT16_LBA,
+    PARTITION_ID_FAT32_CHS_LBA, PARTITION_ID_FAT32_LBA,
 };
 use heapless::Vec;
 
@@ -206,11 +206,7 @@ where
     /// You can then read the directory entries with `iterate_dir`, or you can
     /// use `open_file_in_dir`.
     pub fn open_root_dir(&mut self, volume: RawVolume) -> Result<RawDirectory, Error<D::Error>> {
-        for dir in self.open_dirs.iter() {
-            if dir.cluster == ClusterId::ROOT_DIR && dir.volume_id == volume {
-                return Err(Error::DirAlreadyOpen);
-            }
-        }
+        // Opening a root directory twice is OK
 
         let directory_id = RawDirectory(self.id_generator.get());
         let dir_info = DirectoryInfo {
@@ -229,6 +225,8 @@ where
     /// Open a directory.
     ///
     /// You can then read the directory entries with `iterate_dir` and `open_file_in_dir`.
+    ///
+    /// Passing "." as the name results in opening the `parent_dir` a second time.
     pub fn open_dir<N>(
         &mut self,
         parent_dir: RawDirectory,
@@ -245,9 +243,25 @@ where
         let parent_dir_idx = self.get_dir_by_id(parent_dir)?;
         let volume_idx = self.get_volume_by_id(self.open_dirs[parent_dir_idx].volume_id)?;
         let short_file_name = name.to_short_filename().map_err(Error::FilenameError)?;
+        let parent_dir_info = &self.open_dirs[parent_dir_idx];
 
         // Open the directory
-        let parent_dir_info = &self.open_dirs[parent_dir_idx];
+        if short_file_name == ShortFileName::this_dir() {
+            // short-cut (root dir doesn't have ".")
+            let directory_id = RawDirectory(self.id_generator.get());
+            let dir_info = DirectoryInfo {
+                directory_id,
+                volume_id: self.open_volumes[volume_idx].volume_id,
+                cluster: parent_dir_info.cluster,
+            };
+
+            self.open_dirs
+                .push(dir_info)
+                .map_err(|_| Error::TooManyOpenDirs)?;
+
+            return Ok(directory_id);
+        }
+
         let dir_entry = match &self.open_volumes[volume_idx].volume_type {
             VolumeType::Fat(fat) => {
                 fat.find_directory_entry(&self.block_device, parent_dir_info, &short_file_name)?
@@ -260,14 +274,8 @@ where
             return Err(Error::OpenedFileAsDir);
         }
 
-        // Check it's not already open
-        for d in self.open_dirs.iter() {
-            if d.volume_id == self.open_volumes[volume_idx].volume_id
-                && d.cluster == dir_entry.cluster
-            {
-                return Err(Error::DirAlreadyOpen);
-            }
-        }
+        // We don't check if the directory is already open - directories hold
+        // no cached state and so opening a directory twice is allowable.
 
         // Remember this open directory.
         let directory_id = RawDirectory(self.id_generator.get());

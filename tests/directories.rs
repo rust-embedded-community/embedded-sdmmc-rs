@@ -237,10 +237,9 @@ fn open_dir_twice() {
         .open_root_dir(fat32_volume)
         .expect("open root dir");
 
-    assert!(matches!(
-        volume_mgr.open_root_dir(fat32_volume),
-        Err(embedded_sdmmc::Error::DirAlreadyOpen)
-    ));
+    let root_dir2 = volume_mgr
+        .open_root_dir(fat32_volume)
+        .expect("open it again");
 
     assert!(matches!(
         volume_mgr.open_dir(root_dir, "README.TXT"),
@@ -251,13 +250,12 @@ fn open_dir_twice() {
         .open_dir(root_dir, "TEST")
         .expect("open test dir");
 
-    assert!(matches!(
-        volume_mgr.open_dir(root_dir, "TEST"),
-        Err(embedded_sdmmc::Error::DirAlreadyOpen)
-    ));
+    let test_dir2 = volume_mgr.open_dir(root_dir, "TEST").unwrap();
 
     volume_mgr.close_dir(root_dir).expect("close root dir");
     volume_mgr.close_dir(test_dir).expect("close test dir");
+    volume_mgr.close_dir(test_dir2).expect("close test dir");
+    volume_mgr.close_dir(root_dir2).expect("close test dir");
 
     assert!(matches!(
         volume_mgr.close_dir(test_dir),

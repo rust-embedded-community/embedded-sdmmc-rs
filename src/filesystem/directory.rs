@@ -121,6 +121,19 @@ where
         Ok(d.to_directory(self.volume_mgr))
     }
 
+    /// Change to a directory, mutating this object.
+    ///
+    /// You can then read the directory entries with `iterate_dir` and `open_file_in_dir`.
+    pub fn change_dir<N>(&mut self, name: N) -> Result<(), Error<D::Error>>
+    where
+        N: ToShortFileName,
+    {
+        let d = self.volume_mgr.open_dir(self.raw_directory, name)?;
+        self.volume_mgr.close_dir(self.raw_directory).unwrap();
+        self.raw_directory = d;
+        Ok(())
+    }
+
     /// Look in a directory for a named file.
     pub fn find_directory_entry<N>(&mut self, name: N) -> Result<DirEntry, Error<D::Error>>
     where
@@ -159,6 +172,14 @@ where
         N: ToShortFileName,
     {
         self.volume_mgr.delete_file_in_dir(self.raw_directory, name)
+    }
+
+    /// Make a directory inside this directory
+    pub fn make_dir_in_dir<N>(&mut self, name: N) -> Result<(), Error<D::Error>>
+    where
+        N: ToShortFileName,
+    {
+        self.volume_mgr.make_dir_in_dir(self.raw_directory, name)
     }
 
     /// Convert back to a raw directory

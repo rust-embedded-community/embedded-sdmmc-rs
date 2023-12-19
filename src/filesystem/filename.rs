@@ -91,6 +91,11 @@ impl ShortFileName {
             return Ok(ShortFileName::parent_dir());
         }
 
+        // Special case `.` (or blank), which means "this directory".
+        if name.is_empty() || name == "." {
+            return Ok(ShortFileName::this_dir());
+        }
+
         let mut idx = 0;
         let mut seen_dot = false;
         for ch in name.bytes() {
@@ -319,8 +324,15 @@ mod test {
     }
 
     #[test]
+    fn filename_empty() {
+        assert_eq!(
+            ShortFileName::create_from_str("").unwrap(),
+            ShortFileName::this_dir()
+        );
+    }
+
+    #[test]
     fn filename_bad() {
-        assert!(ShortFileName::create_from_str("").is_err());
         assert!(ShortFileName::create_from_str(" ").is_err());
         assert!(ShortFileName::create_from_str("123456789").is_err());
         assert!(ShortFileName::create_from_str("12345678.ABCD").is_err());
