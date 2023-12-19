@@ -61,12 +61,11 @@ impl Context {
     }
 
     /// Print a directory listing
-    fn dir(&mut self) -> Result<(), Error> {
-        let Some(s) = &self.volumes[self.current_volume] else {
-            println!("That volume isn't available");
-            return Ok(());
-        };
-        self.volume_mgr.iterate_dir(s.directory, |entry| {
+    fn dir(&mut self, path: &str) -> Result<(), Error> {
+        println!("Directory listing of {:?}", path);
+        let dir = self.resolve_existing_directory(path)?;
+        let mut dir = dir.to_directory(&mut self.volume_mgr);
+        dir.iterate_dir(|entry| {
             println!(
                 "{:12} {:9} {} {} {:X?} {:?}",
                 entry.name, entry.size, entry.ctime, entry.mtime, entry.cluster, entry.attributes
@@ -84,7 +83,9 @@ impl Context {
             return Ok(());
         };
         let d = self.volume_mgr.open_dir(s.directory, filename)?;
-        self.volume_mgr.close_dir(s.directory)?;
+        self.volume_mgr
+            .close_dir(s.directory)
+            .expect("close open dir");
         s.directory = d;
         if filename == ".." {
             s.path.pop();
@@ -96,14 +97,9 @@ impl Context {
 
     /// print a text file
     fn cat(&mut self, filename: &str) -> Result<(), Error> {
-        let Some(s) = &mut self.volumes[self.current_volume] else {
-            println!("This volume isn't available");
-            return Ok(());
-        };
-        let mut f = self
-            .volume_mgr
-            .open_file_in_dir(s.directory, filename, embedded_sdmmc::Mode::ReadOnly)?
-            .to_file(&mut self.volume_mgr);
+        let (dir, filename) = self.resolve_filename(filename)?;
+        let mut dir = dir.to_directory(&mut self.volume_mgr);
+        let mut f = dir.open_file_in_dir(filename, embedded_sdmmc::Mode::ReadOnly)?;
         let mut data = Vec::new();
         while !f.is_eof() {
             let mut buffer = vec![0u8; 65536];
@@ -122,14 +118,9 @@ impl Context {
 
     /// print a binary file
     fn hexdump(&mut self, filename: &str) -> Result<(), Error> {
-        let Some(s) = &mut self.volumes[self.current_volume] else {
-            println!("This volume isn't available");
-            return Ok(());
-        };
-        let mut f = self
-            .volume_mgr
-            .open_file_in_dir(s.directory, filename, embedded_sdmmc::Mode::ReadOnly)?
-            .to_file(&mut self.volume_mgr);
+        let (dir, filename) = self.resolve_filename(filename)?;
+        let mut dir = dir.to_directory(&mut self.volume_mgr);
+        let mut f = dir.open_file_in_dir(filename, embedded_sdmmc::Mode::ReadOnly)?;
         let mut data = Vec::new();
         while !f.is_eof() {
             let mut buffer = vec![0u8; 65536];
@@ -164,12 +155,9 @@ impl Context {
 
     /// create a directory
     fn mkdir(&mut self, dir_name: &str) -> Result<(), Error> {
-        let Some(s) = &mut self.volumes[self.current_volume] else {
-            println!("This volume isn't available");
-            return Ok(());
-        };
-        // make the dir
-        self.volume_mgr.make_dir_in_dir(s.directory, dir_name)
+        let (dir, filename) = self.resolve_filename(dir_name)?;
+        let mut dir = dir.to_directory(&mut self.volume_mgr);
+        dir.make_dir_in_dir(filename)
     }
 
     fn process_line(&mut self, line: &str) -> Result<(), Error> {
@@ -184,7 +172,9 @@ impl Context {
         } else if line == "3:" {
             self.current_volume = 3;
         } else if line == "dir" {
-            self.dir()?;
+            self.dir(".")?;
+        } else if let Some(dirname) = line.strip_prefix("dir ") {
+            self.dir(dirname.trim())?;
         } else if line == "stat" {
             self.stat()?;
         } else if let Some(dirname) = line.strip_prefix("cd ") {
@@ -199,6 +189,91 @@ impl Context {
             println!("Unknown command {line:?} - try 'help' for help");
         }
         Ok(())
+    }
+
+    /// Resolves an existing directory.
+    ///
+    /// Converts a string path into a directory handle.
+    ///
+    /// * Bare names (no leading `.`, `/` or `N:/`) are mapped to the current
+    ///   directory in the current volume.
+    /// * Relative names, like `../SOMEDIR` or `./SOMEDIR`, traverse
+    ///   starting at the current volume and directory.
+    /// * Absolute, like `1:/SOMEDIR/OTHERDIR` start at the given volume.
+    fn resolve_existing_directory(&mut self, full_path: &str) -> Result<RawDirectory, Error> {
+        let (dir, fragment) = self.resolve_filename(full_path)?;
+        let mut work_dir = dir.to_directory(&mut self.volume_mgr);
+        work_dir.change_dir(fragment)?;
+        Ok(work_dir.to_raw_directory())
+    }
+
+    /// Resolves a filename.
+    ///
+    /// Converts a string path into a directory handle and a name within that
+    /// directory (that may or may not exist).
+    ///
+    /// * Bare names (no leading `.`, `/` or `N:/`) are mapped to the current
+    ///   directory in the current volume.
+    /// * Relative names, like `../SOMEDIR/SOMEFILE` or `./SOMEDIR/SOMEFILE`, traverse
+    ///   starting at the current volume and directory.
+    /// * Absolute, like `1:/SOMEDIR/SOMEFILE` start at the given volume.
+    fn resolve_filename<'path>(
+        &mut self,
+        full_path: &'path str,
+    ) -> Result<(RawDirectory, &'path str), Error> {
+        let mut volume_idx = self.current_volume;
+        let mut path_fragments = if full_path.is_empty() { "." } else { full_path };
+        let mut is_absolute = false;
+        if let Some((given_volume_idx, remainder)) =
+            Self::is_absolute(full_path, VolumeIdx(self.current_volume))
+        {
+            volume_idx = given_volume_idx.0;
+            path_fragments = remainder;
+            is_absolute = true;
+        }
+        let Some(s) = &mut self.volumes[volume_idx] else {
+            return Err(Error::NoSuchVolume);
+        };
+        let mut work_dir = if is_absolute {
+            // relative to root
+            self.volume_mgr
+                .open_root_dir(s.volume)?
+                .to_directory(&mut self.volume_mgr)
+        } else {
+            // relative to CWD
+            self.volume_mgr
+                .open_dir(s.directory, ".")?
+                .to_directory(&mut self.volume_mgr)
+        };
+
+        let mut path_iter = path_fragments.split('/').peekable();
+        let mut last_piece = ".";
+        while let Some(fragment) = path_iter.next() {
+            if path_iter.peek().is_none() {
+                // this is the last piece
+                last_piece = fragment;
+                break;
+            }
+            work_dir.change_dir(fragment)?;
+        }
+
+        Ok((work_dir.to_raw_directory(), last_piece))
+    }
+
+    /// Is this an absolute path?
+    fn is_absolute(path: &str, current_volume: VolumeIdx) -> Option<(VolumeIdx, &str)> {
+        if let Some(remainder) = path.strip_prefix("0:/") {
+            Some((VolumeIdx(0), remainder))
+        } else if let Some(remainder) = path.strip_prefix("1:/") {
+            Some((VolumeIdx(1), remainder))
+        } else if let Some(remainder) = path.strip_prefix("2:/") {
+            Some((VolumeIdx(2), remainder))
+        } else if let Some(remainder) = path.strip_prefix("3:/") {
+            Some((VolumeIdx(3), remainder))
+        } else {
+            path.strip_prefix('/')
+                .map(|remainder| (current_volume, remainder))
+        }
     }
 }
 
