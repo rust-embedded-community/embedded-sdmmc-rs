@@ -71,7 +71,9 @@
 
 use std::io::prelude::*;
 
-use embedded_sdmmc::{Error as EsError, RawDirectory, RawVolume, VolumeIdx, VolumeManager};
+use embedded_sdmmc::{
+    Error as EsError, RawDirectory, RawVolume, ShortFileName, VolumeIdx, VolumeManager,
+};
 
 use crate::linux::{Clock, LinuxBlockDevice};
 
@@ -200,6 +202,7 @@ impl Context {
         println!("\t<volume>:           -> change volume/partition");
         println!("\tstat                -> print volume manager status");
         println!("\tdir [<path>]        -> do a directory listing");
+        println!("\ttree [<path>]       -> do a recursive directory listing");
         println!("\tcd ..               -> go up a level");
         println!("\tcd <path>           -> change into directory <path>");
         println!("\tcat <path>          -> print a text file");
@@ -232,6 +235,54 @@ impl Context {
                 entry.name, entry.size, entry.ctime, entry.mtime, entry.cluster, entry.attributes
             );
         })?;
+        Ok(())
+    }
+
+    /// Print a recursive directory listing for the given path
+    fn tree(&mut self, path: &Path) -> Result<(), Error> {
+        println!("Directory listing of {:?}", path);
+        let dir = self.resolve_existing_directory(path)?;
+        // tree_dir will close this directory, always
+        self.tree_dir(dir)
+    }
+
+    /// Print a recursive directory listing for the given open directory.
+    ///
+    /// Will close the given directory.
+    fn tree_dir(&mut self, dir: RawDirectory) -> Result<(), Error> {
+        let mut dir = dir.to_directory(&mut self.volume_mgr);
+        let mut children = Vec::new();
+        dir.iterate_dir(|entry| {
+            println!(
+                "{:12} {:9} {} {} {:08X?} {:?}",
+                entry.name, entry.size, entry.ctime, entry.mtime, entry.cluster, entry.attributes
+            );
+            if entry.attributes.is_directory()
+                && entry.name != ShortFileName::this_dir()
+                && entry.name != ShortFileName::parent_dir()
+            {
+                children.push(entry.name.clone());
+            }
+        })?;
+        // Be sure to close this, no matter what happens
+        let dir = dir.to_raw_directory();
+        for child in children {
+            println!("Entering {}", child);
+            let child_dir = match self.volume_mgr.open_dir(dir, &child) {
+                Ok(child_dir) => child_dir,
+                Err(e) => {
+                    self.volume_mgr.close_dir(dir).expect("close open dir");
+                    return Err(e);
+                }
+            };
+            let result = self.tree_dir(child_dir);
+            println!("Returning from {}", child);
+            if let Err(e) = result {
+                self.volume_mgr.close_dir(dir).expect("close open dir");
+                return Err(e);
+            }
+        }
+        self.volume_mgr.close_dir(dir).expect("close open dir");
         Ok(())
     }
 
@@ -346,6 +397,10 @@ impl Context {
             self.dir(Path::new("."))?;
         } else if let Some(path) = line.strip_prefix("dir ") {
             self.dir(Path::new(path.trim()))?;
+        } else if line == "tree" {
+            self.tree(Path::new("."))?;
+        } else if let Some(path) = line.strip_prefix("tree ") {
+            self.tree(Path::new(path.trim()))?;
         } else if line == "stat" {
             self.stat()?;
         } else if let Some(path) = line.strip_prefix("cd ") {
