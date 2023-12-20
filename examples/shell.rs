@@ -12,7 +12,7 @@
 //!
 //! The four primary partitions are scanned on the given disk image on start-up.
 //! Any valid FAT16 or FAT32 volumes are mounted, and given volume labels from
-//! `A:` to `C:`, like MS-DOS. Also like MS-DOS, file and directory names use
+//! `A:` to `D:`, like MS-DOS. Also like MS-DOS, file and directory names use
 //! the `8.3` format, like `FILENAME.TXT`. Long filenames are not supported.
 //!
 //! Unlike MS-DOS, this application uses the POSIX `/` as the directory
@@ -214,7 +214,7 @@ impl Context {
         println!();
         println!("\t* Bare names, like `FILE.DAT`");
         println!("\t* Relative, like `../SOMEDIR/FILE.DAT` or `./FILE.DAT`");
-        println!("\t* Absolute, like `1:/SOMEDIR/FILE.DAT`");
+        println!("\t* Absolute, like `B:/SOMEDIR/FILE.DAT`");
         Ok(())
     }
 
@@ -291,7 +291,7 @@ impl Context {
     /// * An arg of `..` goes up one level
     /// * A relative arg like `../FOO` goes up a level and then into the `FOO`
     ///   sub-folder, starting from the current directory on the current volume
-    /// * An absolute path like `1:/FOO` changes the CWD on Volume 1 to path
+    /// * An absolute path like `B:/FOO` changes the CWD on Volume 1 to path
     ///   `/FOO`
     fn cd(&mut self, full_path: &Path) -> Result<(), Error> {
         let volume_idx = self.resolve_volume(full_path)?;
@@ -425,7 +425,7 @@ impl Context {
     ///   directory in the current volume.
     /// * Relative names, like `../SOMEDIR` or `./SOMEDIR`, traverse
     ///   starting at the current volume and directory.
-    /// * Absolute, like `1:/SOMEDIR/OTHERDIR` start at the given volume.
+    /// * Absolute, like `B:/SOMEDIR/OTHERDIR` start at the given volume.
     fn resolve_existing_directory(&mut self, full_path: &Path) -> Result<RawDirectory, Error> {
         let (dir, fragment) = self.resolve_filename(full_path)?;
         let mut work_dir = dir.to_directory(&mut self.volume_mgr);
@@ -454,7 +454,7 @@ impl Context {
     ///   directory in the current volume.
     /// * Relative names, like `../SOMEDIR/SOMEFILE` or `./SOMEDIR/SOMEFILE`, traverse
     ///   starting at the current volume and directory.
-    /// * Absolute, like `1:/SOMEDIR/SOMEFILE` start at the given volume.
+    /// * Absolute, like `B:/SOMEDIR/SOMEFILE` start at the given volume.
     fn resolve_filename<'path>(
         &mut self,
         full_path: &'path Path,
