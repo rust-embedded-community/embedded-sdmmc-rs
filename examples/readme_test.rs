@@ -54,9 +54,9 @@ impl embedded_hal::digital::OutputPin for FakeCs {
 #[derive(Clone, Copy)]
 struct FakeDelayer();
 
-impl embedded_hal::delay::DelayUs for FakeDelayer {
-    fn delay_us(&mut self, us: u32) {
-        std::thread::sleep(std::time::Duration::from_micros(u64::from(us)));
+impl embedded_hal::delay::DelayNs for FakeDelayer {
+    fn delay_ns(&mut self, ns: u32) {
+        std::thread::sleep(std::time::Duration::from_nanos(u64::from(ns)));
     }
 }
 
