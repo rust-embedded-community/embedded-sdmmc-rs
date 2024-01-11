@@ -94,11 +94,14 @@ impl From<embedded_sdmmc::SdCardError> for Error {
 }
 
 fn main() -> Result<(), Error> {
+    // BEGIN Fake stuff that will be replaced with real peripherals
     let spi_bus = RefCell::new(FakeSpiBus());
     let delay = FakeDelayer();
     let sdmmc_spi = embedded_hal_bus::spi::RefCellDevice::new(&spi_bus, DummyCsPin, delay);
     let sdmmc_cs = FakeCs();
     let time_source = FakeTimesource();
+    // END Fake stuff that will be replaced with real peripherals
+
     // Build an SD Card interface out of an SPI device, a chip-select pin and the delay object
     let sdcard = embedded_sdmmc::SdCard::new(sdmmc_spi, sdmmc_cs, delay);
     // Get the card size (this also triggers card initialisation because it's not been done yet)
