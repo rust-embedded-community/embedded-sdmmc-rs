@@ -26,6 +26,7 @@
 //! use embedded_hal::spi::ErrorType;
 //! use core::convert::Infallible;
 //! use core::fmt;
+//!
 //! impl ErrorType for DummySpi {
 //!   type Error = Infallible;
 //! }
@@ -53,26 +54,27 @@
 //!     fn write_str(&mut self, s: &str) -> fmt::Result { Ok(()) }
 //! }
 //! use embedded_sdmmc::VolumeManager;
+//!
 //! fn main() -> Result<(), embedded_sdmmc::Error<embedded_sdmmc::SdCardError>> {
-//! let mut sdmmc_spi = DummySpi;
-//! let mut sdmmc_cs = DummyCsPin;
-//! let time_source = DummyTimeSource;
-//! let delayer = DummyDelayer;
-//! let sdcard = embedded_sdmmc::SdCard::new(sdmmc_spi, sdmmc_cs, delayer);
-//! println!("Card size is {} bytes", sdcard.num_bytes()?);
-//! let mut volume_mgr = VolumeManager::new(sdcard, time_source);
-//! let mut volume0 = volume_mgr.open_volume(embedded_sdmmc::VolumeIdx(0))?;
-//! println!("Volume 0: {:?}", volume0);
-//! let mut root_dir = volume0.open_root_dir()?;
-//! let mut my_file = root_dir.open_file_in_dir("MY_FILE.TXT", embedded_sdmmc::Mode::ReadOnly)?;
-//! while !my_file.is_eof() {
-//!     let mut buffer = [0u8; 32];
-//!     let num_read = my_file.read(&mut buffer)?;
-//!     for b in &buffer[0..num_read] {
-//!         print!("{}", *b as char);
+//!     let mut sdmmc_spi = DummySpi;
+//!     let mut sdmmc_cs = DummyCsPin;
+//!     let time_source = DummyTimeSource;
+//!     let delayer = DummyDelayer;
+//!     let sdcard = embedded_sdmmc::SdCard::new(sdmmc_spi, sdmmc_cs, delayer);
+//!     println!("Card size is {} bytes", sdcard.num_bytes()?);
+//!     let mut volume_mgr = VolumeManager::new(sdcard, time_source);
+//!     let mut volume0 = volume_mgr.open_volume(embedded_sdmmc::VolumeIdx(0))?;
+//!     println!("Volume 0: {:?}", volume0);
+//!     let mut root_dir = volume0.open_root_dir()?;
+//!     let mut my_file = root_dir.open_file_in_dir("MY_FILE.TXT", embedded_sdmmc::Mode::ReadOnly)?;
+//!     while !my_file.is_eof() {
+//!         let mut buffer = [0u8; 32];
+//!         let num_read = my_file.read(&mut buffer)?;
+//!         for b in &buffer[0..num_read] {
+//!             print!("{}", *b as char);
+//!         }
 //!     }
-//! }
-//! Ok(())
+//!     Ok(())
 //! }
 //! ```
 //!
