@@ -27,32 +27,17 @@
 //! # use core::convert::Infallible;
 //! # use core::fmt;
 //! # impl ErrorType for DummySpi {
-//! #     type Error = Infallible;
+//! #   type Error = Infallible;
 //! # }
 //! # impl embedded_hal::spi::SpiDevice<u8> for DummySpi {
-//! #
-//! # fn transaction(&mut self, operations: &mut [Operation<'_, u8>]) -> Result<(), Self::Error> {
-//! #         Ok(())
-//! #     }
-//! #
-//! # fn read(&mut self, buf: &mut [u8]) -> Result<(), Self::Error> {
-//! #         Ok(())
-//! #     }
-//! #
-//! # fn write(&mut self, buf: &[u8]) -> Result<(), Self::Error> {
-//! #         Ok(())
-//! #     }
-//! #
-//! # fn transfer(&mut self, read: &mut [u8], write: &[u8]) -> Result<(), Self::Error> {
-//! #         Ok(())
-//! #     }
-//! #
-//! # fn transfer_in_place(&mut self, buf: &mut [u8]) -> Result<(), Self::Error> {
-//! #         Ok(())
-//! #     }
+//! #   fn transaction(&mut self, operations: &mut [Operation<'_, u8>]) -> Result<(), Self::Error> { Ok(()) }
+//! #   fn read(&mut self, buf: &mut [u8]) -> Result<(), Self::Error> { Ok(()) }
+//! #   fn write(&mut self, buf: &[u8]) -> Result<(), Self::Error> { Ok(()) }
+//! #   fn transfer(&mut self, read: &mut [u8], write: &[u8]) -> Result<(), Self::Error> { Ok(()) }
+//! #   fn transfer_in_place(&mut self, buf: &mut [u8]) -> Result<(), Self::Error> { Ok(()) }
 //! # }
 //! # impl embedded_hal::digital::ErrorType for DummyCsPin {
-//! #     type Error = Infallible;
+//! #   type Error = Infallible;
 //! # }
 //! # impl embedded_hal::digital::OutputPin for DummyCsPin {
 //! #   fn set_low(&mut self) -> Result<(), Self::Error> { Ok(()) }
@@ -61,8 +46,8 @@
 //! # impl embedded_sdmmc::TimeSource for DummyTimeSource {
 //! #   fn get_timestamp(&self) -> embedded_sdmmc::Timestamp { embedded_sdmmc::Timestamp::from_fat(0, 0) }
 //! # }
-//! # impl embedded_hal::delay::DelayUs for DummyDelayer {
-//! #   fn delay_us(&mut self, us: u32) {}
+//! # impl embedded_hal::delay::DelayNs for DummyDelayer {
+//! #   fn delay_ns(&mut self, ns: u32) {}
 //! # }
 //! # impl fmt::Write for DummyUart {
 //! #     fn write_str(&mut self, s: &str) -> fmt::Result { Ok(()) }

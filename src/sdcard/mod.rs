@@ -32,11 +32,11 @@ use crate::{debug, warn};
 ///
 /// If you're not sure how to get a [`SpiDevice`], you may use one of the implementations
 /// in the [`embedded-hal-bus`] crate, providing a wrapped version of your platform's HAL-provided
-/// [`SpiBus`] and [`DelayUs`] as well as our [`DummyCsPin`] in the constructor.
+/// [`SpiBus`] and [`DelayNs`] as well as our [`DummyCsPin`] in the constructor.
 ///
 /// [`SpiDevice`]: embedded_hal::spi::SpiDevice
 /// [`SpiBus`]: embedded_hal::spi::SpiBus
-/// [`DelayUs`]: embedded_hal::delay::DelayUs
+/// [`DelayNs`]: embedded_hal::delay::DelayNs
 /// [`embedded-hal-bus`]: https://docs.rs/embedded-hal-bus
 pub struct DummyCsPin;
 
@@ -71,7 +71,7 @@ pub struct SdCard<SPI, CS, DELAYER>
 where
     SPI: embedded_hal::spi::SpiDevice<u8>,
     CS: embedded_hal::digital::OutputPin,
-    DELAYER: embedded_hal::delay::DelayUs,
+    DELAYER: embedded_hal::delay::DelayNs,
 {
     inner: RefCell<SdCardInner<SPI, CS, DELAYER>>,
 }
@@ -80,7 +80,7 @@ impl<SPI, CS, DELAYER> SdCard<SPI, CS, DELAYER>
 where
     SPI: embedded_hal::spi::SpiDevice<u8>,
     CS: embedded_hal::digital::OutputPin,
-    DELAYER: embedded_hal::delay::DelayUs,
+    DELAYER: embedded_hal::delay::DelayNs,
 {
     /// Create a new SD/MMC Card driver using a raw SPI interface.
     ///
@@ -195,7 +195,7 @@ impl<SPI, CS, DELAYER> BlockDevice for SdCard<SPI, CS, DELAYER>
 where
     SPI: embedded_hal::spi::SpiDevice<u8>,
     CS: embedded_hal::digital::OutputPin,
-    DELAYER: embedded_hal::delay::DelayUs,
+    DELAYER: embedded_hal::delay::DelayNs,
 {
     type Error = Error;
 
@@ -246,7 +246,7 @@ struct SdCardInner<SPI, CS, DELAYER>
 where
     SPI: embedded_hal::spi::SpiDevice<u8>,
     CS: embedded_hal::digital::OutputPin,
-    DELAYER: embedded_hal::delay::DelayUs,
+    DELAYER: embedded_hal::delay::DelayNs,
 {
     spi: SPI,
     cs: CS,
@@ -259,7 +259,7 @@ impl<SPI, CS, DELAYER> SdCardInner<SPI, CS, DELAYER>
 where
     SPI: embedded_hal::spi::SpiDevice<u8>,
     CS: embedded_hal::digital::OutputPin,
-    DELAYER: embedded_hal::delay::DelayUs,
+    DELAYER: embedded_hal::delay::DelayNs,
 {
     /// Read one or more blocks, starting at the given block index.
     fn read(&mut self, blocks: &mut [Block], start_block_idx: BlockIdx) -> Result<(), Error> {
@@ -620,7 +620,7 @@ where
     fn transfer_byte(&mut self, out: u8) -> Result<u8, Error> {
         let mut read_buf = [0u8; 1];
         self.spi
-            .transfer(&mut read_buf,&[out])
+            .transfer(&mut read_buf, &[out])
             .map_err(|_| Error::Transport)?;
         Ok(read_buf[0])
     }
@@ -791,7 +791,7 @@ impl Delay {
     /// `Ok(())`.
     fn delay<T>(&mut self, delayer: &mut T, err: Error) -> Result<(), Error>
     where
-        T: embedded_hal::delay::DelayUs,
+        T: embedded_hal::delay::DelayNs,
     {
         if self.retries_left == 0 {
             Err(err)
