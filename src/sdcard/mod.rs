@@ -67,6 +67,8 @@ impl embedded_hal::digital::OutputPin for DummyCsPin {
 /// actual CS pin. Then provide the actual CS pin to [`SdCard`]'s constructor.
 ///
 /// All the APIs take `&self` - mutability is handled using an inner `RefCell`.
+///
+/// [`SpiDevice`]: embedded_hal::spi::SpiDevice
 pub struct SdCard<SPI, CS, DELAYER>
 where
     SPI: embedded_hal::spi::SpiDevice<u8>,
