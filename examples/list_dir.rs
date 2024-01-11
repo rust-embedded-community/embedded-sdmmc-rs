@@ -76,12 +76,11 @@ fn list_dir(
                 ""
             }
         );
-        if entry.attributes.is_directory() {
-            if entry.name != embedded_sdmmc::ShortFileName::parent_dir()
-                && entry.name != embedded_sdmmc::ShortFileName::this_dir()
-            {
-                children.push(entry.name.clone());
-            }
+        if entry.attributes.is_directory()
+            && entry.name != embedded_sdmmc::ShortFileName::parent_dir()
+            && entry.name != embedded_sdmmc::ShortFileName::this_dir()
+        {
+            children.push(entry.name.clone());
         }
     })?;
     for child_name in children {
