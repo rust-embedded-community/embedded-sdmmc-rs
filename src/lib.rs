@@ -16,55 +16,32 @@
 //! couldn't work with a USB Thumb Drive, but we only supply a `BlockDevice`
 //! suitable for reading SD and SDHC cards over SPI.
 //!
-//! ```rust,no_run
-//! # struct DummySpi;
-//! # struct DummyCsPin;
-//! # struct DummyUart;
-//! # struct DummyTimeSource;
-//! # struct DummyDelayer;
-//! # impl embedded_hal::blocking::spi::Transfer<u8> for  DummySpi {
-//! #   type Error = ();
-//! #   fn transfer<'w>(&mut self, data: &'w mut [u8]) -> Result<&'w [u8], Self::Error> { Ok(&[0]) }
-//! # }
-//! # impl embedded_hal::blocking::spi::Write<u8> for  DummySpi {
-//! #   type Error = ();
-//! #   fn write(&mut self, data: &[u8]) -> Result<(), Self::Error> { Ok(()) }
-//! # }
-//! # impl embedded_hal::digital::v2::OutputPin for DummyCsPin {
-//! #   type Error = ();
-//! #   fn set_low(&mut self) -> Result<(), ()> { Ok(()) }
-//! #   fn set_high(&mut self) -> Result<(), ()> { Ok(()) }
-//! # }
-//! # impl embedded_sdmmc::TimeSource for DummyTimeSource {
-//! #   fn get_timestamp(&self) -> embedded_sdmmc::Timestamp { embedded_sdmmc::Timestamp::from_fat(0, 0) }
-//! # }
-//! # impl embedded_hal::blocking::delay::DelayUs<u8> for DummyDelayer {
-//! #   fn delay_us(&mut self, us: u8) {}
-//! # }
-//! # impl std::fmt::Write for DummyUart { fn write_str(&mut self, s: &str) -> std::fmt::Result { Ok(()) } }
-//! # use std::fmt::Write;
-//! # use embedded_sdmmc::VolumeManager;
-//! # fn main() -> Result<(), embedded_sdmmc::Error<embedded_sdmmc::SdCardError>> {
-//! # let mut sdmmc_spi = DummySpi;
-//! # let mut sdmmc_cs = DummyCsPin;
-//! # let time_source = DummyTimeSource;
-//! # let delayer = DummyDelayer;
-//! let sdcard = embedded_sdmmc::SdCard::new(sdmmc_spi, sdmmc_cs, delayer);
-//! println!("Card size is {} bytes", sdcard.num_bytes()?);
-//! let mut volume_mgr = embedded_sdmmc::VolumeManager::new(sdcard, time_source);
-//! let mut volume0 = volume_mgr.open_volume(embedded_sdmmc::VolumeIdx(0))?;
-//! println!("Volume 0: {:?}", volume0);
-//! let mut root_dir = volume0.open_root_dir()?;
-//! let mut my_file = root_dir.open_file_in_dir("MY_FILE.TXT", embedded_sdmmc::Mode::ReadOnly)?;
-//! while !my_file.is_eof() {
-//!     let mut buffer = [0u8; 32];
-//!     let num_read = my_file.read(&mut buffer)?;
-//!     for b in &buffer[0..num_read] {
-//!         print!("{}", *b as char);
+//! ```rust
+//! use embedded_sdmmc::{Error, Mode, SdCard, SdCardError, TimeSource, VolumeIdx, VolumeManager};
+//!
+//! fn example<S, CS, D, T>(spi: S, cs: CS, delay: D, ts: T) -> Result<(), Error<SdCardError>>
+//! where
+//!     S: embedded_hal::spi::SpiDevice,
+//!     CS: embedded_hal::digital::OutputPin,
+//!     D: embedded_hal::delay::DelayNs,
+//!     T: TimeSource,
+//! {
+//!     let sdcard = SdCard::new(spi, cs, delay);
+//!     println!("Card size is {} bytes", sdcard.num_bytes()?);
+//!     let mut volume_mgr = VolumeManager::new(sdcard, ts);
+//!     let mut volume0 = volume_mgr.open_volume(VolumeIdx(0))?;
+//!     println!("Volume 0: {:?}", volume0);
+//!     let mut root_dir = volume0.open_root_dir()?;
+//!     let mut my_file = root_dir.open_file_in_dir("MY_FILE.TXT", Mode::ReadOnly)?;
+//!     while !my_file.is_eof() {
+//!         let mut buffer = [0u8; 32];
+//!         let num_read = my_file.read(&mut buffer)?;
+//!         for b in &buffer[0..num_read] {
+//!             print!("{}", *b as char);
+//!         }
 //!     }
+//!     Ok(())
 //! }
-//! # Ok(())
-//! # }
 //! ```
 //!
 //! ## Features

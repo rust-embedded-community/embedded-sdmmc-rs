@@ -21,33 +21,73 @@ use crate::{debug, warn};
 // Types and Implementations
 // ****************************************************************************
 
+/// A dummy "CS pin" that does nothing when set high or low.
+///
+/// Should be used when constructing an [`SpiDevice`] implementation for use with [`SdCard`].
+///
+/// Let the [`SpiDevice`] use this dummy CS pin that does not actually do anything, and pass the
+/// card's real CS pin to [`SdCard`]'s constructor. This allows the driver to have more
+/// fine-grained control of how the CS pin is managed than is allowed by default using the
+/// [`SpiDevice`] trait, which is needed to implement the SD/MMC SPI communication spec correctly.
+///
+/// If you're not sure how to get a [`SpiDevice`], you may use one of the implementations
+/// in the [`embedded-hal-bus`] crate, providing a wrapped version of your platform's HAL-provided
+/// [`SpiBus`] and [`DelayNs`] as well as our [`DummyCsPin`] in the constructor.
+///
+/// [`SpiDevice`]: embedded_hal::spi::SpiDevice
+/// [`SpiBus`]: embedded_hal::spi::SpiBus
+/// [`DelayNs`]: embedded_hal::delay::DelayNs
+/// [`embedded-hal-bus`]: https://docs.rs/embedded-hal-bus
+pub struct DummyCsPin;
+
+impl embedded_hal::digital::ErrorType for DummyCsPin {
+    type Error = core::convert::Infallible;
+}
+
+impl embedded_hal::digital::OutputPin for DummyCsPin {
+    #[inline(always)]
+    fn set_low(&mut self) -> Result<(), Self::Error> {
+        Ok(())
+    }
+
+    #[inline(always)]
+    fn set_high(&mut self) -> Result<(), Self::Error> {
+        Ok(())
+    }
+}
+
 /// Represents an SD Card on an SPI bus.
 ///
-/// Built from an SPI peripheral and a Chip Select pin. We need Chip Select to
-/// be separate so we can clock out some bytes without Chip Select asserted
-/// (which "flushes the SD cards registers" according to the spec).
+/// Built from an [`SpiDevice`] implementation and a Chip Select pin.
+/// Unfortunately, We need control of the chip select pin separately from the [`SpiDevice`]
+/// implementation so we can clock out some bytes without Chip Select asserted
+/// (which is necessary to make the SD card actually release the Spi bus after performing
+/// operations on it, according to the spec). To support this, we provide [`DummyCsPin`]
+/// which should be provided to your chosen [`SpiDevice`] implementation rather than the card's
+/// actual CS pin. Then provide the actual CS pin to [`SdCard`]'s constructor.
 ///
 /// All the APIs take `&self` - mutability is handled using an inner `RefCell`.
+///
+/// [`SpiDevice`]: embedded_hal::spi::SpiDevice
 pub struct SdCard<SPI, CS, DELAYER>
 where
-    SPI: embedded_hal::blocking::spi::Transfer<u8> + embedded_hal::blocking::spi::Write<u8>,
-    CS: embedded_hal::digital::v2::OutputPin,
-    <SPI as embedded_hal::blocking::spi::Transfer<u8>>::Error: core::fmt::Debug,
-    <SPI as embedded_hal::blocking::spi::Write<u8>>::Error: core::fmt::Debug,
-    DELAYER: embedded_hal::blocking::delay::DelayUs<u8>,
+    SPI: embedded_hal::spi::SpiDevice<u8>,
+    CS: embedded_hal::digital::OutputPin,
+    DELAYER: embedded_hal::delay::DelayNs,
 {
     inner: RefCell<SdCardInner<SPI, CS, DELAYER>>,
 }
 
 impl<SPI, CS, DELAYER> SdCard<SPI, CS, DELAYER>
 where
-    SPI: embedded_hal::blocking::spi::Transfer<u8> + embedded_hal::blocking::spi::Write<u8>,
-    CS: embedded_hal::digital::v2::OutputPin,
-    <SPI as embedded_hal::blocking::spi::Transfer<u8>>::Error: core::fmt::Debug,
-    <SPI as embedded_hal::blocking::spi::Write<u8>>::Error: core::fmt::Debug,
-    DELAYER: embedded_hal::blocking::delay::DelayUs<u8>,
+    SPI: embedded_hal::spi::SpiDevice<u8>,
+    CS: embedded_hal::digital::OutputPin,
+    DELAYER: embedded_hal::delay::DelayNs,
 {
     /// Create a new SD/MMC Card driver using a raw SPI interface.
+    ///
+    /// See the docs of the [`SdCard`] struct for more information about
+    /// how to construct the needed `SPI` and `CS` types.
     ///
     /// The card will not be initialised at this time. Initialisation is
     /// deferred until a method is called on the object.
@@ -58,6 +98,9 @@ where
     }
 
     /// Construct a new SD/MMC Card driver, using a raw SPI interface and the given options.
+    ///
+    /// See the docs of the [`SdCard`] struct for more information about
+    /// how to construct the needed `SPI` and `CS` types.
     ///
     /// The card will not be initialised at this time. Initialisation is
     /// deferred until a method is called on the object.
@@ -152,11 +195,9 @@ where
 
 impl<SPI, CS, DELAYER> BlockDevice for SdCard<SPI, CS, DELAYER>
 where
-    SPI: embedded_hal::blocking::spi::Transfer<u8> + embedded_hal::blocking::spi::Write<u8>,
-    CS: embedded_hal::digital::v2::OutputPin,
-    <SPI as embedded_hal::blocking::spi::Transfer<u8>>::Error: core::fmt::Debug,
-    <SPI as embedded_hal::blocking::spi::Write<u8>>::Error: core::fmt::Debug,
-    DELAYER: embedded_hal::blocking::delay::DelayUs<u8>,
+    SPI: embedded_hal::spi::SpiDevice<u8>,
+    CS: embedded_hal::digital::OutputPin,
+    DELAYER: embedded_hal::delay::DelayNs,
 {
     type Error = Error;
 
@@ -205,11 +246,9 @@ where
 /// All the APIs required `&mut self`.
 struct SdCardInner<SPI, CS, DELAYER>
 where
-    SPI: embedded_hal::blocking::spi::Transfer<u8> + embedded_hal::blocking::spi::Write<u8>,
-    CS: embedded_hal::digital::v2::OutputPin,
-    <SPI as embedded_hal::blocking::spi::Transfer<u8>>::Error: core::fmt::Debug,
-    <SPI as embedded_hal::blocking::spi::Write<u8>>::Error: core::fmt::Debug,
-    DELAYER: embedded_hal::blocking::delay::DelayUs<u8>,
+    SPI: embedded_hal::spi::SpiDevice<u8>,
+    CS: embedded_hal::digital::OutputPin,
+    DELAYER: embedded_hal::delay::DelayNs,
 {
     spi: SPI,
     cs: CS,
@@ -220,11 +259,9 @@ where
 
 impl<SPI, CS, DELAYER> SdCardInner<SPI, CS, DELAYER>
 where
-    SPI: embedded_hal::blocking::spi::Transfer<u8> + embedded_hal::blocking::spi::Write<u8>,
-    CS: embedded_hal::digital::v2::OutputPin,
-    <SPI as embedded_hal::blocking::spi::Transfer<u8>>::Error: core::fmt::Debug,
-    <SPI as embedded_hal::blocking::spi::Write<u8>>::Error: core::fmt::Debug,
-    DELAYER: embedded_hal::blocking::delay::DelayUs<u8>,
+    SPI: embedded_hal::spi::SpiDevice<u8>,
+    CS: embedded_hal::digital::OutputPin,
+    DELAYER: embedded_hal::delay::DelayNs,
 {
     /// Read one or more blocks, starting at the given block index.
     fn read(&mut self, blocks: &mut [Block], start_block_idx: BlockIdx) -> Result<(), Error> {
@@ -583,13 +620,14 @@ where
 
     /// Send one byte and receive one byte over the SPI bus.
     fn transfer_byte(&mut self, out: u8) -> Result<u8, Error> {
+        let mut read_buf = [0u8; 1];
         self.spi
-            .transfer(&mut [out])
-            .map(|b| b[0])
-            .map_err(|_e| Error::Transport)
+            .transfer(&mut read_buf, &[out])
+            .map_err(|_| Error::Transport)?;
+        Ok(read_buf[0])
     }
 
-    /// Send mutiple bytes and ignore what comes back over the SPI bus.
+    /// Send multiple bytes and ignore what comes back over the SPI bus.
     fn write_bytes(&mut self, out: &[u8]) -> Result<(), Error> {
         self.spi.write(out).map_err(|_e| Error::Transport)?;
         Ok(())
@@ -597,7 +635,9 @@ where
 
     /// Send multiple bytes and replace them with what comes back over the SPI bus.
     fn transfer_bytes(&mut self, in_out: &mut [u8]) -> Result<(), Error> {
-        self.spi.transfer(in_out).map_err(|_e| Error::Transport)?;
+        self.spi
+            .transfer_in_place(in_out)
+            .map_err(|_e| Error::Transport)?;
         Ok(())
     }
 
@@ -689,7 +729,7 @@ pub enum CardType {
     /// Uses byte-addressing internally, so limited to 2GiB in size.
     SD2,
     /// An high-capacity 'SDHC' Card.
-    ///  
+    ///
     /// Uses block-addressing internally to support capacities above 2GiB.
     SDHC,
 }
@@ -753,7 +793,7 @@ impl Delay {
     /// `Ok(())`.
     fn delay<T>(&mut self, delayer: &mut T, err: Error) -> Result<(), Error>
     where
-        T: embedded_hal::blocking::delay::DelayUs<u8>,
+        T: embedded_hal::delay::DelayNs,
     {
         if self.retries_left == 0 {
             Err(err)
