@@ -159,8 +159,8 @@ where
     TooManyOpenFiles,
     /// Bad handle given
     BadHandle,
-    /// That file doesn't exist
-    FileNotFound,
+    /// That file or directory doesn't exist
+    NotFound,
     /// You can't open a file twice or delete an open file
     FileAlreadyOpen,
     /// You can't open a directory twice

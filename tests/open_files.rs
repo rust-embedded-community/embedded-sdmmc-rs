@@ -67,7 +67,7 @@ fn open_files() {
 
     assert!(matches!(
         volume_mgr.open_file_in_dir(root_dir, "README.TXS", Mode::ReadOnly),
-        Err(Error::FileNotFound)
+        Err(Error::NotFound)
     ));
 
     // Create a new file
