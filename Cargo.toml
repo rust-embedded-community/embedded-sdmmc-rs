@@ -8,7 +8,7 @@ license = "MIT OR Apache-2.0"
 name = "embedded-sdmmc"
 readme = "README.md"
 repository = "https://github.com/rust-embedded-community/embedded-sdmmc-rs"
-version = "0.6.0"
+version = "0.7.0"
 
 [dependencies]
 byteorder = {version = "1", default-features = false}
@@ -18,12 +18,12 @@ heapless = "0.7"
 log = {version = "0.4", default-features = false, optional = true}
 
 [dev-dependencies]
-env_logger = "0.10.0"
-hex-literal = "0.4.1"
-flate2 = "1.0"
-sha2 = "0.10"
 chrono = "0.4"
 embedded-hal-bus = "0.1.0"
+env_logger = "0.10.0"
+flate2 = "1.0"
+hex-literal = "0.4.1"
+sha2 = "0.10"
 
 [features]
 default = ["log"]
