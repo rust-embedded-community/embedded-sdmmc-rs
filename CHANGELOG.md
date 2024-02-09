@@ -6,17 +6,33 @@ The format is based on [Keep a Changelog] and this project adheres to [Semantic 
 
 ## [Unreleased]
 
-* `Volume`, `Directory` and `File` are now smart! They hold references to the thing they were made from, and will clean themselves up when dropped. The trade-off is you can can't open multiple volumes, directories or files at the same time.
-* Renamed the old types to `RawVolume`, `RawDirectory` and `RawFile`
-* New method `make_dir_in_dir`
-* Fixed long-standing bug that caused an integer overflow when a FAT32 directory was longer than one cluster ([#74])
-* Updated 'shell' example to support `mkdir`, `tree` and relative/absolute paths
-* Renamed `Error::FileNotFound` to `Error::NotFound`
-* New API `change_dir` which changes a directory to point to some child directory (or the parent) without opening a new directory.
-* Empty strings and `"."` convert to `ShortFileName::this_dir()`
-* You can now open directories multiple times without error
+* None
+
+## [Version 0.7.0] - 2024-02-04
+
+## Changed
+
+- __Breaking Change__: `Volume`, `Directory` and `File` are now smart! They hold references to the thing they were made from, and will clean themselves up when dropped. The trade-off is you can can't open multiple volumes, directories or files at the same time.
+- __Breaking Change__: Renamed the old types to `RawVolume`, `RawDirectory` and `RawFile`
+- __Breaking Change__: Renamed `Error::FileNotFound` to `Error::NotFound`
+- Fixed long-standing bug that caused an integer overflow when a FAT32 directory was longer than one cluster ([#74])
+- You can now open directories multiple times without error
+- Updated to [embedded-hal] 1.0
+
+## Added
+
+- `RawVolume`, `RawDirectory` and `RawFile` types (like the old `Volume`, `Directory` and `File` types)
+- New method `make_dir_in_dir`
+- Empty strings and `"."` convert to `ShortFileName::this_dir()`
+- New API `change_dir` which changes a directory to point to some child directory (or the parent) without opening a new directory.
+- Updated 'shell' example to support `mkdir`, `tree` and relative/absolute paths
+
+## Removed
+
+* None
 
 [#74]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/issues/74
+[embedded-hal]: https://crates.io/crates/embedded-hal
 
 ## [Version 0.6.0] - 2023-10-20
 
@@ -121,7 +137,8 @@ The format is based on [Keep a Changelog] and this project adheres to [Semantic 
 
 [Keep a Changelog]: http://keepachangelog.com/en/1.0.0/
 [Semantic Versioning]: http://semver.org/spec/v2.0.0.html
-[Unreleased]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/compare/v0.6.0...develop
+[Unreleased]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/compare/v0.7.0...develop
+[Version 0.7.0]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/compare/v0.7.0...v0.6.0
 [Version 0.6.0]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/compare/v0.6.0...v0.5.0
 [Version 0.5.0]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/compare/v0.5.0...v0.4.0
 [Version 0.4.0]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/compare/v0.4.0...v0.3.0
