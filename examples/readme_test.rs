@@ -3,26 +3,45 @@
 //! We add enough stuff to make it compile, but it won't run because our fake
 //! SPI doesn't do any replies.
 
-struct FakeSpi();
+use core::cell::RefCell;
 
-impl embedded_hal::blocking::spi::Transfer<u8> for FakeSpi {
+use embedded_sdmmc::sdcard::DummyCsPin;
+
+struct FakeSpiBus();
+
+impl embedded_hal::spi::ErrorType for FakeSpiBus {
     type Error = core::convert::Infallible;
-    fn transfer<'w>(&mut self, words: &'w mut [u8]) -> Result<&'w [u8], Self::Error> {
-        Ok(words)
-    }
 }
 
-impl embedded_hal::blocking::spi::Write<u8> for FakeSpi {
-    type Error = core::convert::Infallible;
-    fn write(&mut self, _words: &[u8]) -> Result<(), Self::Error> {
+impl embedded_hal::spi::SpiBus<u8> for FakeSpiBus {
+    fn read(&mut self, _: &mut [u8]) -> Result<(), Self::Error> {
+        Ok(())
+    }
+
+    fn write(&mut self, _: &[u8]) -> Result<(), Self::Error> {
+        Ok(())
+    }
+
+    fn transfer(&mut self, _: &mut [u8], _: &[u8]) -> Result<(), Self::Error> {
+        Ok(())
+    }
+
+    fn transfer_in_place(&mut self, _: &mut [u8]) -> Result<(), Self::Error> {
+        Ok(())
+    }
+
+    fn flush(&mut self) -> Result<(), Self::Error> {
         Ok(())
     }
 }
 
 struct FakeCs();
 
-impl embedded_hal::digital::v2::OutputPin for FakeCs {
+impl embedded_hal::digital::ErrorType for FakeCs {
     type Error = core::convert::Infallible;
+}
+
+impl embedded_hal::digital::OutputPin for FakeCs {
     fn set_low(&mut self) -> Result<(), Self::Error> {
         Ok(())
     }
@@ -32,11 +51,12 @@ impl embedded_hal::digital::v2::OutputPin for FakeCs {
     }
 }
 
+#[derive(Clone, Copy)]
 struct FakeDelayer();
 
-impl embedded_hal::blocking::delay::DelayUs<u8> for FakeDelayer {
-    fn delay_us(&mut self, us: u8) {
-        std::thread::sleep(std::time::Duration::from_micros(u64::from(us)));
+impl embedded_hal::delay::DelayNs for FakeDelayer {
+    fn delay_ns(&mut self, ns: u32) {
+        std::thread::sleep(std::time::Duration::from_nanos(u64::from(ns)));
     }
 }
 
@@ -74,10 +94,14 @@ impl From<embedded_sdmmc::SdCardError> for Error {
 }
 
 fn main() -> Result<(), Error> {
-    let sdmmc_spi = FakeSpi();
-    let sdmmc_cs = FakeCs();
+    // BEGIN Fake stuff that will be replaced with real peripherals
+    let spi_bus = RefCell::new(FakeSpiBus());
     let delay = FakeDelayer();
+    let sdmmc_spi = embedded_hal_bus::spi::RefCellDevice::new(&spi_bus, DummyCsPin, delay);
+    let sdmmc_cs = FakeCs();
     let time_source = FakeTimesource();
+    // END Fake stuff that will be replaced with real peripherals
+
     // Build an SD Card interface out of an SPI device, a chip-select pin and the delay object
     let sdcard = embedded_sdmmc::SdCard::new(sdmmc_spi, sdmmc_cs, delay);
     // Get the card size (this also triggers card initialisation because it's not been done yet)
@@ -87,26 +111,21 @@ fn main() -> Result<(), Error> {
     let mut volume_mgr = embedded_sdmmc::VolumeManager::new(sdcard, time_source);
     // Try and access Volume 0 (i.e. the first partition).
     // The volume object holds information about the filesystem on that volume.
-    // It doesn't hold a reference to the Volume Manager and so must be passed back
-    // to every Volume Manager API call. This makes it easier to handle multiple
-    // volumes in parallel.
-    let volume0 = volume_mgr.open_volume(embedded_sdmmc::VolumeIdx(0))?;
+    let mut volume0 = volume_mgr.open_volume(embedded_sdmmc::VolumeIdx(0))?;
     println!("Volume 0: {:?}", volume0);
-    // Open the root directory (passing in the volume we're using).
-    let root_dir = volume_mgr.open_root_dir(volume0)?;
+    // Open the root directory (mutably borrows from the volume).
+    let mut root_dir = volume0.open_root_dir()?;
     // Open a file called "MY_FILE.TXT" in the root directory
-    let my_file =
-        volume_mgr.open_file_in_dir(root_dir, "MY_FILE.TXT", embedded_sdmmc::Mode::ReadOnly)?;
+    // This mutably borrows the directory.
+    let mut my_file = root_dir.open_file_in_dir("MY_FILE.TXT", embedded_sdmmc::Mode::ReadOnly)?;
     // Print the contents of the file
-    while !volume_mgr.file_eof(my_file).unwrap() {
+    while !my_file.is_eof() {
         let mut buffer = [0u8; 32];
-        let num_read = volume_mgr.read(my_file, &mut buffer)?;
+        let num_read = my_file.read(&mut buffer)?;
         for b in &buffer[0..num_read] {
             print!("{}", *b as char);
         }
     }
-    volume_mgr.close_file(my_file)?;
-    volume_mgr.close_dir(root_dir)?;
     Ok(())
 }
 

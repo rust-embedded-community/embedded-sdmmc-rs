@@ -3,7 +3,9 @@ use core::convert::TryFrom;
 use crate::blockdevice::BlockIdx;
 use crate::fat::{FatType, OnDiskDirEntry};
 use crate::filesystem::{Attributes, ClusterId, SearchId, ShortFileName, Timestamp};
-use crate::Volume;
+use crate::{Error, RawVolume, VolumeManager};
+
+use super::ToShortFileName;
 
 /// Represents a directory entry, which tells you about
 /// other files and directories.
@@ -46,16 +48,192 @@ pub struct DirEntry {
 /// and there's a reason we did it this way.
 #[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub struct Directory(pub(crate) SearchId);
+pub struct RawDirectory(pub(crate) SearchId);
+
+impl RawDirectory {
+    /// Convert a raw directory into a droppable [`Directory`]
+    pub fn to_directory<
+        D,
+        T,
+        const MAX_DIRS: usize,
+        const MAX_FILES: usize,
+        const MAX_VOLUMES: usize,
+    >(
+        self,
+        volume_mgr: &mut VolumeManager<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>,
+    ) -> Directory<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>
+    where
+        D: crate::BlockDevice,
+        T: crate::TimeSource,
+    {
+        Directory::new(self, volume_mgr)
+    }
+}
+
+/// Represents an open directory on disk.
+///
+/// If you drop a value of this type, it closes the directory automatically. However,
+/// it holds a mutable reference to its parent `VolumeManager`, which restricts
+/// which operations you can perform.
+pub struct Directory<
+    'a,
+    D,
+    T,
+    const MAX_DIRS: usize,
+    const MAX_FILES: usize,
+    const MAX_VOLUMES: usize,
+> where
+    D: crate::BlockDevice,
+    T: crate::TimeSource,
+{
+    raw_directory: RawDirectory,
+    volume_mgr: &'a mut VolumeManager<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>,
+}
+
+impl<'a, D, T, const MAX_DIRS: usize, const MAX_FILES: usize, const MAX_VOLUMES: usize>
+    Directory<'a, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>
+where
+    D: crate::BlockDevice,
+    T: crate::TimeSource,
+{
+    /// Create a new `Directory` from a `RawDirectory`
+    pub fn new(
+        raw_directory: RawDirectory,
+        volume_mgr: &'a mut VolumeManager<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>,
+    ) -> Directory<'a, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES> {
+        Directory {
+            raw_directory,
+            volume_mgr,
+        }
+    }
+
+    /// Open a directory.
+    ///
+    /// You can then read the directory entries with `iterate_dir` and `open_file_in_dir`.
+    pub fn open_dir<N>(
+        &mut self,
+        name: N,
+    ) -> Result<Directory<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>, Error<D::Error>>
+    where
+        N: ToShortFileName,
+    {
+        let d = self.volume_mgr.open_dir(self.raw_directory, name)?;
+        Ok(d.to_directory(self.volume_mgr))
+    }
+
+    /// Change to a directory, mutating this object.
+    ///
+    /// You can then read the directory entries with `iterate_dir` and `open_file_in_dir`.
+    pub fn change_dir<N>(&mut self, name: N) -> Result<(), Error<D::Error>>
+    where
+        N: ToShortFileName,
+    {
+        let d = self.volume_mgr.open_dir(self.raw_directory, name)?;
+        self.volume_mgr.close_dir(self.raw_directory).unwrap();
+        self.raw_directory = d;
+        Ok(())
+    }
+
+    /// Look in a directory for a named file.
+    pub fn find_directory_entry<N>(&mut self, name: N) -> Result<DirEntry, Error<D::Error>>
+    where
+        N: ToShortFileName,
+    {
+        self.volume_mgr
+            .find_directory_entry(self.raw_directory, name)
+    }
+
+    /// Call a callback function for each directory entry in a directory.
+    pub fn iterate_dir<F>(&mut self, func: F) -> Result<(), Error<D::Error>>
+    where
+        F: FnMut(&DirEntry),
+    {
+        self.volume_mgr.iterate_dir(self.raw_directory, func)
+    }
+
+    /// Open a file with the given full path. A file can only be opened once.
+    pub fn open_file_in_dir<N>(
+        &mut self,
+        name: N,
+        mode: crate::Mode,
+    ) -> Result<crate::File<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>, crate::Error<D::Error>>
+    where
+        N: super::ToShortFileName,
+    {
+        let f = self
+            .volume_mgr
+            .open_file_in_dir(self.raw_directory, name, mode)?;
+        Ok(f.to_file(self.volume_mgr))
+    }
+
+    /// Delete a closed file with the given filename, if it exists.
+    pub fn delete_file_in_dir<N>(&mut self, name: N) -> Result<(), Error<D::Error>>
+    where
+        N: ToShortFileName,
+    {
+        self.volume_mgr.delete_file_in_dir(self.raw_directory, name)
+    }
+
+    /// Make a directory inside this directory
+    pub fn make_dir_in_dir<N>(&mut self, name: N) -> Result<(), Error<D::Error>>
+    where
+        N: ToShortFileName,
+    {
+        self.volume_mgr.make_dir_in_dir(self.raw_directory, name)
+    }
+
+    /// Convert back to a raw directory
+    pub fn to_raw_directory(self) -> RawDirectory {
+        let d = self.raw_directory;
+        core::mem::forget(self);
+        d
+    }
+}
+
+impl<'a, D, T, const MAX_DIRS: usize, const MAX_FILES: usize, const MAX_VOLUMES: usize> Drop
+    for Directory<'a, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>
+where
+    D: crate::BlockDevice,
+    T: crate::TimeSource,
+{
+    fn drop(&mut self) {
+        self.volume_mgr
+            .close_dir(self.raw_directory)
+            .expect("Failed to close directory");
+    }
+}
+
+impl<'a, D, T, const MAX_DIRS: usize, const MAX_FILES: usize, const MAX_VOLUMES: usize>
+    core::fmt::Debug for Directory<'a, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>
+where
+    D: crate::BlockDevice,
+    T: crate::TimeSource,
+{
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "Directory({})", self.raw_directory.0 .0)
+    }
+}
+
+#[cfg(feature = "defmt-log")]
+impl<'a, D, T, const MAX_DIRS: usize, const MAX_FILES: usize, const MAX_VOLUMES: usize>
+    defmt::Format for Directory<'a, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>
+where
+    D: crate::BlockDevice,
+    T: crate::TimeSource,
+{
+    fn format(&self, fmt: defmt::Formatter) {
+        defmt::write!(fmt, "Directory({})", self.raw_directory.0 .0)
+    }
+}
 
 /// Holds information about an open file on disk
 #[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
 #[derive(Debug, Clone)]
 pub(crate) struct DirectoryInfo {
     /// Unique ID for this directory.
-    pub(crate) directory_id: Directory,
+    pub(crate) directory_id: RawDirectory,
     /// The unique ID for the volume this directory is on
-    pub(crate) volume_id: Volume,
+    pub(crate) volume_id: RawVolume,
     /// The starting point of the directory listing.
     pub(crate) cluster: ClusterId,
 }

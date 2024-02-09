@@ -1,6 +1,6 @@
 //! Directory related tests
 
-use embedded_sdmmc::ShortFileName;
+use embedded_sdmmc::{Mode, ShortFileName};
 
 mod utils;
 
@@ -41,7 +41,7 @@ fn fat16_root_directory_listing() {
     let mut volume_mgr = embedded_sdmmc::VolumeManager::new(disk, time_source);
 
     let fat16_volume = volume_mgr
-        .open_volume(embedded_sdmmc::VolumeIdx(0))
+        .open_raw_volume(embedded_sdmmc::VolumeIdx(0))
         .expect("open volume 0");
     let root_dir = volume_mgr
         .open_root_dir(fat16_volume)
@@ -103,7 +103,7 @@ fn fat16_sub_directory_listing() {
     let mut volume_mgr = embedded_sdmmc::VolumeManager::new(disk, time_source);
 
     let fat16_volume = volume_mgr
-        .open_volume(embedded_sdmmc::VolumeIdx(0))
+        .open_raw_volume(embedded_sdmmc::VolumeIdx(0))
         .expect("open volume 0");
     let root_dir = volume_mgr
         .open_root_dir(fat16_volume)
@@ -168,7 +168,7 @@ fn fat32_root_directory_listing() {
     let mut volume_mgr = embedded_sdmmc::VolumeManager::new(disk, time_source);
 
     let fat32_volume = volume_mgr
-        .open_volume(embedded_sdmmc::VolumeIdx(1))
+        .open_raw_volume(embedded_sdmmc::VolumeIdx(1))
         .expect("open volume 1");
     let root_dir = volume_mgr
         .open_root_dir(fat32_volume)
@@ -230,39 +230,37 @@ fn open_dir_twice() {
     let mut volume_mgr = embedded_sdmmc::VolumeManager::new(disk, time_source);
 
     let fat32_volume = volume_mgr
-        .open_volume(embedded_sdmmc::VolumeIdx(1))
+        .open_raw_volume(embedded_sdmmc::VolumeIdx(1))
         .expect("open volume 1");
 
     let root_dir = volume_mgr
         .open_root_dir(fat32_volume)
         .expect("open root dir");
 
-    let r = volume_mgr.open_root_dir(fat32_volume);
-    let Err(embedded_sdmmc::Error::DirAlreadyOpen) = r else {
-        panic!("Expected to fail opening the root dir twice: {r:?}");
-    };
+    let root_dir2 = volume_mgr
+        .open_root_dir(fat32_volume)
+        .expect("open it again");
 
-    let r = volume_mgr.open_dir(root_dir, "README.TXT");
-    let Err(embedded_sdmmc::Error::OpenedFileAsDir) = r else {
-        panic!("Expected to fail opening file as dir: {r:?}");
-    };
+    assert!(matches!(
+        volume_mgr.open_dir(root_dir, "README.TXT"),
+        Err(embedded_sdmmc::Error::OpenedFileAsDir)
+    ));
 
     let test_dir = volume_mgr
         .open_dir(root_dir, "TEST")
         .expect("open test dir");
 
-    let r = volume_mgr.open_dir(root_dir, "TEST");
-    let Err(embedded_sdmmc::Error::DirAlreadyOpen) = r else {
-        panic!("Expected to fail opening the dir twice: {r:?}");
-    };
+    let test_dir2 = volume_mgr.open_dir(root_dir, "TEST").unwrap();
 
     volume_mgr.close_dir(root_dir).expect("close root dir");
     volume_mgr.close_dir(test_dir).expect("close test dir");
+    volume_mgr.close_dir(test_dir2).expect("close test dir");
+    volume_mgr.close_dir(root_dir2).expect("close test dir");
 
-    let r = volume_mgr.close_dir(test_dir);
-    let Err(embedded_sdmmc::Error::BadHandle) = r else {
-        panic!("Expected to fail closing the dir twice: {r:?}");
-    };
+    assert!(matches!(
+        volume_mgr.close_dir(test_dir),
+        Err(embedded_sdmmc::Error::BadHandle)
+    ));
 }
 
 #[test]
@@ -278,15 +276,16 @@ fn open_too_many_dirs() {
     > = embedded_sdmmc::VolumeManager::new_with_limits(disk, time_source, 0x1000_0000);
 
     let fat32_volume = volume_mgr
-        .open_volume(embedded_sdmmc::VolumeIdx(1))
+        .open_raw_volume(embedded_sdmmc::VolumeIdx(1))
         .expect("open volume 1");
     let root_dir = volume_mgr
         .open_root_dir(fat32_volume)
         .expect("open root dir");
 
-    let Err(embedded_sdmmc::Error::TooManyOpenDirs) = volume_mgr.open_dir(root_dir, "TEST") else {
-        panic!("Expected to fail at opening too many dirs");
-    };
+    assert!(matches!(
+        volume_mgr.open_dir(root_dir, "TEST"),
+        Err(embedded_sdmmc::Error::TooManyOpenDirs)
+    ));
 }
 
 #[test]
@@ -296,7 +295,7 @@ fn find_dir_entry() {
     let mut volume_mgr = embedded_sdmmc::VolumeManager::new(disk, time_source);
 
     let fat32_volume = volume_mgr
-        .open_volume(embedded_sdmmc::VolumeIdx(1))
+        .open_raw_volume(embedded_sdmmc::VolumeIdx(1))
         .expect("open volume 1");
 
     let root_dir = volume_mgr
@@ -313,10 +312,168 @@ fn find_dir_entry() {
     assert!(!dir_entry.attributes.is_system());
     assert!(!dir_entry.attributes.is_volume());
 
-    let r = volume_mgr.find_directory_entry(root_dir, "README.TXS");
-    let Err(embedded_sdmmc::Error::FileNotFound) = r else {
-        panic!("Expected not to find file: {r:?}");
-    };
+    assert!(matches!(
+        volume_mgr.find_directory_entry(root_dir, "README.TXS"),
+        Err(embedded_sdmmc::Error::NotFound)
+    ));
+}
+
+#[test]
+fn delete_file() {
+    let time_source = utils::make_time_source();
+    let disk = utils::make_block_device(utils::DISK_SOURCE).unwrap();
+    let mut volume_mgr = embedded_sdmmc::VolumeManager::new(disk, time_source);
+
+    let fat32_volume = volume_mgr
+        .open_raw_volume(embedded_sdmmc::VolumeIdx(1))
+        .expect("open volume 1");
+
+    let root_dir = volume_mgr
+        .open_root_dir(fat32_volume)
+        .expect("open root dir");
+
+    let file = volume_mgr
+        .open_file_in_dir(root_dir, "README.TXT", Mode::ReadOnly)
+        .unwrap();
+
+    assert!(matches!(
+        volume_mgr.delete_file_in_dir(root_dir, "README.TXT"),
+        Err(embedded_sdmmc::Error::FileAlreadyOpen)
+    ));
+
+    assert!(matches!(
+        volume_mgr.delete_file_in_dir(root_dir, "README2.TXT"),
+        Err(embedded_sdmmc::Error::NotFound)
+    ));
+
+    volume_mgr.close_file(file).unwrap();
+
+    volume_mgr
+        .delete_file_in_dir(root_dir, "README.TXT")
+        .unwrap();
+
+    assert!(matches!(
+        volume_mgr.delete_file_in_dir(root_dir, "README.TXT"),
+        Err(embedded_sdmmc::Error::NotFound)
+    ));
+
+    assert!(matches!(
+        volume_mgr.open_file_in_dir(root_dir, "README.TXT", Mode::ReadOnly),
+        Err(embedded_sdmmc::Error::NotFound)
+    ));
+}
+
+#[test]
+fn make_directory() {
+    let time_source = utils::make_time_source();
+    let disk = utils::make_block_device(utils::DISK_SOURCE).unwrap();
+    let mut volume_mgr = embedded_sdmmc::VolumeManager::new(disk, time_source);
+
+    let fat32_volume = volume_mgr
+        .open_raw_volume(embedded_sdmmc::VolumeIdx(1))
+        .expect("open volume 1");
+
+    let root_dir = volume_mgr
+        .open_root_dir(fat32_volume)
+        .expect("open root dir");
+
+    let test_dir_name = ShortFileName::create_from_str("12345678.ABC").unwrap();
+    let test_file_name = ShortFileName::create_from_str("ABC.TXT").unwrap();
+
+    volume_mgr
+        .make_dir_in_dir(root_dir, &test_dir_name)
+        .unwrap();
+
+    let new_dir = volume_mgr.open_dir(root_dir, &test_dir_name).unwrap();
+
+    let mut has_this = false;
+    let mut has_parent = false;
+    volume_mgr
+        .iterate_dir(new_dir, |item| {
+            if item.name == ShortFileName::parent_dir() {
+                has_parent = true;
+                assert!(item.attributes.is_directory());
+                assert_eq!(item.size, 0);
+                assert_eq!(item.mtime.to_string(), utils::get_time_source_string());
+                assert_eq!(item.ctime.to_string(), utils::get_time_source_string());
+            } else if item.name == ShortFileName::this_dir() {
+                has_this = true;
+                assert!(item.attributes.is_directory());
+                assert_eq!(item.size, 0);
+                assert_eq!(item.mtime.to_string(), utils::get_time_source_string());
+                assert_eq!(item.ctime.to_string(), utils::get_time_source_string());
+            } else {
+                panic!("Unexpected item in new dir");
+            }
+        })
+        .unwrap();
+    assert!(has_this);
+    assert!(has_parent);
+
+    let new_file = volume_mgr
+        .open_file_in_dir(
+            new_dir,
+            &test_file_name,
+            embedded_sdmmc::Mode::ReadWriteCreate,
+        )
+        .expect("open new file");
+    volume_mgr
+        .write(new_file, b"Hello")
+        .expect("write to new file");
+    volume_mgr.close_file(new_file).expect("close new file");
+
+    let mut has_this = false;
+    let mut has_parent = false;
+    let mut has_new_file = false;
+    volume_mgr
+        .iterate_dir(new_dir, |item| {
+            if item.name == ShortFileName::parent_dir() {
+                has_parent = true;
+                assert!(item.attributes.is_directory());
+                assert_eq!(item.size, 0);
+                assert_eq!(item.mtime.to_string(), utils::get_time_source_string());
+                assert_eq!(item.ctime.to_string(), utils::get_time_source_string());
+            } else if item.name == ShortFileName::this_dir() {
+                has_this = true;
+                assert!(item.attributes.is_directory());
+                assert_eq!(item.size, 0);
+                assert_eq!(item.mtime.to_string(), utils::get_time_source_string());
+                assert_eq!(item.ctime.to_string(), utils::get_time_source_string());
+            } else if item.name == test_file_name {
+                has_new_file = true;
+                // We wrote "Hello" to it
+                assert_eq!(item.size, 5);
+                assert!(!item.attributes.is_directory());
+                assert_eq!(item.mtime.to_string(), utils::get_time_source_string());
+                assert_eq!(item.ctime.to_string(), utils::get_time_source_string());
+            } else {
+                panic!("Unexpected item in new dir");
+            }
+        })
+        .unwrap();
+    assert!(has_this);
+    assert!(has_parent);
+    assert!(has_new_file);
+
+    // Close the root dir and look again
+    volume_mgr.close_dir(root_dir).expect("close root");
+    volume_mgr.close_dir(new_dir).expect("close new_dir");
+    let root_dir = volume_mgr
+        .open_root_dir(fat32_volume)
+        .expect("open root dir");
+    // Check we can't make it again now it exists
+    assert!(volume_mgr
+        .make_dir_in_dir(root_dir, &test_dir_name)
+        .is_err());
+    let new_dir = volume_mgr
+        .open_dir(root_dir, &test_dir_name)
+        .expect("find new dir");
+    let new_file = volume_mgr
+        .open_file_in_dir(new_dir, &test_file_name, embedded_sdmmc::Mode::ReadOnly)
+        .expect("re-open new file");
+    volume_mgr.close_dir(root_dir).expect("close root");
+    volume_mgr.close_dir(new_dir).expect("close new dir");
+    volume_mgr.close_file(new_file).expect("close file");
 }
 
 // ****************************************************************************

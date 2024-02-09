@@ -49,10 +49,9 @@ fn main() -> Result<(), Error> {
     let lbd = LinuxBlockDevice::new(filename, print_blocks).map_err(Error::DeviceError)?;
     let mut volume_mgr: VolumeManager<LinuxBlockDevice, Clock, 8, 8, 4> =
         VolumeManager::new_with_limits(lbd, Clock, 0xAA00_0000);
-    let volume = volume_mgr.open_volume(VolumeIdx(0))?;
-    let root_dir = volume_mgr.open_root_dir(volume)?;
-    list_dir(&mut volume_mgr, root_dir, "/")?;
-    volume_mgr.close_dir(root_dir)?;
+    let mut volume = volume_mgr.open_volume(VolumeIdx(0))?;
+    let root_dir = volume.open_root_dir()?;
+    list_dir(root_dir, "/")?;
     Ok(())
 }
 
@@ -60,13 +59,12 @@ fn main() -> Result<(), Error> {
 ///
 /// The path is for display purposes only.
 fn list_dir(
-    volume_mgr: &mut VolumeManager<LinuxBlockDevice, Clock, 8, 8, 4>,
-    directory: Directory,
+    mut directory: Directory<LinuxBlockDevice, Clock, 8, 8, 4>,
     path: &str,
 ) -> Result<(), Error> {
     println!("Listing {}", path);
     let mut children = Vec::new();
-    volume_mgr.iterate_dir(directory, |entry| {
+    directory.iterate_dir(|entry| {
         println!(
             "{:12} {:9} {} {}",
             entry.name,
@@ -78,23 +76,21 @@ fn list_dir(
                 ""
             }
         );
-        if entry.attributes.is_directory() {
-            if entry.name != embedded_sdmmc::ShortFileName::parent_dir()
-                && entry.name != embedded_sdmmc::ShortFileName::this_dir()
-            {
-                children.push(entry.name.clone());
-            }
+        if entry.attributes.is_directory()
+            && entry.name != embedded_sdmmc::ShortFileName::parent_dir()
+            && entry.name != embedded_sdmmc::ShortFileName::this_dir()
+        {
+            children.push(entry.name.clone());
         }
     })?;
     for child_name in children {
-        let child_dir = volume_mgr.open_dir(directory, &child_name)?;
+        let child_dir = directory.open_dir(&child_name)?;
         let child_path = if path == "/" {
             format!("/{}", child_name)
         } else {
             format!("{}/{}", path, child_name)
         };
-        list_dir(volume_mgr, child_dir, &child_path)?;
-        volume_mgr.close_dir(child_dir)?;
+        list_dir(child_dir, &child_path)?;
     }
     Ok(())
 }
