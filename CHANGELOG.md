@@ -6,11 +6,13 @@ The format is based on [Keep a Changelog] and this project adheres to [Semantic 
 
 ## [Unreleased]
 
-* None
+### Changed
+
+- Updated to `heapless` ^0.8
 
 ## [Version 0.7.0] - 2024-02-04
 
-## Changed
+### Changed
 
 - __Breaking Change__: `Volume`, `Directory` and `File` are now smart! They hold references to the thing they were made from, and will clean themselves up when dropped. The trade-off is you can can't open multiple volumes, directories or files at the same time.
 - __Breaking Change__: Renamed the old types to `RawVolume`, `RawDirectory` and `RawFile`
@@ -19,7 +21,7 @@ The format is based on [Keep a Changelog] and this project adheres to [Semantic 
 - You can now open directories multiple times without error
 - Updated to [embedded-hal] 1.0
 
-## Added
+### Added
 
 - `RawVolume`, `RawDirectory` and `RawFile` types (like the old `Volume`, `Directory` and `File` types)
 - New method `make_dir_in_dir`
@@ -27,7 +29,7 @@ The format is based on [Keep a Changelog] and this project adheres to [Semantic 
 - New API `change_dir` which changes a directory to point to some child directory (or the parent) without opening a new directory.
 - Updated 'shell' example to support `mkdir`, `tree` and relative/absolute paths
 
-## Removed
+### Removed
 
 * None
 
