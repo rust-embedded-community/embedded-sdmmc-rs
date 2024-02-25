@@ -14,7 +14,7 @@ version = "0.7.0"
 byteorder = {version = "1", default-features = false}
 defmt = {version = "0.3", optional = true}
 embedded-hal = "1.0.0"
-heapless = "0.7"
+heapless = "^0.8"
 log = {version = "0.4", default-features = false, optional = true}
 
 [dev-dependencies]
