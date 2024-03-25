@@ -1015,30 +1015,30 @@ where
     }
 
     fn get_volume_by_id(&self, volume: RawVolume) -> Result<usize, Error<D::Error>> {
-        for (idx, v) in self.open_volumes.iter().enumerate() {
-            if v.volume_id == volume {
-                return Ok(idx);
-            }
-        }
-        Err(Error::BadHandle)
+        self.open_volumes
+            .iter()
+            .enumerate()
+            .find(|(_, v)| v.volume_id == volume)
+            .ok_or(Error::BadHandle)
+            .map(|(idx, _)| idx)
     }
 
     fn get_dir_by_id(&self, directory: RawDirectory) -> Result<usize, Error<D::Error>> {
-        for (idx, d) in self.open_dirs.iter().enumerate() {
-            if d.directory_id == directory {
-                return Ok(idx);
-            }
-        }
-        Err(Error::BadHandle)
+        self.open_dirs
+            .iter()
+            .enumerate()
+            .find(|(_, d)| d.directory_id == directory)
+            .ok_or(Error::BadHandle)
+            .map(|(idx, _)| idx)
     }
 
     fn get_file_by_id(&self, file: RawFile) -> Result<usize, Error<D::Error>> {
-        for (idx, f) in self.open_files.iter().enumerate() {
-            if f.file_id == file {
-                return Ok(idx);
-            }
-        }
-        Err(Error::BadHandle)
+        self.open_files
+            .iter()
+            .enumerate()
+            .find(|(_, f)| f.file_id == file)
+            .ok_or(Error::BadHandle)
+            .map(|(idx, _)| idx)
     }
 
     /// This function turns `desired_offset` into an appropriate block to be
