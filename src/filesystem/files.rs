@@ -137,9 +137,7 @@ where
     T: crate::TimeSource,
 {
     fn drop(&mut self) {
-        self.volume_mgr
-            .close_file(self.raw_file)
-            .expect("Failed to close file");
+        _ = self.volume_mgr.close_file(self.raw_file);
     }
 }
 
