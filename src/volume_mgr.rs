@@ -773,36 +773,16 @@ where
         Ok(())
     }
 
-    /// Close a file with the given full path.
+    /// Close a file with the given raw file handle.
     pub fn close_file(&mut self, file: RawFile) -> Result<(), Error<D::Error>> {
-        let mut found_idx = None;
-        for (idx, info) in self.open_files.iter().enumerate() {
-            if file == info.file_id {
-                found_idx = Some((info, idx));
-                break;
-            }
-        }
-
-        let (file_info, file_idx) = found_idx.ok_or(Error::BadHandle)?;
-
-        if file_info.dirty {
-            let volume_idx = self.get_volume_by_id(file_info.volume_id)?;
-            match self.open_volumes[volume_idx].volume_type {
-                VolumeType::Fat(ref mut fat) => {
-                    debug!("Updating FAT info sector");
-                    fat.update_info_sector(&self.block_device)?;
-                    debug!("Updating dir entry {:?}", file_info.entry);
-                    if file_info.entry.size != 0 {
-                        // If you have a length, you must have a cluster
-                        assert!(file_info.entry.cluster.0 != 0);
-                    }
-                    fat.write_entry_to_disk(&self.block_device, &file_info.entry)?;
-                }
-            };
-        }
-
+        let file_idx = self.flush_file_get_index(file)?;
         self.open_files.swap_remove(file_idx);
         Ok(())
+    }
+
+    /// Flush (update the entry) for a file with the given raw file handle.
+    pub fn flush_file(&mut self, file: RawFile) -> Result<(), Error<D::Error>> {
+        self.flush_file_get_index(file).map(|_| ())
     }
 
     /// Check if any files or folders are open.
@@ -1073,6 +1053,38 @@ where
         let block_offset = (desired_offset % Block::LEN_U32) as usize;
         let available = Block::LEN - block_offset;
         Ok((block_idx, block_offset, available))
+    }
+
+    /// Flush (update the entry) for a file with the given raw file handle and
+    /// get its index.
+    fn flush_file_get_index(&mut self, file: RawFile) -> Result<usize, Error<D::Error>> {
+        let mut found_idx = None;
+        for (idx, info) in self.open_files.iter().enumerate() {
+            if file == info.file_id {
+                found_idx = Some((info, idx));
+                break;
+            }
+        }
+
+        let (file_info, file_idx) = found_idx.ok_or(Error::BadHandle)?;
+
+        if file_info.dirty {
+            let volume_idx = self.get_volume_by_id(file_info.volume_id)?;
+            match self.open_volumes[volume_idx].volume_type {
+                VolumeType::Fat(ref mut fat) => {
+                    debug!("Updating FAT info sector");
+                    fat.update_info_sector(&self.block_device)?;
+                    debug!("Updating dir entry {:?}", file_info.entry);
+                    if file_info.entry.size != 0 {
+                        // If you have a length, you must have a cluster
+                        assert!(file_info.entry.cluster.0 != 0);
+                    }
+                    fat.write_entry_to_disk(&self.block_device, &file_info.entry)?;
+                }
+            };
+        }
+
+        Ok(file_idx)
     }
 }
 
