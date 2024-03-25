@@ -1,6 +1,6 @@
 use crate::{
     filesystem::{ClusterId, DirEntry, SearchId},
-    RawVolume, VolumeManager,
+    Error, RawVolume, VolumeManager,
 };
 
 /// Represents an open file on disk.
@@ -122,6 +122,11 @@ where
         let f = self.raw_file;
         core::mem::forget(self);
         f
+    }
+
+    /// Flush any written data by updating the directory entry.
+    pub fn flush(&mut self) -> Result<(), Error<D::Error>> {
+        self.volume_mgr.flush_file(self.raw_file)
     }
 }
 
