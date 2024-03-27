@@ -128,6 +128,15 @@ where
     pub fn flush(&mut self) -> Result<(), Error<D::Error>> {
         self.volume_mgr.flush_file(self.raw_file)
     }
+
+    /// Consume the `File` handle and close it. The behavior of this is similar
+    /// to using [`core::mem::drop`] or letting the `File` go out of scope,
+    /// except if the file fails to close properly, this returns an error,
+    /// whereas the automatic drop will panic. This method is therefore hihgly
+    /// recommended for closing files over just dropping them.
+    pub fn close(self) -> Result<(), Error<D::Error>> {
+        self.volume_mgr.close_file(self.raw_file)
+    }
 }
 
 impl<'a, D, T, const MAX_DIRS: usize, const MAX_FILES: usize, const MAX_VOLUMES: usize> Drop
