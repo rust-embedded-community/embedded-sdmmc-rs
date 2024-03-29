@@ -239,9 +239,12 @@ impl RawVolume {
 
 /// Represents an open volume on disk.
 ///
-/// If you drop a value of this type, it closes the volume automatically. However,
-/// it holds a mutable reference to its parent `VolumeManager`, which restricts
-/// which operations you can perform.
+/// In contrast to a `RawVolume`, a `Volume` holds a mutable reference to its
+/// parent `VolumeManager`, which restricts which operations you can perform.
+///
+/// If you drop a value of this type, it closes the volume automatically, but
+/// any error that may occur will be ignored. To handle potential errors, use
+/// the [`Volume::close`] method.
 pub struct Volume<'a, D, T, const MAX_DIRS: usize, const MAX_FILES: usize, const MAX_VOLUMES: usize>
 where
     D: crate::BlockDevice,
@@ -285,6 +288,16 @@ where
         core::mem::forget(self);
         v
     }
+
+    /// Consume the `Volume` handle and close it. The behavior of this is similar
+    /// to using [`core::mem::drop`] or letting the `Volume` go out of scope,
+    /// except this lets the user handle any errors that may occur in the process,
+    /// whereas when using drop, any errors will be discarded silently.
+    pub fn close(self) -> Result<(), Error<D::Error>> {
+        let result = self.volume_mgr.close_volume(self.raw_volume);
+        core::mem::forget(self);
+        result
+    }
 }
 
 impl<'a, D, T, const MAX_DIRS: usize, const MAX_FILES: usize, const MAX_VOLUMES: usize> Drop
@@ -294,9 +307,7 @@ where
     T: crate::TimeSource,
 {
     fn drop(&mut self) {
-        self.volume_mgr
-            .close_volume(self.raw_volume)
-            .expect("Failed to close volume");
+        _ = self.volume_mgr.close_volume(self.raw_volume)
     }
 }
 
