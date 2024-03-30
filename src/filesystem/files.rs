@@ -39,9 +39,12 @@ impl RawFile {
 
 /// Represents an open file on disk.
 ///
-/// If you drop a value of this type, it closes the file automatically. However,
-/// it holds a mutable reference to its parent `VolumeManager`, which restricts
-/// which operations you can perform.
+/// In contrast to a `RawFile`, a `File`  holds a mutable reference to its
+/// parent `VolumeManager`, which restricts which operations you can perform.
+///
+/// If you drop a value of this type, it closes the file automatically, and but
+/// error that may occur will be ignored. To handle potential errors, use
+/// the [`File::close`] method.
 pub struct File<'a, D, T, const MAX_DIRS: usize, const MAX_FILES: usize, const MAX_VOLUMES: usize>
 where
     D: crate::BlockDevice,
@@ -128,6 +131,16 @@ where
     pub fn flush(&mut self) -> Result<(), Error<D::Error>> {
         self.volume_mgr.flush_file(self.raw_file)
     }
+
+    /// Consume the `File` handle and close it. The behavior of this is similar
+    /// to using [`core::mem::drop`] or letting the `File` go out of scope,
+    /// except this lets the user handle any errors that may occur in the process,
+    /// whereas when using drop, any errors will be discarded silently.
+    pub fn close(self) -> Result<(), Error<D::Error>> {
+        let result = self.volume_mgr.close_file(self.raw_file);
+        core::mem::forget(self);
+        result
+    }
 }
 
 impl<'a, D, T, const MAX_DIRS: usize, const MAX_FILES: usize, const MAX_VOLUMES: usize> Drop
@@ -137,9 +150,7 @@ where
     T: crate::TimeSource,
 {
     fn drop(&mut self) {
-        self.volume_mgr
-            .close_file(self.raw_file)
-            .expect("Failed to close file");
+        _ = self.volume_mgr.close_file(self.raw_file);
     }
 }
 
