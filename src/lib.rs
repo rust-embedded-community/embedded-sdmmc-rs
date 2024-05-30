@@ -175,6 +175,10 @@ where
     VolumeStillInUse,
     /// You can't open a volume twice
     VolumeAlreadyOpen,
+    /// Volume is opened in read only mode
+    VolumeReadOnly,
+    /// Fat table is longer than supported
+    FatTableTooLarge,
     /// We can't do that yet
     Unsupported,
     /// Tried to read beyond end of file
@@ -344,6 +348,8 @@ pub(crate) struct VolumeInfo {
     idx: VolumeIdx,
     /// What kind of volume this is
     volume_type: VolumeType,
+    /// Flag to indicate if the volume was opened as read only. If read only, files cannot be opened in write mode!
+    read_only: bool,
 }
 
 /// This enum holds the data for the various different types of filesystems we

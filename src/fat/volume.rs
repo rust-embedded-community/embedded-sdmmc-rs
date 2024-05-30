@@ -55,6 +55,10 @@ pub struct FatVolume {
     /// The block the FAT starts in. Relative to start of partition (so add
     /// `self.lba_offset` before passing to volume manager)
     pub(crate) fat_start: BlockCount,
+    /// Size of the FAT table in blocks
+    pub(crate) fat_size: BlockCount,
+    /// Number of FAT tables (Normaly there are 2 which are always synchronized (backup))
+    pub(crate) fat_nums: u8,
     /// Expected number of free clusters
     pub(crate) free_clusters_count: Option<u32>,
     /// Number of the next expected free cluster
@@ -1098,6 +1102,8 @@ where
                 blocks_per_cluster: bpb.blocks_per_cluster(),
                 first_data_block: (first_data_block),
                 fat_start: BlockCount(u32::from(bpb.reserved_block_count())),
+                fat_size: BlockCount(bpb.fat_size()),
+                fat_nums: bpb.num_fats(),
                 free_clusters_count: None,
                 next_free_cluster: None,
                 cluster_count: bpb.total_clusters(),
@@ -1135,6 +1141,8 @@ where
                 blocks_per_cluster: bpb.blocks_per_cluster(),
                 first_data_block: BlockCount(first_data_block),
                 fat_start: BlockCount(u32::from(bpb.reserved_block_count())),
+                fat_size: BlockCount(bpb.fat_size()),
+                fat_nums: bpb.num_fats(),
                 free_clusters_count: info_sector.free_clusters_count(),
                 next_free_cluster: info_sector.next_free_cluster(),
                 cluster_count: bpb.total_clusters(),

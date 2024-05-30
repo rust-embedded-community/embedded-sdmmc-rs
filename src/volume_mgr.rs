@@ -12,8 +12,8 @@ use crate::filesystem::{
     SearchIdGenerator, TimeSource, ToShortFileName, MAX_FILE_SIZE,
 };
 use crate::{
-    debug, Block, BlockCount, BlockDevice, BlockIdx, Error, RawVolume, ShortFileName, Volume,
-    VolumeIdx, VolumeInfo, VolumeType, PARTITION_ID_FAT16, PARTITION_ID_FAT16_LBA,
+    debug, Block, BlockCount, BlockDevice, BlockIdx, Error, FatVolume, RawVolume, ShortFileName,
+    Volume, VolumeIdx, VolumeInfo, VolumeType, PARTITION_ID_FAT16, PARTITION_ID_FAT16_LBA,
     PARTITION_ID_FAT32_CHS_LBA, PARTITION_ID_FAT32_LBA,
 };
 use heapless::Vec;
@@ -102,8 +102,26 @@ where
     pub fn open_volume(
         &mut self,
         volume_idx: VolumeIdx,
+        read_only: bool,
     ) -> Result<Volume<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>, Error<D::Error>> {
-        let v = self.open_raw_volume(volume_idx)?;
+        return self._open_volume(volume_idx, false);
+    }
+
+    /// Get a volume (or partition) based on entries in the Master Boot Record.
+    ///
+    /// We do not support GUID Partition Table disks. Nor do we support any
+    /// concept of drive letters - that is for a higher layer to handle.
+    fn _open_volume(
+        &mut self,
+        volume_idx: VolumeIdx,
+        read_only: bool,
+    ) -> Result<Volume<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>, Error<D::Error>> {
+        let v = self.open_raw_volume(volume_idx, read_only)?;
+        if !read_only {
+            let idx = self.get_volume_by_id(v)?;
+            let VolumeType::Fat(volume_type) = &self.open_volumes[idx].volume_type;
+            self.set_volume_status_dirty(volume_type, true)?;
+        }
         Ok(v.to_volume(self))
     }
 
@@ -114,7 +132,11 @@ where
     ///
     /// This function gives you a `RawVolume` and you must close the volume by
     /// calling `VolumeManager::close_volume`.
-    pub fn open_raw_volume(&mut self, volume_idx: VolumeIdx) -> Result<RawVolume, Error<D::Error>> {
+    pub fn open_raw_volume(
+        &mut self,
+        volume_idx: VolumeIdx,
+        read_only: bool,
+    ) -> Result<RawVolume, Error<D::Error>> {
         const PARTITION1_START: usize = 446;
         const PARTITION2_START: usize = PARTITION1_START + PARTITION_INFO_LENGTH;
         const PARTITION3_START: usize = PARTITION2_START + PARTITION_INFO_LENGTH;
@@ -192,6 +214,7 @@ where
                     volume_id: id,
                     idx: volume_idx,
                     volume_type: volume,
+                    read_only: read_only,
                 };
                 // We already checked for space
                 self.open_volumes.push(info).unwrap();
@@ -319,10 +342,46 @@ where
                 return Err(Error::VolumeStillInUse);
             }
         }
-
         let volume_idx = self.get_volume_by_id(volume)?;
+        if !self.open_volumes[volume_idx].read_only {
+            let VolumeType::Fat(volume_type) = &self.open_volumes[volume_idx].volume_type;
+            self.set_volume_status_dirty(volume_type, false)?;
+        }
+
         self.open_volumes.swap_remove(volume_idx);
 
+        Ok(())
+    }
+
+    /// Sets the volume status dirty to dirty if true, to not dirty if false
+    fn set_volume_status_dirty(
+        &self,
+        volume: &FatVolume,
+        dirty: bool,
+    ) -> Result<(), Error<D::Error>> {
+        if volume.fat_size > BlockCount(512) {
+            return Err(Error::FatTableTooLarge);
+        }
+        let mut blocks = [Block::new()];
+        self.block_device.read(
+            &mut blocks,
+            volume.lba_start + volume.fat_start,
+            "reading fat table",
+        )?;
+        let block = &mut blocks[0];
+        let mut fat_table =
+            fat::FatTable::create_from_bytes(&mut block.contents, volume.get_fat_type())
+                .map_err(Error::FormatError)?;
+        fat_table.set_dirty(dirty);
+        let fat_table_start = volume.lba_start + volume.fat_start;
+        if volume.fat_nums == 1 || volume.fat_nums == 2 {
+            self.block_device.write(&blocks, fat_table_start)?;
+            // Synchronize also backup fat table
+            if volume.fat_nums == 2 {
+                self.block_device
+                    .write(&blocks, fat_table_start + volume.fat_size)?
+            }
+        }
         Ok(())
     }
 
@@ -478,6 +537,10 @@ where
         let volume_idx = self.get_volume_by_id(volume_id)?;
         let volume_info = &self.open_volumes[volume_idx];
         let sfn = name.to_short_filename().map_err(Error::FilenameError)?;
+
+        if volume_info.read_only && mode != Mode::ReadOnly {
+            return Err(Error::VolumeReadOnly);
+        }
 
         let dir_entry = match &volume_info.volume_type {
             VolumeType::Fat(fat) => {
