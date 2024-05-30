@@ -177,8 +177,6 @@ where
     VolumeAlreadyOpen,
     /// Volume is opened in read only mode
     VolumeReadOnly,
-    /// Fat table is longer than supported
-    FatTableTooLarge,
     /// We can't do that yet
     Unsupported,
     /// Tried to read beyond end of file

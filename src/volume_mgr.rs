@@ -359,9 +359,6 @@ where
         volume: &FatVolume,
         dirty: bool,
     ) -> Result<(), Error<D::Error>> {
-        if volume.fat_size > BlockCount(512) {
-            return Err(Error::FatTableTooLarge);
-        }
         let mut blocks = [Block::new()];
         self.block_device.read(
             &mut blocks,
