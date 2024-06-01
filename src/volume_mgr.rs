@@ -1045,7 +1045,7 @@ where
 
     /// This function turns `desired_offset` into an appropriate block to be
     /// read. It either calculates this based on the start of the file, or
-    /// from the last cluster we read - whichever is better.
+    /// from the given start point - whichever is better.
     ///
     /// Returns:
     ///
@@ -1062,15 +1062,16 @@ where
         let bytes_per_cluster = match &self.open_volumes[volume_idx].volume_type {
             VolumeType::Fat(fat) => fat.bytes_per_cluster(),
         };
-        // How many clusters forward do we need to go?
+        // do we need to be before our start point?
         if desired_offset < start.0 {
             // user wants to go backwards - start from the beginning of the file
             // because the FAT is only a singly-linked list.
             start.0 = 0;
             start.1 = file_start;
         }
-        // walk through the FAT chain
+        // How many clusters forward do we need to go?
         let offset_from_cluster = desired_offset - start.0;
+        // walk through the FAT chain
         let num_clusters = offset_from_cluster / bytes_per_cluster;
         let mut block_cache = BlockCache::empty();
         for _ in 0..num_clusters {

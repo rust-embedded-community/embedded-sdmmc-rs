@@ -211,7 +211,10 @@ pub(crate) struct FileInfo {
     pub(crate) file_id: RawFile,
     /// The unique ID for the volume this directory is on
     pub(crate) volume_id: RawVolume,
-    /// The current cluster, and how many bytes that short-cuts us
+    /// The last cluster we accessed, and how many bytes that short-cuts us.
+    ///
+    /// This saves us walking from the very start of the FAT chain when we move
+    /// forward through a file.
     pub(crate) current_cluster: (u32, ClusterId),
     /// How far through the file we've read (in bytes).
     pub(crate) current_offset: u32,
@@ -236,41 +239,30 @@ impl FileInfo {
 
     /// Seek to a new position in the file, relative to the start of the file.
     pub fn seek_from_start(&mut self, offset: u32) -> Result<(), FileError> {
-        if offset <= self.entry.size {
-            self.current_offset = offset;
-            if offset < self.current_cluster.0 {
-                // Back to start
-                self.current_cluster = (0, self.entry.cluster);
-            }
-            Ok(())
-        } else {
-            Err(FileError::InvalidOffset)
+        if offset > self.entry.size {
+            return Err(FileError::InvalidOffset);
         }
+        self.current_offset = offset;
+        Ok(())
     }
 
     /// Seek to a new position in the file, relative to the end of the file.
     pub fn seek_from_end(&mut self, offset: u32) -> Result<(), FileError> {
-        if offset <= self.entry.size {
-            self.current_offset = self.entry.size - offset;
-            if self.current_offset < self.current_cluster.0 {
-                // Back to start
-                self.current_cluster = (0, self.entry.cluster);
-            }
-            Ok(())
-        } else {
-            Err(FileError::InvalidOffset)
+        if offset > self.entry.size {
+            return Err(FileError::InvalidOffset);
         }
+        self.current_offset = self.entry.size - offset;
+        Ok(())
     }
 
     /// Seek to a new position in the file, relative to the current position.
     pub fn seek_from_current(&mut self, offset: i32) -> Result<(), FileError> {
         let new_offset = i64::from(self.current_offset) + i64::from(offset);
-        if new_offset >= 0 && new_offset <= i64::from(self.entry.size) {
-            self.current_offset = new_offset as u32;
-            Ok(())
-        } else {
-            Err(FileError::InvalidOffset)
+        if new_offset < 0 || new_offset > i64::from(self.entry.size) {
+            return Err(FileError::InvalidOffset);
         }
+        self.current_offset = new_offset as u32;
+        Ok(())
     }
 
     /// Amount of file left to read.
@@ -280,7 +272,6 @@ impl FileInfo {
 
     /// Update the file's length.
     pub(crate) fn update_length(&mut self, new: u32) {
-        self.entry.size = new;
         self.entry.size = new;
     }
 }
