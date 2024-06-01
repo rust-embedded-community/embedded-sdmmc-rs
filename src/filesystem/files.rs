@@ -252,7 +252,7 @@ impl FileInfo {
     pub fn seek_from_end(&mut self, offset: u32) -> Result<(), FileError> {
         if offset <= self.entry.size {
             self.current_offset = self.entry.size - offset;
-            if offset < self.current_cluster.0 {
+            if self.current_offset < self.current_cluster.0 {
                 // Back to start
                 self.current_cluster = (0, self.entry.cluster);
             }
