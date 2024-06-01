@@ -3,6 +3,8 @@
 //! We add enough stuff to make it compile, but it won't run because our fake
 //! SPI doesn't do any replies.
 
+#![allow(dead_code)]
+
 use core::cell::RefCell;
 
 use embedded_sdmmc::sdcard::DummyCsPin;
