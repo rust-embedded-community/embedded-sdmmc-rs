@@ -624,6 +624,7 @@ where
             let (block_idx, block_offset, block_avail) = self.find_data_on_disk(
                 volume_idx,
                 &mut current_cluster,
+                self.open_files[file_idx].entry.cluster,
                 self.open_files[file_idx].current_offset,
             )?;
             self.open_files[file_idx].current_cluster = current_cluster;
@@ -701,44 +702,45 @@ where
                 written, bytes_to_write, current_cluster
             );
             let current_offset = self.open_files[file_idx].current_offset;
-            let (block_idx, block_offset, block_avail) =
-                match self.find_data_on_disk(volume_idx, &mut current_cluster, current_offset) {
-                    Ok(vars) => {
-                        debug!(
-                            "Found block_idx={:?}, block_offset={:?}, block_avail={}",
-                            vars.0, vars.1, vars.2
-                        );
-                        vars
-                    }
-                    Err(Error::EndOfFile) => {
-                        debug!("Extending file");
-                        match self.open_volumes[volume_idx].volume_type {
-                            VolumeType::Fat(ref mut fat) => {
-                                if fat
-                                    .alloc_cluster(
-                                        &self.block_device,
-                                        Some(current_cluster.1),
-                                        false,
-                                    )
-                                    .is_err()
-                                {
-                                    return Err(Error::DiskFull);
-                                }
-                                debug!("Allocated new FAT cluster, finding offsets...");
-                                let new_offset = self
-                                    .find_data_on_disk(
-                                        volume_idx,
-                                        &mut current_cluster,
-                                        self.open_files[file_idx].current_offset,
-                                    )
-                                    .map_err(|_| Error::AllocationError)?;
-                                debug!("New offset {:?}", new_offset);
-                                new_offset
+            let (block_idx, block_offset, block_avail) = match self.find_data_on_disk(
+                volume_idx,
+                &mut current_cluster,
+                self.open_files[file_idx].entry.cluster,
+                current_offset,
+            ) {
+                Ok(vars) => {
+                    debug!(
+                        "Found block_idx={:?}, block_offset={:?}, block_avail={}",
+                        vars.0, vars.1, vars.2
+                    );
+                    vars
+                }
+                Err(Error::EndOfFile) => {
+                    debug!("Extending file");
+                    match self.open_volumes[volume_idx].volume_type {
+                        VolumeType::Fat(ref mut fat) => {
+                            if fat
+                                .alloc_cluster(&self.block_device, Some(current_cluster.1), false)
+                                .is_err()
+                            {
+                                return Err(Error::DiskFull);
                             }
+                            debug!("Allocated new FAT cluster, finding offsets...");
+                            let new_offset = self
+                                .find_data_on_disk(
+                                    volume_idx,
+                                    &mut current_cluster,
+                                    self.open_files[file_idx].entry.cluster,
+                                    self.open_files[file_idx].current_offset,
+                                )
+                                .map_err(|_| Error::AllocationError)?;
+                            debug!("New offset {:?}", new_offset);
+                            new_offset
                         }
                     }
-                    Err(e) => return Err(e),
-                };
+                }
+                Err(e) => return Err(e),
+            };
             let mut blocks = [Block::new()];
             let to_copy = core::cmp::min(block_avail, bytes_to_write - written);
             if block_offset != 0 {
@@ -1044,16 +1046,30 @@ where
     /// This function turns `desired_offset` into an appropriate block to be
     /// read. It either calculates this based on the start of the file, or
     /// from the last cluster we read - whichever is better.
+    ///
+    /// Returns:
+    ///
+    /// * the index for the block on the disk that contains the data we want,
+    /// * the byte offset into that block for the data we want, and
+    /// * how many bytes remain in that block.
     fn find_data_on_disk(
         &self,
         volume_idx: usize,
         start: &mut (u32, ClusterId),
+        file_start: ClusterId,
         desired_offset: u32,
     ) -> Result<(BlockIdx, usize, usize), Error<D::Error>> {
         let bytes_per_cluster = match &self.open_volumes[volume_idx].volume_type {
             VolumeType::Fat(fat) => fat.bytes_per_cluster(),
         };
         // How many clusters forward do we need to go?
+        if desired_offset < start.0 {
+            // user wants to go backwards - start from the beginning of the file
+            // because the FAT is only a singly-linked list.
+            start.0 = 0;
+            start.1 = file_start;
+        }
+        // walk through the FAT chain
         let offset_from_cluster = desired_offset - start.0;
         let num_clusters = offset_from_cluster / bytes_per_cluster;
         let mut block_cache = BlockCache::empty();
@@ -1065,7 +1081,7 @@ where
             };
             start.0 += bytes_per_cluster;
         }
-        // How many blocks in are we?
+        // How many blocks in are we now?
         let offset_from_cluster = desired_offset - start.0;
         assert!(offset_from_cluster < bytes_per_cluster);
         let num_blocks = BlockCount(offset_from_cluster / Block::LEN_U32);
