@@ -18,6 +18,12 @@ use crate::{
 };
 use heapless::Vec;
 
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum VolumeOpenMode {
+    ReadOnly,
+    ReadWrite,
+}
+
 /// A `VolumeManager` wraps a block device and gives access to the FAT-formatted
 /// volumes within it.
 #[derive(Debug)]
@@ -103,7 +109,7 @@ where
         &mut self,
         volume_idx: VolumeIdx,
     ) -> Result<Volume<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>, Error<D::Error>> {
-        return self._open_volume(volume_idx, false);
+        return self._open_volume(volume_idx, VolumeOpenMode::ReadWrite);
     }
 
     /// Get a read only volume (or partition) based on entries in the Master Boot Record.
@@ -115,9 +121,8 @@ where
         &mut self,
         volume_idx: VolumeIdx,
     ) -> Result<Volume<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>, Error<D::Error>> {
-        return self._open_volume(volume_idx, true);
+        return self._open_volume(volume_idx, VolumeOpenMode::ReadOnly);
     }
-
     /// Get a volume (or partition) based on entries in the Master Boot Record.
     ///
     /// We do not support GUID Partition Table disks. Nor do we support any
@@ -125,10 +130,10 @@ where
     fn _open_volume(
         &mut self,
         volume_idx: VolumeIdx,
-        read_only: bool,
+        open_mode: VolumeOpenMode,
     ) -> Result<Volume<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>, Error<D::Error>> {
-        let v = self.open_raw_volume(volume_idx, read_only)?;
-        if !read_only {
+        let v = self.open_raw_volume(volume_idx, open_mode)?;
+        if open_mode != VolumeOpenMode::ReadOnly {
             let idx = self.get_volume_by_id(v)?;
             let VolumeType::Fat(volume_type) = &self.open_volumes[idx].volume_type;
             self.set_volume_status_dirty(volume_type, true)?;
@@ -146,7 +151,7 @@ where
     pub fn open_raw_volume(
         &mut self,
         volume_idx: VolumeIdx,
-        read_only: bool,
+        open_mode: VolumeOpenMode,
     ) -> Result<RawVolume, Error<D::Error>> {
         const PARTITION1_START: usize = 446;
         const PARTITION2_START: usize = PARTITION1_START + PARTITION_INFO_LENGTH;
@@ -225,7 +230,7 @@ where
                     volume_id: id,
                     idx: volume_idx,
                     volume_type: volume,
-                    read_only: read_only,
+                    open_mode: open_mode,
                 };
                 // We already checked for space
                 self.open_volumes.push(info).unwrap();
@@ -354,7 +359,7 @@ where
             }
         }
         let volume_idx = self.get_volume_by_id(volume)?;
-        if !self.open_volumes[volume_idx].read_only {
+        if self.open_volumes[volume_idx].open_mode != VolumeOpenMode::ReadOnly {
             let VolumeType::Fat(volume_type) = &self.open_volumes[volume_idx].volume_type;
             self.set_volume_status_dirty(volume_type, false)?;
         }
@@ -555,7 +560,7 @@ where
         let volume_info = &self.open_volumes[volume_idx];
         let sfn = name.to_short_filename().map_err(Error::FilenameError)?;
 
-        if volume_info.read_only && mode != Mode::ReadOnly {
+        if volume_info.open_mode == VolumeOpenMode::ReadOnly && mode != Mode::ReadOnly {
             return Err(Error::VolumeReadOnly);
         }
 
@@ -1708,7 +1713,7 @@ mod tests {
                     DUMMY,
                     DUMMY,
                     FAT32_PARTITION0_FAT_TABLE,
-                ])
+                ]),
             }
         }
 
@@ -1724,7 +1729,7 @@ mod tests {
                     DUMMY,
                     DUMMY,
                     FAT32_PARTITION0_FAT_TABLE_DIRTY,
-                ])
+                ]),
             }
         }
 
@@ -1741,7 +1746,7 @@ mod tests {
                     DUMMY,
                     DUMMY,
                     FAT32_PARTITION0_FAT_TABLE,
-                ])
+                ]),
             }
         }
     }
@@ -1762,8 +1767,6 @@ mod tests {
             start_block_idx: BlockIdx,
             _reason: &str,
         ) -> Result<(), Self::Error> {
-            
-
             println!(
                 "Reading block {} to {}",
                 start_block_idx.0,
@@ -1797,13 +1800,11 @@ mod tests {
     #[test]
     fn partition0() {
         let mut c: VolumeManager<DummyBlockDevice, Clock, 2, 2> =
-            VolumeManager::new_with_limits(
-                DummyBlockDevice::new_not_dirty(),
-                Clock,
-                0xAA00_0000,
-            );
+            VolumeManager::new_with_limits(DummyBlockDevice::new_not_dirty(), Clock, 0xAA00_0000);
 
-        let v = c.open_raw_volume(VolumeIdx(0), false).unwrap();
+        let v = c
+            .open_raw_volume(VolumeIdx(0), VolumeOpenMode::ReadWrite)
+            .unwrap();
         let expected_id = RawVolume(SearchId(0xAA00_0000));
         assert_eq!(v, expected_id);
         assert_eq!(
@@ -1811,7 +1812,7 @@ mod tests {
             &VolumeInfo {
                 volume_id: expected_id,
                 idx: VolumeIdx(0),
-                read_only: false,
+                open_mode: VolumeOpenMode::ReadWrite,
                 volume_type: VolumeType::Fat(crate::FatVolume {
                     lba_start: BlockIdx(1),
                     num_blocks: BlockCount(0x0011_2233),
@@ -1833,7 +1834,6 @@ mod tests {
         );
         let VolumeType::Fat(fat_info) = &c.open_volumes[0].volume_type;
         assert_eq!(c.volume_status_dirty(fat_info).unwrap(), false);
-        c.set_volume_status_dirty(fat_info, true).unwrap();
     }
 
     #[test]
@@ -1841,7 +1841,9 @@ mod tests {
         let mut c: VolumeManager<DummyBlockDevice, Clock, 2, 2> =
             VolumeManager::new_with_limits(DummyBlockDevice::new_dirty(), Clock, 0xAA00_0000);
 
-        let v = c.open_raw_volume(VolumeIdx(0), false).unwrap();
+        let v = c
+            .open_raw_volume(VolumeIdx(0), VolumeOpenMode::ReadWrite)
+            .unwrap();
         let expected_id = RawVolume(SearchId(0xAA00_0000));
         assert_eq!(v, expected_id);
         assert_eq!(
@@ -1849,7 +1851,7 @@ mod tests {
             &VolumeInfo {
                 volume_id: expected_id,
                 idx: VolumeIdx(0),
-                read_only: false,
+                open_mode: VolumeOpenMode::ReadWrite,
                 volume_type: VolumeType::Fat(crate::FatVolume {
                     lba_start: BlockIdx(1),
                     num_blocks: BlockCount(0x0011_2233),
@@ -1875,14 +1877,15 @@ mod tests {
 
     #[test]
     fn partition0_set_dirty() {
-        let mut c: VolumeManager<DummyBlockDevice, Clock, 2, 2> =
-            VolumeManager::new_with_limits(
-                DummyBlockDevice::new_not_dirty_fattable_size_5(),
-                Clock,
-                0xAA00_0000,
-            );
+        let mut c: VolumeManager<DummyBlockDevice, Clock, 2, 2> = VolumeManager::new_with_limits(
+            DummyBlockDevice::new_not_dirty_fattable_size_5(),
+            Clock,
+            0xAA00_0000,
+        );
 
-        let v = c.open_raw_volume(VolumeIdx(0), false).unwrap();
+        let v = c
+            .open_raw_volume(VolumeIdx(0), VolumeOpenMode::ReadWrite)
+            .unwrap();
         let expected_id = RawVolume(SearchId(0xAA00_0000));
         assert_eq!(v, expected_id);
         assert_eq!(
@@ -1890,7 +1893,7 @@ mod tests {
             &VolumeInfo {
                 volume_id: expected_id,
                 idx: VolumeIdx(0),
-                read_only: false,
+                open_mode: VolumeOpenMode::ReadWrite,
                 volume_type: VolumeType::Fat(crate::FatVolume {
                     lba_start: BlockIdx(1),
                     num_blocks: BlockCount(0x0011_2233),
@@ -1913,7 +1916,10 @@ mod tests {
         let VolumeType::Fat(fat_info) = &c.open_volumes[0].volume_type;
         assert_eq!(c.volume_status_dirty(fat_info).unwrap(), false);
         assert_eq!(c.block_device.blocks.borrow()[0], MBR_BLOCK);
-        assert_eq!(c.block_device.blocks.borrow()[1], FAT32_PARTITION0_BOOT_FAT_TABLE_SIZE_5);
+        assert_eq!(
+            c.block_device.blocks.borrow()[1],
+            FAT32_PARTITION0_BOOT_FAT_TABLE_SIZE_5
+        );
         assert_eq!(c.block_device.blocks.borrow()[2], FAT32_PARTITION0_FSINFO);
         assert_eq!(c.block_device.blocks.borrow()[3].contents[7] & (1 << 3), 8);
         assert_eq!(c.block_device.blocks.borrow()[4], DUMMY);
@@ -1930,7 +1936,10 @@ mod tests {
         c.set_volume_status_dirty(fat_info, false).unwrap();
         assert_eq!(c.volume_status_dirty(fat_info).unwrap(), false);
         assert_eq!(c.block_device.blocks.borrow()[0], MBR_BLOCK);
-        assert_eq!(c.block_device.blocks.borrow()[1], FAT32_PARTITION0_BOOT_FAT_TABLE_SIZE_5);
+        assert_eq!(
+            c.block_device.blocks.borrow()[1],
+            FAT32_PARTITION0_BOOT_FAT_TABLE_SIZE_5
+        );
         assert_eq!(c.block_device.blocks.borrow()[2], FAT32_PARTITION0_FSINFO);
         assert_eq!(c.block_device.blocks.borrow()[3].contents[7] & (1 << 3), 8);
         assert_eq!(c.block_device.blocks.borrow()[4], DUMMY);

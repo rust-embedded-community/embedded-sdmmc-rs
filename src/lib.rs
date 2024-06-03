@@ -75,6 +75,7 @@ pub mod filesystem;
 pub mod sdcard;
 
 use filesystem::SearchId;
+use volume_mgr::VolumeOpenMode;
 
 #[doc(inline)]
 pub use crate::blockdevice::{Block, BlockCount, BlockDevice, BlockIdx};
@@ -347,7 +348,7 @@ pub(crate) struct VolumeInfo {
     /// What kind of volume this is
     volume_type: VolumeType,
     /// Flag to indicate if the volume was opened as read only. If read only, files cannot be opened in write mode!
-    read_only: bool,
+    open_mode: VolumeOpenMode,
 }
 
 /// This enum holds the data for the various different types of filesystems we
