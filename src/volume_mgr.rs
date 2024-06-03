@@ -134,9 +134,7 @@ where
     ) -> Result<Volume<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>, Error<D::Error>> {
         let v = self.open_raw_volume(volume_idx, open_mode)?;
         if open_mode != VolumeOpenMode::ReadOnly {
-            let idx = self.get_volume_by_id(v)?;
-            let VolumeType::Fat(volume_type) = &self.open_volumes[idx].volume_type;
-            self.set_volume_status_dirty(volume_type, true)?;
+            self.set_volume_status_dirty(v, true)?;
         }
         Ok(v.to_volume(self))
     }
@@ -360,8 +358,7 @@ where
         }
         let volume_idx = self.get_volume_by_id(volume)?;
         if self.open_volumes[volume_idx].open_mode != VolumeOpenMode::ReadOnly {
-            let VolumeType::Fat(volume_type) = &self.open_volumes[volume_idx].volume_type;
-            self.set_volume_status_dirty(volume_type, false)?;
+            self.set_volume_status_dirty(volume, false)?;
         }
 
         self.open_volumes.swap_remove(volume_idx);
@@ -372,10 +369,12 @@ where
     /// Sets the volume status dirty to dirty if true, to not dirty if false
     fn set_volume_status_dirty(
         &self,
-        volume: &FatVolume,
+        volume: RawVolume,
         dirty: bool,
     ) -> Result<(), Error<D::Error>> {
         let mut blocks = [Block::new()];
+        let idx = self.get_volume_by_id(volume)?;
+        let VolumeType::Fat(volume) = &self.open_volumes[idx].volume_type;
         let fat_table1_start = volume.lba_start + volume.fat_start;
         self.block_device
             .read(&mut blocks, fat_table1_start, "reading fat table")?;
@@ -383,21 +382,25 @@ where
         let mut fat_table =
             fat::FatTable::create_from_bytes(&mut block.contents, volume.get_fat_type())
                 .map_err(Error::FormatError)?;
-        fat_table.set_dirty(dirty);
-        if volume.fat_nums == 1 || volume.fat_nums == 2 {
-            self.block_device.write(&blocks, fat_table1_start)?;
-            // Synchronize also backup fat table
-            if volume.fat_nums == 2 {
-                self.block_device
-                    .write(&blocks, fat_table1_start + volume.fat_size)?
+        if !fat_table.dirty() {
+            fat_table.set_dirty(dirty);
+            if volume.fat_nums == 1 || volume.fat_nums == 2 {
+                self.block_device.write(&blocks, fat_table1_start)?;
+                // Synchronize also backup fat table
+                if volume.fat_nums == 2 {
+                    self.block_device
+                        .write(&blocks, fat_table1_start + volume.fat_size)?
+                }
             }
         }
         Ok(())
     }
 
     /// Checking if the volume is dirty or was unmounted correctly in a previous usage
-    pub fn volume_status_dirty(&self, volume: &FatVolume) -> Result<bool, Error<D::Error>> {
+    pub fn volume_status_dirty(&self, volume: RawVolume) -> Result<bool, Error<D::Error>> {
         let mut blocks = [Block::new()];
+        let volume_idx = self.get_volume_by_id(volume)?;
+        let VolumeType::Fat(volume) = &self.open_volumes[volume_idx].volume_type;
         let fat_table1_start = volume.lba_start + volume.fat_start;
         self.block_device
             .read(&mut blocks, fat_table1_start, "reading fat table")?;
@@ -1833,8 +1836,8 @@ mod tests {
                 })
             }
         );
-        let VolumeType::Fat(fat_info) = &c.open_volumes[0].volume_type;
-        assert_eq!(c.volume_status_dirty(fat_info).unwrap(), false);
+        let volume = c.open_volumes[0].volume_id;
+        assert_eq!(c.volume_status_dirty(volume).unwrap(), false);
     }
 
     #[test]
@@ -1872,8 +1875,8 @@ mod tests {
                 })
             }
         );
-        let VolumeType::Fat(fat_info) = &c.open_volumes[0].volume_type;
-        assert_eq!(c.volume_status_dirty(fat_info).unwrap(), true);
+        let volume = c.open_volumes[0].volume_id;
+        assert_eq!(c.volume_status_dirty(volume).unwrap(), true);
     }
 
     #[test]
@@ -1914,8 +1917,8 @@ mod tests {
                 })
             }
         );
-        let VolumeType::Fat(fat_info) = &c.open_volumes[0].volume_type;
-        assert_eq!(c.volume_status_dirty(fat_info).unwrap(), false);
+        let volume = c.open_volumes[0].volume_id;
+        assert_eq!(c.volume_status_dirty(volume).unwrap(), false);
         assert_eq!(c.block_device.blocks.borrow()[0], MBR_BLOCK);
         assert_eq!(
             c.block_device.blocks.borrow()[1],
@@ -1929,13 +1932,13 @@ mod tests {
         assert_eq!(c.block_device.blocks.borrow()[7], DUMMY);
         assert_eq!(c.block_device.blocks.borrow()[8].contents[7] & (1 << 3), 8);
 
-        c.set_volume_status_dirty(fat_info, true).unwrap();
-        assert_eq!(c.volume_status_dirty(fat_info).unwrap(), true);
+        c.set_volume_status_dirty(volume, true).unwrap();
+        assert_eq!(c.volume_status_dirty(volume).unwrap(), true);
         assert_eq!(c.block_device.blocks.borrow()[3].contents[7] & (1 << 3), 0);
         assert_eq!(c.block_device.blocks.borrow()[8].contents[7] & (1 << 3), 0);
 
-        c.set_volume_status_dirty(fat_info, false).unwrap();
-        assert_eq!(c.volume_status_dirty(fat_info).unwrap(), false);
+        c.set_volume_status_dirty(volume, false).unwrap();
+        assert_eq!(c.volume_status_dirty(volume).unwrap(), false);
         assert_eq!(c.block_device.blocks.borrow()[0], MBR_BLOCK);
         assert_eq!(
             c.block_device.blocks.borrow()[1],
