@@ -394,8 +394,9 @@ where
         }
         Ok(())
     }
-    #[cfg(test)]
-    fn volume_status_dirty(&self, volume: &FatVolume) -> Result<bool, Error<D::Error>> {
+
+    /// Checking if the volume is dirty or was unmounted correctly in a previous usage
+    pub fn volume_status_dirty(&self, volume: &FatVolume) -> Result<bool, Error<D::Error>> {
         let mut blocks = [Block::new()];
         let fat_table1_start = volume.lba_start + volume.fat_start;
         self.block_device

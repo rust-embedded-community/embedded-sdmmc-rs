@@ -26,7 +26,6 @@ impl<'a> FatTable<'a> {
     const FAT16_DIRTY_BIT: u16 = 15;
     const FAT32_DIRTY_BIT: u32 = 27;
 
-    #[cfg(test)]
     pub(crate) fn dirty(&self) -> bool {
         match self.fat_type {
             FatType::Fat16 => {
