@@ -19,6 +19,7 @@ use crate::{
 use heapless::Vec;
 
 /// Opening volume mode
+#[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum VolumeOpenMode {
     /// Opening volume read only. This is faster than ReadWrite if only readings are done
