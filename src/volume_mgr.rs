@@ -386,7 +386,7 @@ where
         let mut fat_table =
             fat::FatTable::create_from_bytes(&mut block.contents, volume.get_fat_type())
                 .map_err(Error::FormatError)?;
-        if !fat_table.dirty() {
+        if fat_table.dirty() != dirty {
             fat_table.set_dirty(dirty);
             if volume.fat_nums == 1 || volume.fat_nums == 2 {
                 self.block_device.write(&blocks, fat_table1_start)?;
