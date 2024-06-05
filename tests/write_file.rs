@@ -1,6 +1,6 @@
 //! File opening related tests
 
-use embedded_sdmmc::{Mode, VolumeIdx, VolumeManager};
+use embedded_sdmmc::{Mode, VolumeIdx, VolumeManager, VolumeOpenMode};
 
 mod utils;
 
@@ -11,7 +11,7 @@ fn append_file() {
     let mut volume_mgr: VolumeManager<utils::RamDisk<Vec<u8>>, utils::TestTimeSource, 4, 2, 1> =
         VolumeManager::new_with_limits(disk, time_source, 0xAA00_0000);
     let volume = volume_mgr
-        .open_raw_volume(VolumeIdx(0))
+        .open_raw_volume(VolumeIdx(0), VolumeOpenMode::ReadWrite)
         .expect("open volume");
     let root_dir = volume_mgr.open_root_dir(volume).expect("open root dir");
 
@@ -62,7 +62,7 @@ fn flush_file() {
     let mut volume_mgr: VolumeManager<utils::RamDisk<Vec<u8>>, utils::TestTimeSource, 4, 2, 1> =
         VolumeManager::new_with_limits(disk, time_source, 0xAA00_0000);
     let volume = volume_mgr
-        .open_raw_volume(VolumeIdx(0))
+        .open_raw_volume(VolumeIdx(0), VolumeOpenMode::ReadWrite)
         .expect("open volume");
     let root_dir = volume_mgr.open_root_dir(volume).expect("open root dir");
 

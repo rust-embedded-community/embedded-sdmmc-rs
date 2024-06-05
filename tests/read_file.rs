@@ -14,7 +14,7 @@ fn read_file_512_blocks() {
     let mut volume_mgr = embedded_sdmmc::VolumeManager::new(disk, time_source);
 
     let fat16_volume = volume_mgr
-        .open_raw_volume(embedded_sdmmc::VolumeIdx(0))
+        .open_raw_volume(embedded_sdmmc::VolumeIdx(0), VolumeOpenMode::ReadWrite)
         .expect("open volume 0");
     let root_dir = volume_mgr
         .open_root_dir(fat16_volume)
@@ -56,7 +56,7 @@ fn read_file_all() {
     let mut volume_mgr = embedded_sdmmc::VolumeManager::new(disk, time_source);
 
     let fat16_volume = volume_mgr
-        .open_raw_volume(embedded_sdmmc::VolumeIdx(0))
+        .open_raw_volume(embedded_sdmmc::VolumeIdx(0), VolumeOpenMode::ReadWrite)
         .expect("open volume 0");
     let root_dir = volume_mgr
         .open_root_dir(fat16_volume)
@@ -90,7 +90,7 @@ fn read_file_prime_blocks() {
     let mut volume_mgr = embedded_sdmmc::VolumeManager::new(disk, time_source);
 
     let fat16_volume = volume_mgr
-        .open_raw_volume(embedded_sdmmc::VolumeIdx(0))
+        .open_raw_volume(embedded_sdmmc::VolumeIdx(0), VolumeOpenMode::ReadWrite)
         .expect("open volume 0");
     let root_dir = volume_mgr
         .open_root_dir(fat16_volume)
@@ -133,7 +133,7 @@ fn read_file_backwards() {
     let mut volume_mgr = embedded_sdmmc::VolumeManager::new(disk, time_source);
 
     let fat16_volume = volume_mgr
-        .open_raw_volume(embedded_sdmmc::VolumeIdx(0))
+        .open_raw_volume(embedded_sdmmc::VolumeIdx(0), VolumeOpenMode::ReadWrite)
         .expect("open volume 0");
     let root_dir = volume_mgr
         .open_root_dir(fat16_volume)

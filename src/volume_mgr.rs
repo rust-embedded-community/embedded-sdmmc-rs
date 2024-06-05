@@ -18,9 +18,12 @@ use crate::{
 };
 use heapless::Vec;
 
+/// Opening volume mode
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum VolumeOpenMode {
+    /// Opening volume read only. This is faster than ReadWrite if only readings are done
     ReadOnly,
+    /// Opening volume for reading and writing.
     ReadWrite,
 }
 

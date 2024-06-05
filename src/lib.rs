@@ -75,7 +75,7 @@ pub mod filesystem;
 pub mod sdcard;
 
 use filesystem::SearchId;
-use volume_mgr::VolumeOpenMode;
+pub use volume_mgr::VolumeOpenMode;
 
 #[doc(inline)]
 pub use crate::blockdevice::{Block, BlockCount, BlockDevice, BlockIdx};
