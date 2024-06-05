@@ -1,7 +1,7 @@
 //! Reading related tests
 
+use embedded_sdmmc::VolumeOpenMode;
 use sha2::Digest;
-
 mod utils;
 
 static TEST_DAT_SHA256_SUM: &[u8] =
