@@ -39,7 +39,7 @@ use linux::*;
 
 const FILE_TO_READ: &str = "README.TXT";
 
-use embedded_sdmmc::{Error, Mode, VolumeIdx, VolumeManager};
+use embedded_sdmmc::{Error, Mode, VolumeIdx, VolumeManager, VolumeOpenMode};
 
 fn main() -> Result<(), embedded_sdmmc::Error<std::io::Error>> {
     env_logger::init();
@@ -49,7 +49,7 @@ fn main() -> Result<(), embedded_sdmmc::Error<std::io::Error>> {
     let lbd = LinuxBlockDevice::new(filename, print_blocks).map_err(Error::DeviceError)?;
     let mut volume_mgr: VolumeManager<LinuxBlockDevice, Clock, 8, 8, 4> =
         VolumeManager::new_with_limits(lbd, Clock, 0xAA00_0000);
-    let mut volume = volume_mgr.open_volume(VolumeIdx(0))?;
+    let mut volume = volume_mgr.open_volume(VolumeIdx(0), VolumeOpenMode::ReadWrite)?;
     let mut root_dir = volume.open_root_dir()?;
     println!("\nReading file {}...", FILE_TO_READ);
     let mut f = root_dir.open_file_in_dir(FILE_TO_READ, Mode::ReadOnly)?;

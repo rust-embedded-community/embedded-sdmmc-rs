@@ -109,29 +109,8 @@ where
     ///
     /// We do not support GUID Partition Table disks. Nor do we support any
     /// concept of drive letters - that is for a higher layer to handle.
-    pub fn open_volume(
-        &mut self,
-        volume_idx: VolumeIdx,
-    ) -> Result<Volume<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>, Error<D::Error>> {
-        return self._open_volume(volume_idx, VolumeOpenMode::ReadWrite);
-    }
-
-    /// Get a read only volume (or partition) based on entries in the Master Boot Record.
     /// Opening and closing a read only volume is faster than a writable volume.
-    ///
-    /// We do not support GUID Partition Table disks. Nor do we support any
-    /// concept of drive letters - that is for a higher layer to handle.
-    pub fn open_volume_read_only(
-        &mut self,
-        volume_idx: VolumeIdx,
-    ) -> Result<Volume<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>, Error<D::Error>> {
-        return self._open_volume(volume_idx, VolumeOpenMode::ReadOnly);
-    }
-    /// Get a volume (or partition) based on entries in the Master Boot Record.
-    ///
-    /// We do not support GUID Partition Table disks. Nor do we support any
-    /// concept of drive letters - that is for a higher layer to handle.
-    fn _open_volume(
+    pub fn open_volume(
         &mut self,
         volume_idx: VolumeIdx,
         open_mode: VolumeOpenMode,

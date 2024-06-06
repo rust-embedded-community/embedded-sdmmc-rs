@@ -17,7 +17,7 @@
 //! suitable for reading SD and SDHC cards over SPI.
 //!
 //! ```rust
-//! use embedded_sdmmc::{Error, Mode, SdCard, SdCardError, TimeSource, VolumeIdx, VolumeManager};
+//! use embedded_sdmmc::{Error, Mode, SdCard, SdCardError, TimeSource, VolumeIdx, VolumeManager, VolumeOpenMode};
 //!
 //! fn example<S, CS, D, T>(spi: S, cs: CS, delay: D, ts: T) -> Result<(), Error<SdCardError>>
 //! where
@@ -29,7 +29,7 @@
 //!     let sdcard = SdCard::new(spi, cs, delay);
 //!     println!("Card size is {} bytes", sdcard.num_bytes()?);
 //!     let mut volume_mgr = VolumeManager::new(sdcard, ts);
-//!     let mut volume0 = volume_mgr.open_volume(VolumeIdx(0))?;
+//!     let mut volume0 = volume_mgr.open_volume(VolumeIdx(0), VolumeOpenMode::ReadOnly)?;
 //!     println!("Volume 0: {:?}", volume0);
 //!     let mut root_dir = volume0.open_root_dir()?;
 //!     let mut my_file = root_dir.open_file_in_dir("MY_FILE.TXT", Mode::ReadOnly)?;
