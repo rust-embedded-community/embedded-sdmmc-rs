@@ -27,7 +27,7 @@ let mut root_dir = volume0.open_root_dir()?;
 // Open a file called "MY_FILE.TXT" in the root directory
 // This mutably borrows the directory.
 let mut my_file = root_dir.open_file_in_dir("MY_FILE.TXT", embedded_sdmmc::Mode::ReadOnly)?;
-// Print the contents of the file
+// Print the contents of the file, assuming it's in ISO-8859-1 encoding
 while !my_file.is_eof() {
     let mut buffer = [0u8; 32];
     let num_read = my_file.read(&mut buffer)?;
