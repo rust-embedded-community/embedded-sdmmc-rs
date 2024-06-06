@@ -116,9 +116,6 @@ where
         open_mode: VolumeOpenMode,
     ) -> Result<Volume<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>, Error<D::Error>> {
         let v = self.open_raw_volume(volume_idx, open_mode)?;
-        if open_mode != VolumeOpenMode::ReadOnly {
-            self.set_volume_status_dirty(v, true)?;
-        }
         Ok(v.to_volume(self))
     }
 
@@ -215,6 +212,9 @@ where
                 };
                 // We already checked for space
                 self.open_volumes.push(info).unwrap();
+                if open_mode != VolumeOpenMode::ReadOnly {
+                    self.set_volume_status_dirty(id, true)?;
+                }
                 Ok(id)
             }
             _ => Err(Error::FormatError("Partition type not supported")),
