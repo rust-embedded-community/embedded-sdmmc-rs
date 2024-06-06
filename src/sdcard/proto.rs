@@ -298,19 +298,19 @@ mod test {
 
         // Partial Blocks for Read Allowed:
         // 0b1 [Interpreted: Yes]
-        assert_eq!(EXAMPLE.read_partial_blocks(), true);
+        assert!(EXAMPLE.read_partial_blocks());
 
         // Write Block Misalignment:
         // 0b0 [Interpreted: No]
-        assert_eq!(EXAMPLE.write_block_misalignment(), false);
+        assert!(!EXAMPLE.write_block_misalignment());
 
         // Read Block Misalignment:
         // 0b0 [Interpreted: No]
-        assert_eq!(EXAMPLE.read_block_misalignment(), false);
+        assert!(!EXAMPLE.read_block_misalignment());
 
         // DSR Implemented: indicates configurable driver stage integrated on
         // card 0b0 [Interpreted: No]
-        assert_eq!(EXAMPLE.dsr_implemented(), false);
+        assert!(!EXAMPLE.dsr_implemented());
 
         // Device Size: to calculate the card capacity excl. security area
         // ((device size + 1)*device size multiplier*max read data block
@@ -339,7 +339,7 @@ mod test {
 
         // Erase Single Block Enabled:
         // 0x1 [Interpreted: Yes]
-        assert_eq!(EXAMPLE.erase_single_block_enabled(), true);
+        assert!(EXAMPLE.erase_single_block_enabled());
 
         // Erase Sector Size: size of erasable sector in write blocks
         // 0x1f [Interpreted: 32 blocks]
@@ -351,7 +351,7 @@ mod test {
 
         // Write Protect Group Enable:
         // 0x1 [Interpreted: Yes]
-        assert_eq!(EXAMPLE.write_protect_group_enable(), true);
+        assert!(EXAMPLE.write_protect_group_enable());
 
         // Write Speed Factor: block program time as multiple of read access time
         // 0x4 [Interpreted: x16]
@@ -363,23 +363,23 @@ mod test {
 
         // Partial Blocks for Write Allowed:
         // 0x0 [Interpreted: No]
-        assert_eq!(EXAMPLE.write_partial_blocks(), false);
+        assert!(!EXAMPLE.write_partial_blocks());
 
         // File Format Group:
         // 0b0 [Interpreted: is either Hard Disk with Partition Table/DOS FAT without Partition Table/Universal File Format/Other/Unknown]
-        assert_eq!(EXAMPLE.file_format_group_set(), false);
+        assert!(!EXAMPLE.file_format_group_set());
 
         // Copy Flag:
         // 0b1 [Interpreted: Non-Original]
-        assert_eq!(EXAMPLE.copy_flag_set(), true);
+        assert!(EXAMPLE.copy_flag_set());
 
         // Permanent Write Protection:
         // 0b0 [Interpreted: No]
-        assert_eq!(EXAMPLE.permanent_write_protection(), false);
+        assert!(!EXAMPLE.permanent_write_protection());
 
         // Temporary Write Protection:
         // 0b0 [Interpreted: No]
-        assert_eq!(EXAMPLE.temporary_write_protection(), false);
+        assert!(!EXAMPLE.temporary_write_protection());
 
         // File Format:
         // 0x0 [Interpreted: Hard Disk with Partition Table]
@@ -424,19 +424,19 @@ mod test {
 
         // Partial Blocks for Read Allowed:
         // 0b1 [Interpreted: Yes]
-        assert_eq!(EXAMPLE.read_partial_blocks(), true);
+        assert!(EXAMPLE.read_partial_blocks());
 
         // Write Block Misalignment:
         // 0b0 [Interpreted: No]
-        assert_eq!(EXAMPLE.write_block_misalignment(), false);
+        assert!(!EXAMPLE.write_block_misalignment());
 
         // Read Block Misalignment:
         // 0b0 [Interpreted: No]
-        assert_eq!(EXAMPLE.read_block_misalignment(), false);
+        assert!(!EXAMPLE.read_block_misalignment());
 
         // DSR Implemented: indicates configurable driver stage integrated on card
         // 0b0 [Interpreted: No]
-        assert_eq!(EXAMPLE.dsr_implemented(), false);
+        assert!(!EXAMPLE.dsr_implemented());
 
         // Device Size: to calculate the card capacity excl. security area
         // ((device size + 1)*device size multiplier*max read data block
@@ -465,7 +465,7 @@ mod test {
 
         // Erase Single Block Enabled:
         // 0x1 [Interpreted: Yes]
-        assert_eq!(EXAMPLE.erase_single_block_enabled(), true);
+        assert!(EXAMPLE.erase_single_block_enabled());
 
         // Erase Sector Size: size of erasable sector in write blocks
         // 0x1f [Interpreted: 32 blocks]
@@ -477,7 +477,7 @@ mod test {
 
         // Write Protect Group Enable:
         // 0x0 [Interpreted: No]
-        assert_eq!(EXAMPLE.write_protect_group_enable(), false);
+        assert!(!EXAMPLE.write_protect_group_enable());
 
         // Write Speed Factor: block program time as multiple of read access time
         // 0x5 [Interpreted: x32]
@@ -489,23 +489,23 @@ mod test {
 
         // Partial Blocks for Write Allowed:
         // 0x0 [Interpreted: No]
-        assert_eq!(EXAMPLE.write_partial_blocks(), false);
+        assert!(!EXAMPLE.write_partial_blocks());
 
         // File Format Group:
         // 0b0 [Interpreted: is either Hard Disk with Partition Table/DOS FAT without Partition Table/Universal File Format/Other/Unknown]
-        assert_eq!(EXAMPLE.file_format_group_set(), false);
+        assert!(!EXAMPLE.file_format_group_set());
 
         // Copy Flag:
         // 0b0 [Interpreted: Original]
-        assert_eq!(EXAMPLE.copy_flag_set(), false);
+        assert!(!EXAMPLE.copy_flag_set());
 
         // Permanent Write Protection:
         // 0b0 [Interpreted: No]
-        assert_eq!(EXAMPLE.permanent_write_protection(), false);
+        assert!(!EXAMPLE.permanent_write_protection());
 
         // Temporary Write Protection:
         // 0b0 [Interpreted: No]
-        assert_eq!(EXAMPLE.temporary_write_protection(), false);
+        assert!(!EXAMPLE.temporary_write_protection());
 
         // File Format:
         // 0x0 [Interpreted: Hard Disk with Partition Table]
@@ -550,19 +550,19 @@ mod test {
 
         // Partial Blocks for Read Allowed:
         // 0b0 [Interpreted: Yes]
-        assert_eq!(EXAMPLE.read_partial_blocks(), false);
+        assert!(!EXAMPLE.read_partial_blocks());
 
         // Write Block Misalignment:
         // 0b0 [Interpreted: No]
-        assert_eq!(EXAMPLE.write_block_misalignment(), false);
+        assert!(!EXAMPLE.write_block_misalignment());
 
         // Read Block Misalignment:
         // 0b0 [Interpreted: No]
-        assert_eq!(EXAMPLE.read_block_misalignment(), false);
+        assert!(!EXAMPLE.read_block_misalignment());
 
         // DSR Implemented: indicates configurable driver stage integrated on card
         // 0b0 [Interpreted: No]
-        assert_eq!(EXAMPLE.dsr_implemented(), false);
+        assert!(!EXAMPLE.dsr_implemented());
 
         // Device Size: to calculate the card capacity excl. security area
         // ((device size + 1)* 512kbytes
@@ -571,7 +571,7 @@ mod test {
 
         // Erase Single Block Enabled:
         // 0x1 [Interpreted: Yes]
-        assert_eq!(EXAMPLE.erase_single_block_enabled(), true);
+        assert!(EXAMPLE.erase_single_block_enabled());
 
         // Erase Sector Size: size of erasable sector in write blocks
         // 0x7f [Interpreted: 128 blocks]
@@ -583,7 +583,7 @@ mod test {
 
         // Write Protect Group Enable:
         // 0x0 [Interpreted: No]
-        assert_eq!(EXAMPLE.write_protect_group_enable(), false);
+        assert!(!EXAMPLE.write_protect_group_enable());
 
         // Write Speed Factor: block program time as multiple of read access time
         // 0x2 [Interpreted: x4]
@@ -595,23 +595,23 @@ mod test {
 
         // Partial Blocks for Write Allowed:
         // 0x0 [Interpreted: No]
-        assert_eq!(EXAMPLE.write_partial_blocks(), false);
+        assert!(!EXAMPLE.write_partial_blocks());
 
         // File Format Group:
         // 0b0 [Interpreted: is either Hard Disk with Partition Table/DOS FAT without Partition Table/Universal File Format/Other/Unknown]
-        assert_eq!(EXAMPLE.file_format_group_set(), false);
+        assert!(!EXAMPLE.file_format_group_set());
 
         // Copy Flag:
         // 0b0 [Interpreted: Original]
-        assert_eq!(EXAMPLE.copy_flag_set(), false);
+        assert!(!EXAMPLE.copy_flag_set());
 
         // Permanent Write Protection:
         // 0b0 [Interpreted: No]
-        assert_eq!(EXAMPLE.permanent_write_protection(), false);
+        assert!(!EXAMPLE.permanent_write_protection());
 
         // Temporary Write Protection:
         // 0b0 [Interpreted: No]
-        assert_eq!(EXAMPLE.temporary_write_protection(), false);
+        assert!(!EXAMPLE.temporary_write_protection());
 
         // File Format:
         // 0x0 [Interpreted: Hard Disk with Partition Table]
@@ -656,19 +656,19 @@ mod test {
 
         // Partial Blocks for Read Allowed:
         // 0b0 [Interpreted: Yes]
-        assert_eq!(EXAMPLE.read_partial_blocks(), false);
+        assert!(!EXAMPLE.read_partial_blocks());
 
         // Write Block Misalignment:
         // 0b0 [Interpreted: No]
-        assert_eq!(EXAMPLE.write_block_misalignment(), false);
+        assert!(!EXAMPLE.write_block_misalignment());
 
         // Read Block Misalignment:
         // 0b0 [Interpreted: No]
-        assert_eq!(EXAMPLE.read_block_misalignment(), false);
+        assert!(!EXAMPLE.read_block_misalignment());
 
         // DSR Implemented: indicates configurable driver stage integrated on card
         // 0b0 [Interpreted: No]
-        assert_eq!(EXAMPLE.dsr_implemented(), false);
+        assert!(!EXAMPLE.dsr_implemented());
 
         // Device Size: to calculate the card capacity excl. security area
         // ((device size + 1)* 512kbytes
@@ -677,7 +677,7 @@ mod test {
 
         // Erase Single Block Enabled:
         // 0x1 [Interpreted: Yes]
-        assert_eq!(EXAMPLE.erase_single_block_enabled(), true);
+        assert!(EXAMPLE.erase_single_block_enabled());
 
         // Erase Sector Size: size of erasable sector in write blocks
         // 0x7f [Interpreted: 128 blocks]
@@ -689,7 +689,7 @@ mod test {
 
         // Write Protect Group Enable:
         // 0x0 [Interpreted: No]
-        assert_eq!(EXAMPLE.write_protect_group_enable(), false);
+        assert!(!EXAMPLE.write_protect_group_enable());
 
         // Write Speed Factor: block program time as multiple of read access time
         // 0x2 [Interpreted: x4]
@@ -701,23 +701,23 @@ mod test {
 
         // Partial Blocks for Write Allowed:
         // 0x0 [Interpreted: No]
-        assert_eq!(EXAMPLE.write_partial_blocks(), false);
+        assert!(!EXAMPLE.write_partial_blocks());
 
         // File Format Group:
         // 0b0 [Interpreted: is either Hard Disk with Partition Table/DOS FAT without Partition Table/Universal File Format/Other/Unknown]
-        assert_eq!(EXAMPLE.file_format_group_set(), false);
+        assert!(!EXAMPLE.file_format_group_set());
 
         // Copy Flag:
         // 0b0 [Interpreted: Original]
-        assert_eq!(EXAMPLE.copy_flag_set(), false);
+        assert!(!EXAMPLE.copy_flag_set());
 
         // Permanent Write Protection:
         // 0b0 [Interpreted: No]
-        assert_eq!(EXAMPLE.permanent_write_protection(), false);
+        assert!(!EXAMPLE.permanent_write_protection());
 
         // Temporary Write Protection:
         // 0b0 [Interpreted: No]
-        assert_eq!(EXAMPLE.temporary_write_protection(), false);
+        assert!(!EXAMPLE.temporary_write_protection());
 
         // File Format:
         // 0x0 [Interpreted: Hard Disk with Partition Table]
