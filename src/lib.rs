@@ -19,14 +19,13 @@
 //! ```rust
 //! use embedded_sdmmc::{Error, Mode, SdCard, SdCardError, TimeSource, VolumeIdx, VolumeManager};
 //!
-//! fn example<S, CS, D, T>(spi: S, cs: CS, delay: D, ts: T) -> Result<(), Error<SdCardError>>
+//! fn example<S, D, T>(spi: S, delay: D, ts: T) -> Result<(), Error<SdCardError>>
 //! where
 //!     S: embedded_hal::spi::SpiDevice,
-//!     CS: embedded_hal::digital::OutputPin,
 //!     D: embedded_hal::delay::DelayNs,
 //!     T: TimeSource,
 //! {
-//!     let sdcard = SdCard::new(spi, cs, delay);
+//!     let sdcard = SdCard::new(spi, delay);
 //!     println!("Card size is {} bytes", sdcard.num_bytes()?);
 //!     let mut volume_mgr = VolumeManager::new(sdcard, ts);
 //!     let mut volume0 = volume_mgr.open_volume(VolumeIdx(0))?;

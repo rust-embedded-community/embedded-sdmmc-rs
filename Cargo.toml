@@ -19,7 +19,7 @@ log = {version = "0.4", default-features = false, optional = true}
 
 [dev-dependencies]
 chrono = "0.4"
-embedded-hal-bus = "0.1.0"
+embedded-hal-bus = "0.2.0"
 env_logger = "0.10.0"
 flate2 = "1.0"
 hex-literal = "0.4.1"
