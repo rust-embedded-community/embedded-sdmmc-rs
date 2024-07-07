@@ -1790,7 +1790,7 @@ mod tests {
             VolumeManager::new_with_limits(DummyBlockDevice::new_not_dirty(), Clock, 0xAA00_0000);
 
         let v = c
-            .open_raw_volume(VolumeIdx(0), VolumeOpenMode::ReadWrite)
+            .open_raw_volume(VolumeIdx(0), VolumeOpenMode::ReadOnly)
             .unwrap();
         let expected_id = RawVolume(SearchId(0xAA00_0000));
         assert_eq!(v, expected_id);
@@ -1799,7 +1799,7 @@ mod tests {
             &VolumeInfo {
                 volume_id: expected_id,
                 idx: VolumeIdx(0),
-                open_mode: VolumeOpenMode::ReadWrite,
+                open_mode: VolumeOpenMode::ReadOnly,
                 volume_type: VolumeType::Fat(crate::FatVolume {
                     lba_start: BlockIdx(1),
                     num_blocks: BlockCount(0x0011_2233),
@@ -1871,7 +1871,7 @@ mod tests {
         );
 
         let v = c
-            .open_raw_volume(VolumeIdx(0), VolumeOpenMode::ReadWrite)
+            .open_raw_volume(VolumeIdx(0), VolumeOpenMode::ReadOnly)
             .unwrap();
         let expected_id = RawVolume(SearchId(0xAA00_0000));
         assert_eq!(v, expected_id);
@@ -1880,7 +1880,7 @@ mod tests {
             &VolumeInfo {
                 volume_id: expected_id,
                 idx: VolumeIdx(0),
-                open_mode: VolumeOpenMode::ReadWrite,
+                open_mode: VolumeOpenMode::ReadOnly,
                 volume_type: VolumeType::Fat(crate::FatVolume {
                     lba_start: BlockIdx(1),
                     num_blocks: BlockCount(0x0011_2233),
