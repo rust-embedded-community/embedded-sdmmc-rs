@@ -37,7 +37,7 @@ extern crate embedded_sdmmc;
 mod linux;
 use linux::*;
 
-use embedded_sdmmc::{Directory, VolumeIdx, VolumeManager};
+use embedded_sdmmc::{Directory, VolumeIdx, VolumeManager, VolumeOpenMode};
 
 type Error = embedded_sdmmc::Error<std::io::Error>;
 
@@ -49,7 +49,7 @@ fn main() -> Result<(), Error> {
     let lbd = LinuxBlockDevice::new(filename, print_blocks).map_err(Error::DeviceError)?;
     let mut volume_mgr: VolumeManager<LinuxBlockDevice, Clock, 8, 8, 4> =
         VolumeManager::new_with_limits(lbd, Clock, 0xAA00_0000);
-    let mut volume = volume_mgr.open_volume(VolumeIdx(0))?;
+    let mut volume = volume_mgr.open_volume(VolumeIdx(0), VolumeOpenMode::ReadWrite)?;
     let root_dir = volume.open_root_dir()?;
     list_dir(root_dir, "/")?;
     Ok(())

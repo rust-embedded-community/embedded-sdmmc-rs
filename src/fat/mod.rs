@@ -45,11 +45,13 @@ impl BlockCache {
 }
 
 mod bpb;
+mod fat_table;
 mod info;
 mod ondiskdirentry;
 mod volume;
 
 pub use bpb::Bpb;
+pub use fat_table::FatTable;
 pub use info::{Fat16Info, Fat32Info, FatSpecificInfo, InfoSector};
 pub use ondiskdirentry::OnDiskDirEntry;
 pub use volume::{parse_volume, FatVolume, VolumeName};

@@ -17,7 +17,7 @@
 //! suitable for reading SD and SDHC cards over SPI.
 //!
 //! ```rust
-//! use embedded_sdmmc::{Error, Mode, SdCard, SdCardError, TimeSource, VolumeIdx, VolumeManager};
+//! use embedded_sdmmc::{Error, Mode, SdCard, SdCardError, TimeSource, VolumeIdx, VolumeManager, VolumeOpenMode};
 //!
 //! fn example<S, CS, D, T>(spi: S, cs: CS, delay: D, ts: T) -> Result<(), Error<SdCardError>>
 //! where
@@ -29,7 +29,7 @@
 //!     let sdcard = SdCard::new(spi, cs, delay);
 //!     println!("Card size is {} bytes", sdcard.num_bytes()?);
 //!     let mut volume_mgr = VolumeManager::new(sdcard, ts);
-//!     let mut volume0 = volume_mgr.open_volume(VolumeIdx(0))?;
+//!     let mut volume0 = volume_mgr.open_volume(VolumeIdx(0), VolumeOpenMode::ReadOnly)?;
 //!     println!("Volume 0: {:?}", volume0);
 //!     let mut root_dir = volume0.open_root_dir()?;
 //!     let mut my_file = root_dir.open_file_in_dir("MY_FILE.TXT", Mode::ReadOnly)?;
@@ -75,6 +75,7 @@ pub mod filesystem;
 pub mod sdcard;
 
 use filesystem::SearchId;
+pub use volume_mgr::VolumeOpenMode;
 
 #[doc(inline)]
 pub use crate::blockdevice::{Block, BlockCount, BlockDevice, BlockIdx};
@@ -175,6 +176,8 @@ where
     VolumeStillInUse,
     /// You can't open a volume twice
     VolumeAlreadyOpen,
+    /// Volume is opened in read only mode
+    VolumeReadOnly,
     /// We can't do that yet
     Unsupported,
     /// Tried to read beyond end of file
@@ -344,6 +347,8 @@ pub(crate) struct VolumeInfo {
     idx: VolumeIdx,
     /// What kind of volume this is
     volume_type: VolumeType,
+    /// Flag to indicate if the volume was opened as read only. If read only, files cannot be opened in write mode!
+    open_mode: VolumeOpenMode,
 }
 
 /// This enum holds the data for the various different types of filesystems we

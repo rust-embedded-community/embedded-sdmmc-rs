@@ -7,7 +7,7 @@
 
 use core::cell::RefCell;
 
-use embedded_sdmmc::sdcard::DummyCsPin;
+use embedded_sdmmc::{sdcard::DummyCsPin, VolumeOpenMode};
 
 struct FakeSpiBus();
 
@@ -113,7 +113,8 @@ fn main() -> Result<(), Error> {
     let mut volume_mgr = embedded_sdmmc::VolumeManager::new(sdcard, time_source);
     // Try and access Volume 0 (i.e. the first partition).
     // The volume object holds information about the filesystem on that volume.
-    let mut volume0 = volume_mgr.open_volume(embedded_sdmmc::VolumeIdx(0))?;
+    let mut volume0 =
+        volume_mgr.open_volume(embedded_sdmmc::VolumeIdx(0), VolumeOpenMode::ReadWrite)?;
     println!("Volume 0: {:?}", volume0);
     // Open the root directory (mutably borrows from the volume).
     let mut root_dir = volume0.open_root_dir()?;

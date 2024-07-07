@@ -1,6 +1,6 @@
 //! File opening related tests
 
-use embedded_sdmmc::{Error, Mode, VolumeIdx, VolumeManager};
+use embedded_sdmmc::{Error, Mode, VolumeIdx, VolumeManager, VolumeOpenMode};
 
 mod utils;
 
@@ -11,7 +11,7 @@ fn open_files() {
     let mut volume_mgr: VolumeManager<utils::RamDisk<Vec<u8>>, utils::TestTimeSource, 4, 2, 1> =
         VolumeManager::new_with_limits(disk, time_source, 0xAA00_0000);
     let volume = volume_mgr
-        .open_raw_volume(VolumeIdx(0))
+        .open_raw_volume(VolumeIdx(0), VolumeOpenMode::ReadWrite)
         .expect("open volume");
     let root_dir = volume_mgr.open_root_dir(volume).expect("open root dir");
 
@@ -97,7 +97,9 @@ fn open_non_raw() {
     let disk = utils::make_block_device(utils::DISK_SOURCE).unwrap();
     let mut volume_mgr: VolumeManager<utils::RamDisk<Vec<u8>>, utils::TestTimeSource, 4, 2, 1> =
         VolumeManager::new_with_limits(disk, time_source, 0xAA00_0000);
-    let mut volume = volume_mgr.open_volume(VolumeIdx(0)).expect("open volume");
+    let mut volume = volume_mgr
+        .open_volume(VolumeIdx(0), VolumeOpenMode::ReadWrite)
+        .expect("open volume");
     let mut root_dir = volume.open_root_dir().expect("open root dir");
     let mut f = root_dir
         .open_file_in_dir("README.TXT", Mode::ReadOnly)

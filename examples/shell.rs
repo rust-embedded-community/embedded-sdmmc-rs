@@ -73,6 +73,7 @@ use std::io::prelude::*;
 
 use embedded_sdmmc::{
     Error as EsError, RawDirectory, RawVolume, ShortFileName, VolumeIdx, VolumeManager,
+    VolumeOpenMode,
 };
 
 use crate::linux::{Clock, LinuxBlockDevice};
@@ -531,7 +532,10 @@ fn main() -> Result<(), Error> {
 
     let mut current_volume = None;
     for volume_no in 0..4 {
-        match ctx.volume_mgr.open_raw_volume(VolumeIdx(volume_no)) {
+        match ctx
+            .volume_mgr
+            .open_raw_volume(VolumeIdx(volume_no), VolumeOpenMode::ReadWrite)
+        {
             Ok(volume) => {
                 println!("Volume # {}: found", Context::volume_to_letter(volume_no));
                 match ctx.volume_mgr.open_root_dir(volume) {

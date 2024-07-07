@@ -1,7 +1,7 @@
 //! Reading related tests
 
+use embedded_sdmmc::VolumeOpenMode;
 use sha2::Digest;
-
 mod utils;
 
 static TEST_DAT_SHA256_SUM: &[u8] =
@@ -14,7 +14,7 @@ fn read_file_512_blocks() {
     let mut volume_mgr = embedded_sdmmc::VolumeManager::new(disk, time_source);
 
     let fat16_volume = volume_mgr
-        .open_raw_volume(embedded_sdmmc::VolumeIdx(0))
+        .open_raw_volume(embedded_sdmmc::VolumeIdx(0), VolumeOpenMode::ReadWrite)
         .expect("open volume 0");
     let root_dir = volume_mgr
         .open_root_dir(fat16_volume)
@@ -56,7 +56,7 @@ fn read_file_all() {
     let mut volume_mgr = embedded_sdmmc::VolumeManager::new(disk, time_source);
 
     let fat16_volume = volume_mgr
-        .open_raw_volume(embedded_sdmmc::VolumeIdx(0))
+        .open_raw_volume(embedded_sdmmc::VolumeIdx(0), VolumeOpenMode::ReadWrite)
         .expect("open volume 0");
     let root_dir = volume_mgr
         .open_root_dir(fat16_volume)
@@ -90,7 +90,7 @@ fn read_file_prime_blocks() {
     let mut volume_mgr = embedded_sdmmc::VolumeManager::new(disk, time_source);
 
     let fat16_volume = volume_mgr
-        .open_raw_volume(embedded_sdmmc::VolumeIdx(0))
+        .open_raw_volume(embedded_sdmmc::VolumeIdx(0), VolumeOpenMode::ReadWrite)
         .expect("open volume 0");
     let root_dir = volume_mgr
         .open_root_dir(fat16_volume)
@@ -133,7 +133,7 @@ fn read_file_backwards() {
     let mut volume_mgr = embedded_sdmmc::VolumeManager::new(disk, time_source);
 
     let fat16_volume = volume_mgr
-        .open_raw_volume(embedded_sdmmc::VolumeIdx(0))
+        .open_raw_volume(embedded_sdmmc::VolumeIdx(0), VolumeOpenMode::ReadWrite)
         .expect("open volume 0");
     let root_dir = volume_mgr
         .open_root_dir(fat16_volume)
@@ -191,7 +191,7 @@ fn read_file_with_odd_seek() {
     let mut volume_mgr = embedded_sdmmc::VolumeManager::new(disk, time_source);
 
     let mut volume = volume_mgr
-        .open_volume(embedded_sdmmc::VolumeIdx(0))
+        .open_volume(embedded_sdmmc::VolumeIdx(0), VolumeOpenMode::ReadOnly)
         .unwrap();
     let mut root_dir = volume.open_root_dir().unwrap();
     let mut f = root_dir
