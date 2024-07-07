@@ -191,7 +191,7 @@ fn read_file_with_odd_seek() {
     let mut volume_mgr = embedded_sdmmc::VolumeManager::new(disk, time_source);
 
     let mut volume = volume_mgr
-        .open_volume(embedded_sdmmc::VolumeIdx(0))
+        .open_volume(embedded_sdmmc::VolumeIdx(0), VolumeOpenMode::ReadOnly)
         .unwrap();
     let mut root_dir = volume.open_root_dir().unwrap();
     let mut f = root_dir
