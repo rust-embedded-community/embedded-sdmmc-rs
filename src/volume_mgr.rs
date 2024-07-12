@@ -18,8 +18,11 @@ use crate::{
 };
 use heapless::Vec;
 
-/// A `VolumeManager` wraps a block device and gives access to the FAT-formatted
-/// volumes within it.
+/// Wraps a block device and gives access to the FAT-formatted volumes within
+/// it.
+///
+/// Tracks which files and directories are open, to prevent you from deleting
+/// a file or directory you currently have open.
 #[derive(Debug)]
 pub struct VolumeManager<
     D,

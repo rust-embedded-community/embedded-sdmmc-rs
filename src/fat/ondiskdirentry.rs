@@ -3,7 +3,10 @@
 use crate::{fat::FatType, Attributes, BlockIdx, ClusterId, DirEntry, ShortFileName, Timestamp};
 use byteorder::{ByteOrder, LittleEndian};
 
-/// Represents a 32-byte directory entry as stored on-disk in a directory file.
+/// A 32-byte directory entry as stored on-disk in a directory file.
+///
+/// This is the same for FAT16 and FAT32 (except FAT16 doesn't use
+/// first_cluster_hi).
 pub struct OnDiskDirEntry<'a> {
     data: &'a [u8],
 }
@@ -38,8 +41,6 @@ impl<'a> core::fmt::Debug for OnDiskDirEntry<'a> {
     }
 }
 
-/// Represents the 32 byte directory entry. This is the same for FAT16 and
-/// FAT32 (except FAT16 doesn't use first_cluster_hi).
 impl<'a> OnDiskDirEntry<'a> {
     pub(crate) const LEN: usize = 32;
     pub(crate) const LEN_U32: u32 = 32;

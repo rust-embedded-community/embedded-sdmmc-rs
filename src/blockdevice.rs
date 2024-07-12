@@ -1,11 +1,12 @@
-//! Block Device support
+//! Traits and types for working with Block Devices.
 //!
 //! Generic code for handling block devices, such as types for identifying
 //! a particular block on a block device by its index.
 
-/// Represents a standard 512 byte block (also known as a sector). IBM PC
-/// formatted 5.25" and 3.5" floppy disks, SD/MMC cards up to 1 GiB in size
-/// and IDE/SATA Hard Drives up to about 2 TiB all have 512 byte blocks.
+/// A standard 512 byte block (also known as a sector).
+///
+/// IBM PC formatted 5.25" and 3.5" floppy disks, IDE/SATA Hard Drives up to
+/// about 2 TiB, and almost all SD/MMC cards have 512 byte blocks.
 ///
 /// This library does not support devices with a block size other than 512
 /// bytes.
@@ -15,15 +16,17 @@ pub struct Block {
     pub contents: [u8; Block::LEN],
 }
 
-/// Represents the linear numeric address of a block (or sector). The first
-/// block on a disk gets `BlockIdx(0)` (which usually contains the Master Boot
-/// Record).
+/// The linear numeric address of a block (or sector).
+///
+/// The first block on a disk gets `BlockIdx(0)` (which usually contains the
+/// Master Boot Record).
 #[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct BlockIdx(pub u32);
 
-/// Represents the a number of blocks (or sectors). Add this to a `BlockIdx`
-/// to get an actual address on disk.
+/// The a number of blocks (or sectors).
+///
+/// Add this to a `BlockIdx` to get an actual address on disk.
 #[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct BlockCount(pub u32);
@@ -34,7 +37,7 @@ pub struct BlockIter {
     current: BlockIdx,
 }
 
-/// Represents a block device - a device which can read and write blocks (or
+/// A block device - a device which can read and write blocks (or
 /// sectors). Only supports devices which are <= 2 TiB in size.
 pub trait BlockDevice {
     /// The errors that the `BlockDevice` can return. Must be debug formattable.

@@ -7,8 +7,7 @@ use crate::{Error, RawVolume, VolumeManager};
 
 use super::ToShortFileName;
 
-/// Represents a directory entry, which tells you about
-/// other files and directories.
+/// A directory entry, which tells you about other files and directories.
 #[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct DirEntry {
@@ -30,7 +29,7 @@ pub struct DirEntry {
     pub entry_offset: u32,
 }
 
-/// Represents an open directory on disk.
+/// A handle for an open directory on disk.
 ///
 /// Do NOT drop this object! It doesn't hold a reference to the Volume Manager
 /// it was created from and if you drop it, the VolumeManager will think you
@@ -70,7 +69,7 @@ impl RawDirectory {
     }
 }
 
-/// Represents an open directory on disk.
+/// A handle for an open directory on disk, which closes on drop.
 ///
 /// In contrast to a `RawDirectory`, a `Directory` holds a mutable reference to
 /// its parent `VolumeManager`, which restricts which operations you can perform.

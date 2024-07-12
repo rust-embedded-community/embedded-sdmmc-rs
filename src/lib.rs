@@ -135,7 +135,7 @@ macro_rules! warn {
 //
 // ****************************************************************************
 
-/// Represents all the ways the functions in this crate can fail.
+/// All the ways the functions in this crate can fail.
 #[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
 #[derive(Debug, Clone)]
 pub enum Error<E>
@@ -211,7 +211,7 @@ where
     }
 }
 
-/// Represents a partition with a filesystem within it.
+/// A partition with a filesystem within it.
 #[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct RawVolume(SearchId);
@@ -236,7 +236,7 @@ impl RawVolume {
     }
 }
 
-/// Represents an open volume on disk.
+/// An open volume on disk, which closes on drop.
 ///
 /// In contrast to a `RawVolume`, a `Volume` holds a mutable reference to its
 /// parent `VolumeManager`, which restricts which operations you can perform.
@@ -354,8 +354,7 @@ pub enum VolumeType {
     Fat(FatVolume),
 }
 
-/// A `VolumeIdx` is a number which identifies a volume (or partition) on a
-/// disk.
+/// A number which identifies a volume (or partition) on a disk.
 ///
 /// `VolumeIdx(0)` is the first primary partition on an MBR partitioned disk.
 #[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
