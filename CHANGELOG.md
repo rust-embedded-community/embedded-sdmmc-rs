@@ -8,7 +8,33 @@ The format is based on [Keep a Changelog] and this project adheres to [Semantic 
 
 ### Changed
 
-- Updated to `heapless` ^0.8
+- None
+
+### Added
+
+- None
+
+### Removed
+
+- None
+
+## [Version 0.8.0] - 2024-07-12
+
+### Changed
+
+- Fixed a bug when seeking backwards through files.
+- Updated to `heapless-0.8` and `embedded-hal-bus-0.2`.
+- No longer panics if the close fails when a `Volume` is dropped - the failure is instead ignored.
+
+### Added
+
+- `File` now has a `flush()` method.
+- `File` now has a `close()` method.
+
+### Removed
+
+- __Breaking Change__: Removed `CS` type-param on `SdCard` - now we use the `SpiDevice` chip-select (closing [#126])
+- __Breaking Change__: Removed the 74 clock cycle 'init' sequence - now applications must do this
 
 ## [Version 0.7.0] - 2024-02-04
 
@@ -31,8 +57,9 @@ The format is based on [Keep a Changelog] and this project adheres to [Semantic 
 
 ### Removed
 
-* None
+- None
 
+[#126]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/issues/126
 [#74]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/issues/74
 [embedded-hal]: https://crates.io/crates/embedded-hal
 
@@ -128,7 +155,7 @@ The format is based on [Keep a Changelog] and this project adheres to [Semantic 
 
 - Reduce delay waiting for response. Big speed improvements.
 
-## [Version 0.1.0] - 2018-12-23
+## [Version 0.1.1] - 2018-12-23
 
 ### Changed
 
@@ -139,7 +166,8 @@ The format is based on [Keep a Changelog] and this project adheres to [Semantic 
 
 [Keep a Changelog]: http://keepachangelog.com/en/1.0.0/
 [Semantic Versioning]: http://semver.org/spec/v2.0.0.html
-[Unreleased]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/compare/v0.7.0...develop
+[Unreleased]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/compare/v0.8.0...develop
+[Version 0.8.0]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/compare/v0.8.0...v0.7.0
 [Version 0.7.0]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/compare/v0.7.0...v0.6.0
 [Version 0.6.0]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/compare/v0.6.0...v0.5.0
 [Version 0.5.0]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/compare/v0.5.0...v0.4.0
