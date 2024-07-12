@@ -150,27 +150,31 @@ fn read_file_backwards() {
 
     const CHUNK_SIZE: u32 = 100;
     let length = volume_mgr.file_length(test_file).expect("file length");
-    let mut offset = length - CHUNK_SIZE;
     let mut read = 0;
+
+    // go to end
+    volume_mgr.file_seek_from_end(test_file, 0).expect("seek");
 
     // We're going to read the file backwards in chunks of 100 bytes. This
     // checks we didn't make any assumptions about only going forwards.
     while read < length {
+        // go to start of next chunk
         volume_mgr
-            .file_seek_from_start(test_file, offset)
+            .file_seek_from_current(test_file, -(CHUNK_SIZE as i32))
             .expect("seek");
+        // read chunk
         let mut buffer = [0u8; CHUNK_SIZE as usize];
         let len = volume_mgr.read(test_file, &mut buffer).expect("read");
         assert_eq!(len, CHUNK_SIZE as usize);
         contents.push_front(buffer.to_vec());
         read += CHUNK_SIZE;
-        if offset >= CHUNK_SIZE {
-            offset -= CHUNK_SIZE;
-        }
+        // go to start of chunk we just read
+        volume_mgr
+            .file_seek_from_current(test_file, -(CHUNK_SIZE as i32))
+            .expect("seek");
     }
 
     assert_eq!(read, length);
-    assert_eq!(offset, 0);
 
     let flat: Vec<u8> = contents.iter().flatten().copied().collect();
 
@@ -178,6 +182,27 @@ fn read_file_backwards() {
     hasher.update(flat);
     let hash = hasher.finalize();
     assert_eq!(&hash[..], TEST_DAT_SHA256_SUM);
+}
+
+#[test]
+fn read_file_with_odd_seek() {
+    let time_source = utils::make_time_source();
+    let disk = utils::make_block_device(utils::DISK_SOURCE).unwrap();
+    let mut volume_mgr = embedded_sdmmc::VolumeManager::new(disk, time_source);
+
+    let mut volume = volume_mgr
+        .open_volume(embedded_sdmmc::VolumeIdx(0))
+        .unwrap();
+    let mut root_dir = volume.open_root_dir().unwrap();
+    let mut f = root_dir
+        .open_file_in_dir("64MB.DAT", embedded_sdmmc::Mode::ReadOnly)
+        .unwrap();
+    f.seek_from_start(0x2c).unwrap();
+    while f.offset() < 1000000 {
+        let mut buffer = [0u8; 2048];
+        f.read(&mut buffer).unwrap();
+        f.seek_from_current(-1024).unwrap();
+    }
 }
 
 // ****************************************************************************

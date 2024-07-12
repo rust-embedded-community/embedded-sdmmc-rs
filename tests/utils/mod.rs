@@ -8,7 +8,7 @@ use embedded_sdmmc::{Block, BlockCount, BlockDevice, BlockIdx};
 ///
 /// ```console
 /// $ fdisk ./disk.img
-/// Disk: ./disk.img	geometry: 520/32/63 [1048576 sectors]
+/// Disk: ./disk.img    geometry: 520/32/63 [1048576 sectors]
 /// Signature: 0xAA55
 ///          Starting       Ending
 ///  #: id  cyl  hd sec -  cyl  hd sec [     start -       size]
@@ -41,6 +41,7 @@ use embedded_sdmmc::{Block, BlockCount, BlockDevice, BlockIdx};
 pub static DISK_SOURCE: &[u8] = include_bytes!("../disk.img.gz");
 
 #[derive(Debug)]
+#[allow(dead_code)]
 pub enum Error {
     /// Failed to read the source image
     Io(std::io::Error),
@@ -126,7 +127,7 @@ where
     fn num_blocks(&self) -> Result<BlockCount, Self::Error> {
         let borrow = self.contents.borrow();
         let contents: &[u8] = borrow.as_ref();
-        let len_blocks = contents.len() as usize / embedded_sdmmc::Block::LEN;
+        let len_blocks = contents.len() / embedded_sdmmc::Block::LEN;
         if len_blocks > u32::MAX as usize {
             panic!("Test disk too large! Only 2**32 blocks allowed");
         }
@@ -155,7 +156,7 @@ pub struct TestTimeSource {
 
 impl embedded_sdmmc::TimeSource for TestTimeSource {
     fn get_timestamp(&self) -> embedded_sdmmc::Timestamp {
-        self.fixed.clone()
+        self.fixed
     }
 }
 

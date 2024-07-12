@@ -18,8 +18,11 @@ use crate::{
 };
 use heapless::Vec;
 
-/// A `VolumeManager` wraps a block device and gives access to the FAT-formatted
-/// volumes within it.
+/// Wraps a block device and gives access to the FAT-formatted volumes within
+/// it.
+///
+/// Tracks which files and directories are open, to prevent you from deleting
+/// a file or directory you currently have open.
 #[derive(Debug)]
 pub struct VolumeManager<
     D,
@@ -624,6 +627,7 @@ where
             let (block_idx, block_offset, block_avail) = self.find_data_on_disk(
                 volume_idx,
                 &mut current_cluster,
+                self.open_files[file_idx].entry.cluster,
                 self.open_files[file_idx].current_offset,
             )?;
             self.open_files[file_idx].current_cluster = current_cluster;
@@ -701,44 +705,45 @@ where
                 written, bytes_to_write, current_cluster
             );
             let current_offset = self.open_files[file_idx].current_offset;
-            let (block_idx, block_offset, block_avail) =
-                match self.find_data_on_disk(volume_idx, &mut current_cluster, current_offset) {
-                    Ok(vars) => {
-                        debug!(
-                            "Found block_idx={:?}, block_offset={:?}, block_avail={}",
-                            vars.0, vars.1, vars.2
-                        );
-                        vars
-                    }
-                    Err(Error::EndOfFile) => {
-                        debug!("Extending file");
-                        match self.open_volumes[volume_idx].volume_type {
-                            VolumeType::Fat(ref mut fat) => {
-                                if fat
-                                    .alloc_cluster(
-                                        &self.block_device,
-                                        Some(current_cluster.1),
-                                        false,
-                                    )
-                                    .is_err()
-                                {
-                                    return Err(Error::DiskFull);
-                                }
-                                debug!("Allocated new FAT cluster, finding offsets...");
-                                let new_offset = self
-                                    .find_data_on_disk(
-                                        volume_idx,
-                                        &mut current_cluster,
-                                        self.open_files[file_idx].current_offset,
-                                    )
-                                    .map_err(|_| Error::AllocationError)?;
-                                debug!("New offset {:?}", new_offset);
-                                new_offset
+            let (block_idx, block_offset, block_avail) = match self.find_data_on_disk(
+                volume_idx,
+                &mut current_cluster,
+                self.open_files[file_idx].entry.cluster,
+                current_offset,
+            ) {
+                Ok(vars) => {
+                    debug!(
+                        "Found block_idx={:?}, block_offset={:?}, block_avail={}",
+                        vars.0, vars.1, vars.2
+                    );
+                    vars
+                }
+                Err(Error::EndOfFile) => {
+                    debug!("Extending file");
+                    match self.open_volumes[volume_idx].volume_type {
+                        VolumeType::Fat(ref mut fat) => {
+                            if fat
+                                .alloc_cluster(&self.block_device, Some(current_cluster.1), false)
+                                .is_err()
+                            {
+                                return Err(Error::DiskFull);
                             }
+                            debug!("Allocated new FAT cluster, finding offsets...");
+                            let new_offset = self
+                                .find_data_on_disk(
+                                    volume_idx,
+                                    &mut current_cluster,
+                                    self.open_files[file_idx].entry.cluster,
+                                    self.open_files[file_idx].current_offset,
+                                )
+                                .map_err(|_| Error::AllocationError)?;
+                            debug!("New offset {:?}", new_offset);
+                            new_offset
                         }
                     }
-                    Err(e) => return Err(e),
-                };
+                }
+                Err(e) => return Err(e),
+            };
             let mut blocks = [Block::new()];
             let to_copy = core::cmp::min(block_avail, bytes_to_write - written);
             if block_offset != 0 {
@@ -773,17 +778,21 @@ where
         Ok(())
     }
 
-    /// Close a file with the given full path.
+    /// Close a file with the given raw file handle.
     pub fn close_file(&mut self, file: RawFile) -> Result<(), Error<D::Error>> {
-        let mut found_idx = None;
-        for (idx, info) in self.open_files.iter().enumerate() {
-            if file == info.file_id {
-                found_idx = Some((info, idx));
-                break;
-            }
-        }
+        let flush_result = self.flush_file(file);
+        let file_idx = self.get_file_by_id(file)?;
+        self.open_files.swap_remove(file_idx);
+        flush_result
+    }
 
-        let (file_info, file_idx) = found_idx.ok_or(Error::BadHandle)?;
+    /// Flush (update the entry) for a file with the given raw file handle.
+    pub fn flush_file(&mut self, file: RawFile) -> Result<(), Error<D::Error>> {
+        let file_info = self
+            .open_files
+            .iter()
+            .find(|info| info.file_id == file)
+            .ok_or(Error::BadHandle)?;
 
         if file_info.dirty {
             let volume_idx = self.get_volume_by_id(file_info.volume_id)?;
@@ -800,8 +809,6 @@ where
                 }
             };
         }
-
-        self.open_files.swap_remove(file_idx);
         Ok(())
     }
 
@@ -1041,18 +1048,33 @@ where
 
     /// This function turns `desired_offset` into an appropriate block to be
     /// read. It either calculates this based on the start of the file, or
-    /// from the last cluster we read - whichever is better.
+    /// from the given start point - whichever is better.
+    ///
+    /// Returns:
+    ///
+    /// * the index for the block on the disk that contains the data we want,
+    /// * the byte offset into that block for the data we want, and
+    /// * how many bytes remain in that block.
     fn find_data_on_disk(
         &self,
         volume_idx: usize,
         start: &mut (u32, ClusterId),
+        file_start: ClusterId,
         desired_offset: u32,
     ) -> Result<(BlockIdx, usize, usize), Error<D::Error>> {
         let bytes_per_cluster = match &self.open_volumes[volume_idx].volume_type {
             VolumeType::Fat(fat) => fat.bytes_per_cluster(),
         };
+        // do we need to be before our start point?
+        if desired_offset < start.0 {
+            // user wants to go backwards - start from the beginning of the file
+            // because the FAT is only a singly-linked list.
+            start.0 = 0;
+            start.1 = file_start;
+        }
         // How many clusters forward do we need to go?
         let offset_from_cluster = desired_offset - start.0;
+        // walk through the FAT chain
         let num_clusters = offset_from_cluster / bytes_per_cluster;
         let mut block_cache = BlockCache::empty();
         for _ in 0..num_clusters {
@@ -1063,7 +1085,7 @@ where
             };
             start.0 += bytes_per_cluster;
         }
-        // How many blocks in are we?
+        // How many blocks in are we now?
         let offset_from_cluster = desired_offset - start.0;
         assert!(offset_from_cluster < bytes_per_cluster);
         let num_blocks = BlockCount(offset_from_cluster / Block::LEN_U32);

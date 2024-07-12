@@ -109,24 +109,24 @@ fn open_non_raw() {
     assert_eq!(len, 258);
     assert_eq!(f.length(), 258);
     f.seek_from_current(0).unwrap();
-    assert_eq!(f.is_eof(), true);
+    assert!(f.is_eof());
     assert_eq!(f.offset(), 258);
     assert!(matches!(f.seek_from_current(1), Err(Error::InvalidOffset)));
     f.seek_from_current(-258).unwrap();
-    assert_eq!(f.is_eof(), false);
+    assert!(!f.is_eof());
     assert_eq!(f.offset(), 0);
     f.seek_from_current(10).unwrap();
-    assert_eq!(f.is_eof(), false);
+    assert!(!f.is_eof());
     assert_eq!(f.offset(), 10);
     f.seek_from_end(0).unwrap();
-    assert_eq!(f.is_eof(), true);
+    assert!(f.is_eof());
     assert_eq!(f.offset(), 258);
     assert!(matches!(
         f.seek_from_current(-259),
         Err(Error::InvalidOffset)
     ));
     f.seek_from_start(25).unwrap();
-    assert_eq!(f.is_eof(), false);
+    assert!(!f.is_eof());
     assert_eq!(f.offset(), 25);
 
     drop(f);

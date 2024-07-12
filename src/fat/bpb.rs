@@ -6,9 +6,10 @@ use crate::{
 };
 use byteorder::{ByteOrder, LittleEndian};
 
-/// Represents a Boot Parameter Block. This is the first sector of a FAT
-/// formatted partition, and it describes various properties of the FAT
-/// filesystem.
+/// A Boot Parameter Block.
+///
+/// This is the first sector of a FAT formatted partition, and it describes
+/// various properties of the FAT filesystem.
 pub struct Bpb<'a> {
     data: &'a [u8; 512],
     pub(crate) fat_type: FatType,

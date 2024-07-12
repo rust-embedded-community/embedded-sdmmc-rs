@@ -19,14 +19,13 @@
 //! ```rust
 //! use embedded_sdmmc::{Error, Mode, SdCard, SdCardError, TimeSource, VolumeIdx, VolumeManager};
 //!
-//! fn example<S, CS, D, T>(spi: S, cs: CS, delay: D, ts: T) -> Result<(), Error<SdCardError>>
+//! fn example<S, D, T>(spi: S, delay: D, ts: T) -> Result<(), Error<SdCardError>>
 //! where
 //!     S: embedded_hal::spi::SpiDevice,
-//!     CS: embedded_hal::digital::OutputPin,
 //!     D: embedded_hal::delay::DelayNs,
 //!     T: TimeSource,
 //! {
-//!     let sdcard = SdCard::new(spi, cs, delay);
+//!     let sdcard = SdCard::new(spi, delay);
 //!     println!("Card size is {} bytes", sdcard.num_bytes()?);
 //!     let mut volume_mgr = VolumeManager::new(sdcard, ts);
 //!     let mut volume0 = volume_mgr.open_volume(VolumeIdx(0))?;
@@ -136,7 +135,7 @@ macro_rules! warn {
 //
 // ****************************************************************************
 
-/// Represents all the ways the functions in this crate can fail.
+/// All the ways the functions in this crate can fail.
 #[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
 #[derive(Debug, Clone)]
 pub enum Error<E>
@@ -212,7 +211,7 @@ where
     }
 }
 
-/// Represents a partition with a filesystem within it.
+/// A partition with a filesystem within it.
 #[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct RawVolume(SearchId);
@@ -237,11 +236,14 @@ impl RawVolume {
     }
 }
 
-/// Represents an open volume on disk.
+/// An open volume on disk, which closes on drop.
 ///
-/// If you drop a value of this type, it closes the volume automatically. However,
-/// it holds a mutable reference to its parent `VolumeManager`, which restricts
-/// which operations you can perform.
+/// In contrast to a `RawVolume`, a `Volume` holds a mutable reference to its
+/// parent `VolumeManager`, which restricts which operations you can perform.
+///
+/// If you drop a value of this type, it closes the volume automatically, but
+/// any error that may occur will be ignored. To handle potential errors, use
+/// the [`Volume::close`] method.
 pub struct Volume<'a, D, T, const MAX_DIRS: usize, const MAX_FILES: usize, const MAX_VOLUMES: usize>
 where
     D: crate::BlockDevice,
@@ -285,6 +287,16 @@ where
         core::mem::forget(self);
         v
     }
+
+    /// Consume the `Volume` handle and close it. The behavior of this is similar
+    /// to using [`core::mem::drop`] or letting the `Volume` go out of scope,
+    /// except this lets the user handle any errors that may occur in the process,
+    /// whereas when using drop, any errors will be discarded silently.
+    pub fn close(self) -> Result<(), Error<D::Error>> {
+        let result = self.volume_mgr.close_volume(self.raw_volume);
+        core::mem::forget(self);
+        result
+    }
 }
 
 impl<'a, D, T, const MAX_DIRS: usize, const MAX_FILES: usize, const MAX_VOLUMES: usize> Drop
@@ -294,9 +306,7 @@ where
     T: crate::TimeSource,
 {
     fn drop(&mut self) {
-        self.volume_mgr
-            .close_volume(self.raw_volume)
-            .expect("Failed to close volume");
+        _ = self.volume_mgr.close_volume(self.raw_volume)
     }
 }
 
@@ -344,8 +354,7 @@ pub enum VolumeType {
     Fat(FatVolume),
 }
 
-/// A `VolumeIdx` is a number which identifies a volume (or partition) on a
-/// disk.
+/// A number which identifies a volume (or partition) on a disk.
 ///
 /// `VolumeIdx(0)` is the first primary partition on an MBR partitioned disk.
 #[cfg_attr(feature = "defmt-log", derive(defmt::Format))]

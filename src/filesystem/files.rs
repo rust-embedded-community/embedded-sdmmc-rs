@@ -1,9 +1,9 @@
 use crate::{
     filesystem::{ClusterId, DirEntry, SearchId},
-    RawVolume, VolumeManager,
+    Error, RawVolume, VolumeManager,
 };
 
-/// Represents an open file on disk.
+/// A handle for an open file on disk.
 ///
 /// Do NOT drop this object! It doesn't hold a reference to the Volume Manager
 /// it was created from and cannot update the directory entry if you drop it.
@@ -37,11 +37,14 @@ impl RawFile {
     }
 }
 
-/// Represents an open file on disk.
+/// A handle for an open file on disk, which closes on drop.
 ///
-/// If you drop a value of this type, it closes the file automatically. However,
-/// it holds a mutable reference to its parent `VolumeManager`, which restricts
-/// which operations you can perform.
+/// In contrast to a `RawFile`, a `File`  holds a mutable reference to its
+/// parent `VolumeManager`, which restricts which operations you can perform.
+///
+/// If you drop a value of this type, it closes the file automatically, and but
+/// error that may occur will be ignored. To handle potential errors, use
+/// the [`File::close`] method.
 pub struct File<'a, D, T, const MAX_DIRS: usize, const MAX_FILES: usize, const MAX_VOLUMES: usize>
 where
     D: crate::BlockDevice,
@@ -123,6 +126,21 @@ where
         core::mem::forget(self);
         f
     }
+
+    /// Flush any written data by updating the directory entry.
+    pub fn flush(&mut self) -> Result<(), Error<D::Error>> {
+        self.volume_mgr.flush_file(self.raw_file)
+    }
+
+    /// Consume the `File` handle and close it. The behavior of this is similar
+    /// to using [`core::mem::drop`] or letting the `File` go out of scope,
+    /// except this lets the user handle any errors that may occur in the process,
+    /// whereas when using drop, any errors will be discarded silently.
+    pub fn close(self) -> Result<(), Error<D::Error>> {
+        let result = self.volume_mgr.close_file(self.raw_file);
+        core::mem::forget(self);
+        result
+    }
 }
 
 impl<'a, D, T, const MAX_DIRS: usize, const MAX_FILES: usize, const MAX_VOLUMES: usize> Drop
@@ -132,9 +150,7 @@ where
     T: crate::TimeSource,
 {
     fn drop(&mut self) {
-        self.volume_mgr
-            .close_file(self.raw_file)
-            .expect("Failed to close file");
+        _ = self.volume_mgr.close_file(self.raw_file);
     }
 }
 
@@ -195,7 +211,10 @@ pub(crate) struct FileInfo {
     pub(crate) file_id: RawFile,
     /// The unique ID for the volume this directory is on
     pub(crate) volume_id: RawVolume,
-    /// The current cluster, and how many bytes that short-cuts us
+    /// The last cluster we accessed, and how many bytes that short-cuts us.
+    ///
+    /// This saves us walking from the very start of the FAT chain when we move
+    /// forward through a file.
     pub(crate) current_cluster: (u32, ClusterId),
     /// How far through the file we've read (in bytes).
     pub(crate) current_offset: u32,
@@ -220,41 +239,30 @@ impl FileInfo {
 
     /// Seek to a new position in the file, relative to the start of the file.
     pub fn seek_from_start(&mut self, offset: u32) -> Result<(), FileError> {
-        if offset <= self.entry.size {
-            self.current_offset = offset;
-            if offset < self.current_cluster.0 {
-                // Back to start
-                self.current_cluster = (0, self.entry.cluster);
-            }
-            Ok(())
-        } else {
-            Err(FileError::InvalidOffset)
+        if offset > self.entry.size {
+            return Err(FileError::InvalidOffset);
         }
+        self.current_offset = offset;
+        Ok(())
     }
 
     /// Seek to a new position in the file, relative to the end of the file.
     pub fn seek_from_end(&mut self, offset: u32) -> Result<(), FileError> {
-        if offset <= self.entry.size {
-            self.current_offset = self.entry.size - offset;
-            if offset < self.current_cluster.0 {
-                // Back to start
-                self.current_cluster = (0, self.entry.cluster);
-            }
-            Ok(())
-        } else {
-            Err(FileError::InvalidOffset)
+        if offset > self.entry.size {
+            return Err(FileError::InvalidOffset);
         }
+        self.current_offset = self.entry.size - offset;
+        Ok(())
     }
 
     /// Seek to a new position in the file, relative to the current position.
     pub fn seek_from_current(&mut self, offset: i32) -> Result<(), FileError> {
         let new_offset = i64::from(self.current_offset) + i64::from(offset);
-        if new_offset >= 0 && new_offset <= i64::from(self.entry.size) {
-            self.current_offset = new_offset as u32;
-            Ok(())
-        } else {
-            Err(FileError::InvalidOffset)
+        if new_offset < 0 || new_offset > i64::from(self.entry.size) {
+            return Err(FileError::InvalidOffset);
         }
+        self.current_offset = new_offset as u32;
+        Ok(())
     }
 
     /// Amount of file left to read.
@@ -264,7 +272,6 @@ impl FileInfo {
 
     /// Update the file's length.
     pub(crate) fn update_length(&mut self, new: u32) {
-        self.entry.size = new;
         self.entry.size = new;
     }
 }

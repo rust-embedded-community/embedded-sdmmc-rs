@@ -7,8 +7,7 @@ use crate::{Error, RawVolume, VolumeManager};
 
 use super::ToShortFileName;
 
-/// Represents a directory entry, which tells you about
-/// other files and directories.
+/// A directory entry, which tells you about other files and directories.
 #[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct DirEntry {
@@ -30,7 +29,7 @@ pub struct DirEntry {
     pub entry_offset: u32,
 }
 
-/// Represents an open directory on disk.
+/// A handle for an open directory on disk.
 ///
 /// Do NOT drop this object! It doesn't hold a reference to the Volume Manager
 /// it was created from and if you drop it, the VolumeManager will think you
@@ -70,11 +69,14 @@ impl RawDirectory {
     }
 }
 
-/// Represents an open directory on disk.
+/// A handle for an open directory on disk, which closes on drop.
 ///
-/// If you drop a value of this type, it closes the directory automatically. However,
-/// it holds a mutable reference to its parent `VolumeManager`, which restricts
-/// which operations you can perform.
+/// In contrast to a `RawDirectory`, a `Directory` holds a mutable reference to
+/// its parent `VolumeManager`, which restricts which operations you can perform.
+///
+/// If you drop a value of this type, it closes the directory automatically, but
+/// any error that may occur will be ignored. To handle potential errors, use
+/// the [`Directory::close`] method.
 pub struct Directory<
     'a,
     D,
@@ -188,6 +190,16 @@ where
         core::mem::forget(self);
         d
     }
+
+    /// Consume the `Directory` handle and close it. The behavior of this is similar
+    /// to using [`core::mem::drop`] or letting the `Directory` go out of scope,
+    /// except this lets the user handle any errors that may occur in the process,
+    /// whereas when using drop, any errors will be discarded silently.
+    pub fn close(self) -> Result<(), Error<D::Error>> {
+        let result = self.volume_mgr.close_dir(self.raw_directory);
+        core::mem::forget(self);
+        result
+    }
 }
 
 impl<'a, D, T, const MAX_DIRS: usize, const MAX_FILES: usize, const MAX_VOLUMES: usize> Drop
@@ -197,9 +209,7 @@ where
     T: crate::TimeSource,
 {
     fn drop(&mut self) {
-        self.volume_mgr
-            .close_dir(self.raw_directory)
-            .expect("Failed to close directory");
+        _ = self.volume_mgr.close_dir(self.raw_directory)
     }
 }
 

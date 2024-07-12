@@ -6,11 +6,39 @@ The format is based on [Keep a Changelog] and this project adheres to [Semantic 
 
 ## [Unreleased]
 
-* None
+### Changed
+
+- None
+
+### Added
+
+- None
+
+### Removed
+
+- None
+
+## [Version 0.8.0] - 2024-07-12
+
+### Changed
+
+- Fixed a bug when seeking backwards through files.
+- Updated to `heapless-0.8` and `embedded-hal-bus-0.2`.
+- No longer panics if the close fails when a `Volume` is dropped - the failure is instead ignored.
+
+### Added
+
+- `File` now has a `flush()` method.
+- `File` now has a `close()` method.
+
+### Removed
+
+- __Breaking Change__: Removed `CS` type-param on `SdCard` - now we use the `SpiDevice` chip-select (closing [#126])
+- __Breaking Change__: Removed the 74 clock cycle 'init' sequence - now applications must do this
 
 ## [Version 0.7.0] - 2024-02-04
 
-## Changed
+### Changed
 
 - __Breaking Change__: `Volume`, `Directory` and `File` are now smart! They hold references to the thing they were made from, and will clean themselves up when dropped. The trade-off is you can can't open multiple volumes, directories or files at the same time.
 - __Breaking Change__: Renamed the old types to `RawVolume`, `RawDirectory` and `RawFile`
@@ -19,7 +47,7 @@ The format is based on [Keep a Changelog] and this project adheres to [Semantic 
 - You can now open directories multiple times without error
 - Updated to [embedded-hal] 1.0
 
-## Added
+### Added
 
 - `RawVolume`, `RawDirectory` and `RawFile` types (like the old `Volume`, `Directory` and `File` types)
 - New method `make_dir_in_dir`
@@ -27,10 +55,11 @@ The format is based on [Keep a Changelog] and this project adheres to [Semantic 
 - New API `change_dir` which changes a directory to point to some child directory (or the parent) without opening a new directory.
 - Updated 'shell' example to support `mkdir`, `tree` and relative/absolute paths
 
-## Removed
+### Removed
 
-* None
+- None
 
+[#126]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/issues/126
 [#74]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/issues/74
 [embedded-hal]: https://crates.io/crates/embedded-hal
 
@@ -126,7 +155,7 @@ The format is based on [Keep a Changelog] and this project adheres to [Semantic 
 
 - Reduce delay waiting for response. Big speed improvements.
 
-## [Version 0.1.0] - 2018-12-23
+## [Version 0.1.1] - 2018-12-23
 
 ### Changed
 
@@ -137,7 +166,8 @@ The format is based on [Keep a Changelog] and this project adheres to [Semantic 
 
 [Keep a Changelog]: http://keepachangelog.com/en/1.0.0/
 [Semantic Versioning]: http://semver.org/spec/v2.0.0.html
-[Unreleased]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/compare/v0.7.0...develop
+[Unreleased]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/compare/v0.8.0...develop
+[Version 0.8.0]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/compare/v0.8.0...v0.7.0
 [Version 0.7.0]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/compare/v0.7.0...v0.6.0
 [Version 0.6.0]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/compare/v0.6.0...v0.5.0
 [Version 0.5.0]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/compare/v0.5.0...v0.4.0

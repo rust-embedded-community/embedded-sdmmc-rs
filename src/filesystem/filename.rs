@@ -59,19 +59,19 @@ impl ShortFileName {
         }
     }
 
-    /// Get a short file name containing "..", which means "this directory".
+    /// Get a short file name containing ".", which means "this directory".
     pub const fn this_dir() -> Self {
         Self {
             contents: *b".          ",
         }
     }
 
-    /// Get base name (name without extension) of file name
+    /// Get base name (without extension) of the file.
     pub fn base_name(&self) -> &[u8] {
         Self::bytes_before_space(&self.contents[..Self::FILENAME_BASE_MAX_LEN])
     }
 
-    /// Get base name (name without extension) of file name
+    /// Get extension of the file (without base name).
     pub fn extension(&self) -> &[u8] {
         Self::bytes_before_space(&self.contents[Self::FILENAME_BASE_MAX_LEN..])
     }

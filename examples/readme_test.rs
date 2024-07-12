@@ -3,9 +3,27 @@
 //! We add enough stuff to make it compile, but it won't run because our fake
 //! SPI doesn't do any replies.
 
+#![allow(dead_code)]
+
 use core::cell::RefCell;
 
-use embedded_sdmmc::sdcard::DummyCsPin;
+pub struct DummyCsPin;
+
+impl embedded_hal::digital::ErrorType for DummyCsPin {
+    type Error = core::convert::Infallible;
+}
+
+impl embedded_hal::digital::OutputPin for DummyCsPin {
+    #[inline(always)]
+    fn set_low(&mut self) -> Result<(), Self::Error> {
+        Ok(())
+    }
+
+    #[inline(always)]
+    fn set_high(&mut self) -> Result<(), Self::Error> {
+        Ok(())
+    }
+}
 
 struct FakeSpiBus();
 
@@ -97,13 +115,12 @@ fn main() -> Result<(), Error> {
     // BEGIN Fake stuff that will be replaced with real peripherals
     let spi_bus = RefCell::new(FakeSpiBus());
     let delay = FakeDelayer();
-    let sdmmc_spi = embedded_hal_bus::spi::RefCellDevice::new(&spi_bus, DummyCsPin, delay);
-    let sdmmc_cs = FakeCs();
+    let sdmmc_spi = embedded_hal_bus::spi::RefCellDevice::new(&spi_bus, DummyCsPin, delay).unwrap();
     let time_source = FakeTimesource();
     // END Fake stuff that will be replaced with real peripherals
 
     // Build an SD Card interface out of an SPI device, a chip-select pin and the delay object
-    let sdcard = embedded_sdmmc::SdCard::new(sdmmc_spi, sdmmc_cs, delay);
+    let sdcard = embedded_sdmmc::SdCard::new(sdmmc_spi, delay);
     // Get the card size (this also triggers card initialisation because it's not been done yet)
     println!("Card size is {} bytes", sdcard.num_bytes()?);
     // Now let's look for volumes (also known as partitions) on our block device.
@@ -118,7 +135,7 @@ fn main() -> Result<(), Error> {
     // Open a file called "MY_FILE.TXT" in the root directory
     // This mutably borrows the directory.
     let mut my_file = root_dir.open_file_in_dir("MY_FILE.TXT", embedded_sdmmc::Mode::ReadOnly)?;
-    // Print the contents of the file
+    // Print the contents of the file, assuming it's in ISO-8859-1 encoding
     while !my_file.is_eof() {
         let mut buffer = [0u8; 32];
         let num_read = my_file.read(&mut buffer)?;

@@ -12,7 +12,7 @@ You will need something that implements the `BlockDevice` trait, which can read 
 
 ```rust
 // Build an SD Card interface out of an SPI device, a chip-select pin and the delay object
-let sdcard = embedded_sdmmc::SdCard::new(sdmmc_spi, sdmmc_cs, delay);
+let sdcard = embedded_sdmmc::SdCard::new(sdmmc_spi, delay);
 // Get the card size (this also triggers card initialisation because it's not been done yet)
 println!("Card size is {} bytes", sdcard.num_bytes()?);
 // Now let's look for volumes (also known as partitions) on our block device.
@@ -27,7 +27,7 @@ let mut root_dir = volume0.open_root_dir()?;
 // Open a file called "MY_FILE.TXT" in the root directory
 // This mutably borrows the directory.
 let mut my_file = root_dir.open_file_in_dir("MY_FILE.TXT", embedded_sdmmc::Mode::ReadOnly)?;
-// Print the contents of the file
+// Print the contents of the file, assuming it's in ISO-8859-1 encoding
 while !my_file.is_eof() {
     let mut buffer = [0u8; 32];
     let num_read = my_file.read(&mut buffer)?;
@@ -59,10 +59,12 @@ let mut cont: VolumeManager<_, _, 6, 12, 4> = VolumeManager::new_with_limits(blo
 * Log over defmt or the common log interface (feature flags).
 
 ## No-std usage
+
 This repository houses no examples for no-std usage, however you can check out the following examples:
-- [Pi Pico](https://github.com/rp-rs/rp-hal-boards/blob/main/boards/rp-pico/examples/pico_spi_sd_card.rs)
-- [STM32H7XX](https://github.com/stm32-rs/stm32h7xx-hal/blob/master/examples/sdmmc_fat.rs)
-- [atsamd(pygamer)](https://github.com/atsamd-rs/atsamd/blob/master/boards/pygamer/examples/sd_card.rs)
+
+* [Pi Pico](https://github.com/rp-rs/rp-hal-boards/blob/main/boards/rp-pico/examples/pico_spi_sd_card.rs)
+* [STM32H7XX](https://github.com/stm32-rs/stm32h7xx-hal/blob/master/examples/sdmmc_fat.rs)
+* [atsamd(pygamer)](https://github.com/atsamd-rs/atsamd/blob/master/boards/pygamer/examples/sd_card.rs)
 
 ## Todo List (PRs welcome!)
 
@@ -79,11 +81,13 @@ The changelog has moved to [CHANGELOG.md](/CHANGELOG.md)
 Licensed under either of
 
 - Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE) or
-  http://www.apache.org/licenses/LICENSE-2.0)
+  <http://www.apache.org/licenses/LICENSE-2.0>)
 
-- MIT license ([LICENSE-MIT](LICENSE-MIT) or http://opensource.org/licenses/MIT)
+- MIT license ([LICENSE-MIT](LICENSE-MIT) or <http://opensource.org/licenses/MIT>)
 
 at your option.
+
+Copyright notices are stored in the [NOTICE](./NOTICE) file.
 
 ## Contribution
 
