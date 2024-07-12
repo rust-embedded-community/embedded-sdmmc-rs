@@ -41,6 +41,7 @@ use embedded_sdmmc::{Block, BlockCount, BlockDevice, BlockIdx};
 pub static DISK_SOURCE: &[u8] = include_bytes!("../disk.img.gz");
 
 #[derive(Debug)]
+#[allow(dead_code)]
 pub enum Error {
     /// Failed to read the source image
     Io(std::io::Error),
