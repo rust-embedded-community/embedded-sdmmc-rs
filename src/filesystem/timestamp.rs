@@ -4,9 +4,10 @@ pub trait TimeSource {
     fn get_timestamp(&self) -> Timestamp;
 }
 
-/// Represents an instant in time, in the local time zone. TODO: Consider
-/// replacing this with POSIX time as a `u32`, which would save two bytes at
-/// the expense of some maths.
+/// A Gregorian Calendar date/time, in the local time zone.
+///
+/// TODO: Consider replacing this with POSIX time as a `u32`, which would save
+/// two bytes at the expense of some maths.
 #[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
 #[derive(Copy, Clone, PartialOrd, Ord, PartialEq, Eq)]
 pub struct Timestamp {

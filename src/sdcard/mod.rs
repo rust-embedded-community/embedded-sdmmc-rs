@@ -1,6 +1,4 @@
-//! The SD/MMC Protocol
-//!
-//! Implements the SD/MMC protocol on some generic SPI interface.
+//! Implements the BlockDevice trait for an SD/MMC Protocol over SPI.
 //!
 //! This is currently optimised for readability and debugability, not
 //! performance.
@@ -21,7 +19,7 @@ use crate::{debug, warn};
 // Types and Implementations
 // ****************************************************************************
 
-/// Represents an SD Card on an SPI bus.
+/// Driver for an SD Card on an SPI bus.
 ///
 /// Built from an [`SpiDevice`] implementation and a Chip Select pin.
 ///
@@ -201,7 +199,7 @@ where
     }
 }
 
-/// Represents an SD Card on an SPI bus.
+/// Inner details for the SD Card driver.
 ///
 /// All the APIs required `&mut self`.
 struct SdCardInner<SPI, DELAYER>

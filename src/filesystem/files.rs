@@ -3,7 +3,7 @@ use crate::{
     Error, RawVolume, VolumeManager,
 };
 
-/// Represents an open file on disk.
+/// A handle for an open file on disk.
 ///
 /// Do NOT drop this object! It doesn't hold a reference to the Volume Manager
 /// it was created from and cannot update the directory entry if you drop it.
@@ -37,7 +37,7 @@ impl RawFile {
     }
 }
 
-/// Represents an open file on disk.
+/// A handle for an open file on disk, which closes on drop.
 ///
 /// In contrast to a `RawFile`, a `File`  holds a mutable reference to its
 /// parent `VolumeManager`, which restricts which operations you can perform.
