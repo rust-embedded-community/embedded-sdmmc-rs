@@ -1,7 +1,9 @@
+use super::TimeSource;
 use crate::{
     filesystem::{ClusterId, DirEntry, SearchId},
-    Error, RawVolume, VolumeManager,
+    BlockDevice, Error, RawVolume, VolumeManager,
 };
+use embedded_io::{ErrorType, Read, Seek, SeekFrom, Write};
 
 /// A handle for an open file on disk.
 ///
@@ -162,6 +164,80 @@ where
 {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "File({})", self.raw_file.0 .0)
+    }
+}
+
+impl<
+        D: BlockDevice,
+        T: TimeSource,
+        const MAX_DIRS: usize,
+        const MAX_FILES: usize,
+        const MAX_VOLUMES: usize,
+    > ErrorType for File<'_, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>
+{
+    type Error = crate::Error<D::Error>;
+}
+
+impl<
+        D: BlockDevice,
+        T: TimeSource,
+        const MAX_DIRS: usize,
+        const MAX_FILES: usize,
+        const MAX_VOLUMES: usize,
+    > Read for File<'_, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>
+{
+    fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+        if buf.is_empty() {
+            Ok(0)
+        } else {
+            self.read(buf)
+        }
+    }
+}
+
+impl<
+        D: BlockDevice,
+        T: TimeSource,
+        const MAX_DIRS: usize,
+        const MAX_FILES: usize,
+        const MAX_VOLUMES: usize,
+    > Write for File<'_, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>
+{
+    fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+        if buf.is_empty() {
+            Ok(0)
+        } else {
+            self.write(buf)?;
+            Ok(buf.len())
+        }
+    }
+
+    fn flush(&mut self) -> Result<(), Self::Error> {
+        self.flush()
+    }
+}
+
+impl<
+        D: BlockDevice,
+        T: TimeSource,
+        const MAX_DIRS: usize,
+        const MAX_FILES: usize,
+        const MAX_VOLUMES: usize,
+    > Seek for File<'_, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>
+{
+    fn seek(&mut self, pos: SeekFrom) -> Result<u64, Self::Error> {
+        match pos {
+            SeekFrom::Start(offset) => {
+                self.seek_from_start(offset.try_into().map_err(|_| Error::InvalidOffset)?)?
+            }
+            SeekFrom::End(offset) => {
+                self.seek_from_end((-offset).try_into().map_err(|_| Error::InvalidOffset)?)?
+            }
+            SeekFrom::Current(offset) => {
+                self.seek_from_current(offset.try_into().map_err(|_| Error::InvalidOffset)?)?
+            }
+        }
+        Ok(self.offset().into())
     }
 }
 

@@ -12,7 +12,7 @@ The format is based on [Keep a Changelog] and this project adheres to [Semantic 
 
 ### Added
 
-- None
+- `File` now implements the `embedded-io` `Read`, `Write` and `Seek` traits.
 
 ### Removed
 
