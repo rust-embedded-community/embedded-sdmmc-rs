@@ -73,6 +73,8 @@ pub mod fat;
 pub mod filesystem;
 pub mod sdcard;
 
+use core::fmt::Debug;
+use embedded_io::ErrorKind;
 use filesystem::SearchId;
 
 #[doc(inline)]
@@ -200,6 +202,40 @@ where
     DiskFull,
     /// A directory with that name already exists
     DirAlreadyExists,
+}
+
+impl<E: Debug> embedded_io::Error for Error<E> {
+    fn kind(&self) -> ErrorKind {
+        match self {
+            Error::DeviceError(_)
+            | Error::FormatError(_)
+            | Error::FileAlreadyOpen
+            | Error::DirAlreadyOpen
+            | Error::VolumeStillInUse
+            | Error::VolumeAlreadyOpen
+            | Error::EndOfFile
+            | Error::DiskFull
+            | Error::NotEnoughSpace
+            | Error::AllocationError => ErrorKind::Other,
+            Error::NoSuchVolume
+            | Error::FilenameError(_)
+            | Error::BadHandle
+            | Error::InvalidOffset => ErrorKind::InvalidInput,
+            Error::TooManyOpenVolumes | Error::TooManyOpenDirs | Error::TooManyOpenFiles => {
+                ErrorKind::OutOfMemory
+            }
+            Error::NotFound => ErrorKind::NotFound,
+            Error::OpenedDirAsFile
+            | Error::OpenedFileAsDir
+            | Error::DeleteDirAsFile
+            | Error::BadCluster
+            | Error::ConversionError
+            | Error::UnterminatedFatChain => ErrorKind::InvalidData,
+            Error::Unsupported | Error::BadBlockSize(_) => ErrorKind::Unsupported,
+            Error::ReadOnly => ErrorKind::PermissionDenied,
+            Error::FileAlreadyExists | Error::DirAlreadyExists => ErrorKind::AlreadyExists,
+        }
+    }
 }
 
 impl<E> From<E> for Error<E>
