@@ -1,5 +1,3 @@
-use core::convert::TryFrom;
-
 use crate::blockdevice::BlockIdx;
 use crate::fat::{FatType, OnDiskDirEntry};
 use crate::filesystem::{Attributes, ClusterId, Handle, ShortFileName, Timestamp};
@@ -262,16 +260,12 @@ impl DirEntry {
             [0u8; 2]
         } else {
             // Safe due to the AND operation
-            u16::try_from((cluster_number >> 16) & 0x0000_FFFF)
-                .unwrap()
-                .to_le_bytes()
+            (((cluster_number >> 16) & 0x0000_FFFF) as u16).to_le_bytes()
         };
         data[20..22].copy_from_slice(&cluster_hi[..]);
         data[22..26].copy_from_slice(&self.mtime.serialize_to_fat()[..]);
         // Safe due to the AND operation
-        let cluster_lo = u16::try_from(cluster_number & 0x0000_FFFF)
-            .unwrap()
-            .to_le_bytes();
+        let cluster_lo = ((cluster_number & 0x0000_FFFF) as u16).to_le_bytes();
         data[26..28].copy_from_slice(&cluster_lo[..]);
         data[28..32].copy_from_slice(&self.size.to_le_bytes()[..]);
         data

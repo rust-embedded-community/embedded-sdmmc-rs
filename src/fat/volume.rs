@@ -587,8 +587,8 @@ impl FatVolume {
                         // Can quit early
                         return Ok(());
                     } else if dir_entry.is_valid() && !dir_entry.is_lfn() {
-                        // Safe, since Block::LEN always fits on a u32
-                        let start = u32::try_from(start).unwrap();
+                        // Block::LEN always fits on a u32
+                        let start = start as u32;
                         let entry = dir_entry.get_entry(FatType::Fat16, block_idx, start);
                         func(&entry);
                     }
@@ -642,8 +642,8 @@ impl FatVolume {
                         // Can quit early
                         return Ok(());
                     } else if dir_entry.is_valid() && !dir_entry.is_lfn() {
-                        // Safe, since Block::LEN always fits on a u32
-                        let start = u32::try_from(start).unwrap();
+                        // Block::LEN always fits on a u32
+                        let start = start as u32;
                         let entry = dir_entry.get_entry(FatType::Fat32, block, start);
                         func(&entry);
                     }
@@ -769,8 +769,8 @@ impl FatVolume {
                 break;
             } else if dir_entry.matches(match_name) {
                 // Found it
-                // Safe, since Block::LEN always fits on a u32
-                let start = u32::try_from(start).unwrap();
+                // Block::LEN always fits on a u32
+                let start = start as u32;
                 return Ok(dir_entry.get_entry(fat_type, block, start));
             }
         }
