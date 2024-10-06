@@ -33,10 +33,10 @@ fn main() -> Result<(), embedded_sdmmc::Error<std::io::Error>> {
     let filename = args.next().unwrap_or_else(|| "/dev/mmcblk0".into());
     let print_blocks = args.find(|x| x == "-v").map(|_| true).unwrap_or(false);
     let lbd = LinuxBlockDevice::new(filename, print_blocks).map_err(Error::DeviceError)?;
-    let mut volume_mgr: VolumeManager<LinuxBlockDevice, Clock, 8, 8, 4> =
+    let volume_mgr: VolumeManager<LinuxBlockDevice, Clock, 8, 8, 4> =
         VolumeManager::new_with_limits(lbd, Clock, 0xAA00_0000);
-    let mut volume = volume_mgr.open_volume(VolumeIdx(0))?;
-    let mut root_dir = volume.open_root_dir()?;
+    let volume = volume_mgr.open_volume(VolumeIdx(0))?;
+    let root_dir = volume.open_root_dir()?;
     println!("Deleting file {}...", FILE_TO_DELETE);
     root_dir.delete_file_in_dir(FILE_TO_DELETE)?;
     println!("Deleted!");

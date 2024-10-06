@@ -17,16 +17,16 @@ let sdcard = embedded_sdmmc::SdCard::new(sdmmc_spi, delay);
 println!("Card size is {} bytes", sdcard.num_bytes()?);
 // Now let's look for volumes (also known as partitions) on our block device.
 // To do this we need a Volume Manager. It will take ownership of the block device.
-let mut volume_mgr = embedded_sdmmc::VolumeManager::new(sdcard, time_source);
+let volume_mgr = embedded_sdmmc::VolumeManager::new(sdcard, time_source);
 // Try and access Volume 0 (i.e. the first partition).
 // The volume object holds information about the filesystem on that volume.
-let mut volume0 = volume_mgr.open_volume(embedded_sdmmc::VolumeIdx(0))?;
+let volume0 = volume_mgr.open_volume(embedded_sdmmc::VolumeIdx(0))?;
 println!("Volume 0: {:?}", volume0);
 // Open the root directory (mutably borrows from the volume).
-let mut root_dir = volume0.open_root_dir()?;
+let root_dir = volume0.open_root_dir()?;
 // Open a file called "MY_FILE.TXT" in the root directory
 // This mutably borrows the directory.
-let mut my_file = root_dir.open_file_in_dir("MY_FILE.TXT", embedded_sdmmc::Mode::ReadOnly)?;
+let my_file = root_dir.open_file_in_dir("MY_FILE.TXT", embedded_sdmmc::Mode::ReadOnly)?;
 // Print the contents of the file, assuming it's in ISO-8859-1 encoding
 while !my_file.is_eof() {
     let mut buffer = [0u8; 32];
@@ -43,7 +43,7 @@ By default the `VolumeManager` will initialize with a maximum number of `4` open
 
 ```rust
 // Create a volume manager with a maximum of 6 open directories, 12 open files, and 4 volumes (or partitions)
-let mut cont: VolumeManager<_, _, 6, 12, 4> = VolumeManager::new_with_limits(block, time_source);
+let cont: VolumeManager<_, _, 6, 12, 4> = VolumeManager::new_with_limits(block, time_source);
 ```
 
 ## Supported features

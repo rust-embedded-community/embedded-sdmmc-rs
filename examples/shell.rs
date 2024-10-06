@@ -228,7 +228,7 @@ impl Context {
     fn dir(&mut self, path: &Path) -> Result<(), Error> {
         println!("Directory listing of {:?}", path);
         let dir = self.resolve_existing_directory(path)?;
-        let mut dir = dir.to_directory(&mut self.volume_mgr);
+        let dir = dir.to_directory(&mut self.volume_mgr);
         dir.iterate_dir(|entry| {
             if !entry.attributes.is_volume() && !entry.attributes.is_lfn() {
                 println!(
@@ -257,7 +257,7 @@ impl Context {
     ///
     /// Will close the given directory.
     fn tree_dir(&mut self, dir: RawDirectory) -> Result<(), Error> {
-        let mut dir = dir.to_directory(&mut self.volume_mgr);
+        let dir = dir.to_directory(&mut self.volume_mgr);
         let mut children = Vec::new();
         dir.iterate_dir(|entry| {
             println!(
@@ -329,8 +329,8 @@ impl Context {
     /// print a text file
     fn cat(&mut self, filename: &Path) -> Result<(), Error> {
         let (dir, filename) = self.resolve_filename(filename)?;
-        let mut dir = dir.to_directory(&mut self.volume_mgr);
-        let mut f = dir.open_file_in_dir(filename, embedded_sdmmc::Mode::ReadOnly)?;
+        let dir = dir.to_directory(&mut self.volume_mgr);
+        let f = dir.open_file_in_dir(filename, embedded_sdmmc::Mode::ReadOnly)?;
         let mut data = Vec::new();
         while !f.is_eof() {
             let mut buffer = vec![0u8; 65536];
@@ -350,8 +350,8 @@ impl Context {
     /// print a binary file
     fn hexdump(&mut self, filename: &Path) -> Result<(), Error> {
         let (dir, filename) = self.resolve_filename(filename)?;
-        let mut dir = dir.to_directory(&mut self.volume_mgr);
-        let mut f = dir.open_file_in_dir(filename, embedded_sdmmc::Mode::ReadOnly)?;
+        let dir = dir.to_directory(&mut self.volume_mgr);
+        let f = dir.open_file_in_dir(filename, embedded_sdmmc::Mode::ReadOnly)?;
         let mut data = Vec::new();
         while !f.is_eof() {
             let mut buffer = vec![0u8; 65536];
@@ -387,7 +387,7 @@ impl Context {
     /// create a directory
     fn mkdir(&mut self, dir_name: &Path) -> Result<(), Error> {
         let (dir, filename) = self.resolve_filename(dir_name)?;
-        let mut dir = dir.to_directory(&mut self.volume_mgr);
+        let dir = dir.to_directory(&mut self.volume_mgr);
         dir.make_dir_in_dir(filename)
     }
 

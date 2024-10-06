@@ -4,7 +4,7 @@
 //! most (if not all) supported filesystems.
 
 /// Maximum file size supported by this library
-pub const MAX_FILE_SIZE: u32 = core::u32::MAX;
+pub const MAX_FILE_SIZE: u32 = u32::MAX;
 
 mod attributes;
 mod cluster;
