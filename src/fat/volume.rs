@@ -6,6 +6,7 @@ use crate::{
         Bpb, Fat16Info, Fat32Info, FatSpecificInfo, FatType, InfoSector, OnDiskDirEntry,
         RESERVED_ENTRIES,
     },
+    filesystem::FilenameError,
     trace, warn, Attributes, Block, BlockCount, BlockDevice, BlockIdx, ClusterId, DirEntry,
     DirectoryInfo, Error, ShortFileName, TimeSource, VolumeType,
 };
@@ -14,26 +15,121 @@ use core::convert::TryFrom;
 
 use super::BlockCache;
 
-/// The name given to a particular FAT formatted volume.
+/// An MS-DOS 11 character volume label.
+///
+/// ISO-8859-1 encoding is assumed. Trailing spaces are trimmed. Reserved
+/// characters are not allowed. There is no file extension, unlike with a
+/// filename.
+///
+/// Volume labels can be found in the BIOS Parameter Block, and in a root
+/// directory entry with the 'Volume Label' bit set. Both places should have the
+/// same contents, but they can get out of sync.
+///
+/// MS-DOS FDISK would show you the one in the BPB, but DIR would show you the
+/// one in the root directory.
 #[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
-#[derive(Clone, PartialEq, Eq)]
+#[derive(PartialEq, Eq, Clone)]
 pub struct VolumeName {
-    data: [u8; 11],
+    pub(crate) contents: [u8; Self::TOTAL_LEN],
 }
 
 impl VolumeName {
-    /// Create a new VolumeName
-    pub fn new(data: [u8; 11]) -> VolumeName {
-        VolumeName { data }
+    const TOTAL_LEN: usize = 11;
+
+    /// Get name
+    pub fn name(&self) -> &[u8] {
+        self.contents.trim_ascii_end()
+    }
+
+    /// Create a new MS-DOS volume label.
+    pub fn create_from_str(name: &str) -> Result<VolumeName, FilenameError> {
+        let mut sfn = VolumeName {
+            contents: [b' '; Self::TOTAL_LEN],
+        };
+
+        let mut idx = 0;
+        for ch in name.chars() {
+            match ch {
+                // Microsoft say these are the invalid characters
+                '\u{0000}'..='\u{001F}'
+                | '"'
+                | '*'
+                | '+'
+                | ','
+                | '/'
+                | ':'
+                | ';'
+                | '<'
+                | '='
+                | '>'
+                | '?'
+                | '['
+                | '\\'
+                | ']'
+                | '.'
+                | '|' => {
+                    return Err(FilenameError::InvalidCharacter);
+                }
+                x if x > '\u{00FF}' => {
+                    // We only handle ISO-8859-1 which is Unicode Code Points
+                    // \U+0000 to \U+00FF. This is above that.
+                    return Err(FilenameError::InvalidCharacter);
+                }
+                _ => {
+                    let b = ch as u8;
+                    if idx < Self::TOTAL_LEN {
+                        sfn.contents[idx] = b;
+                    } else {
+                        return Err(FilenameError::NameTooLong);
+                    }
+                    idx += 1;
+                }
+            }
+        }
+        if idx == 0 {
+            return Err(FilenameError::FilenameEmpty);
+        }
+        Ok(sfn)
+    }
+
+    /// Convert to a Short File Name
+    ///
+    /// # Safety
+    ///
+    /// Volume Labels can contain things that Short File Names cannot, so only
+    /// do this conversion if you are creating the name of a directory entry
+    /// with the 'Volume Label' attribute.
+    pub unsafe fn to_short_filename(self) -> ShortFileName {
+        ShortFileName {
+            contents: self.contents,
+        }
+    }
+}
+
+impl core::fmt::Display for VolumeName {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        let mut printed = 0;
+        for &c in self.name().iter() {
+            // converting a byte to a codepoint means you are assuming
+            // ISO-8859-1 encoding, because that's how Unicode was designed.
+            write!(f, "{}", c as char)?;
+            printed += 1;
+        }
+        if let Some(mut width) = f.width() {
+            if width > printed {
+                width -= printed;
+                for _ in 0..width {
+                    write!(f, "{}", f.fill())?;
+                }
+            }
+        }
+        Ok(())
     }
 }
 
 impl core::fmt::Debug for VolumeName {
-    fn fmt(&self, fmt: &mut core::fmt::Formatter) -> core::fmt::Result {
-        match core::str::from_utf8(&self.data) {
-            Ok(s) => write!(fmt, "{:?}", s),
-            Err(_e) => write!(fmt, "{:?}", &self.data),
-        }
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        write!(f, "VolumeName(\"{}\")", self)
     }
 }
 
@@ -1091,10 +1187,12 @@ where
             let first_root_dir_block =
                 fat_start + BlockCount(u32::from(bpb.num_fats()) * bpb.fat_size());
             let first_data_block = first_root_dir_block + BlockCount(root_dir_blocks);
-            let mut volume = FatVolume {
+            let volume = FatVolume {
                 lba_start,
                 num_blocks,
-                name: VolumeName { data: [0u8; 11] },
+                name: VolumeName {
+                    contents: bpb.volume_label(),
+                },
                 blocks_per_cluster: bpb.blocks_per_cluster(),
                 first_data_block: (first_data_block),
                 fat_start: BlockCount(u32::from(bpb.reserved_block_count())),
@@ -1106,7 +1204,6 @@ where
                     first_root_dir_block,
                 }),
             };
-            volume.name.data[..].copy_from_slice(bpb.volume_label());
             Ok(VolumeType::Fat(volume))
         }
         FatType::Fat32 => {
@@ -1128,10 +1225,12 @@ where
             let info_sector =
                 InfoSector::create_from_bytes(info_block).map_err(Error::FormatError)?;
 
-            let mut volume = FatVolume {
+            let volume = FatVolume {
                 lba_start,
                 num_blocks,
-                name: VolumeName { data: [0u8; 11] },
+                name: VolumeName {
+                    contents: bpb.volume_label(),
+                },
                 blocks_per_cluster: bpb.blocks_per_cluster(),
                 first_data_block: BlockCount(first_data_block),
                 fat_start: BlockCount(u32::from(bpb.reserved_block_count())),
@@ -1143,9 +1242,21 @@ where
                     first_root_dir_cluster: ClusterId(bpb.first_root_dir_cluster()),
                 }),
             };
-            volume.name.data[..].copy_from_slice(bpb.volume_label());
             Ok(VolumeType::Fat(volume))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn volume_name() {
+        let sfn = VolumeName {
+            contents: *b"Hello \xA399  ",
+        };
+        assert_eq!(sfn, VolumeName::create_from_str("Hello £99").unwrap())
     }
 }
 

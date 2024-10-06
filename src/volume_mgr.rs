@@ -598,6 +598,33 @@ where
         Ok(())
     }
 
+    /// Search the root directory for a volume label
+    pub fn get_root_volume_label(
+        &mut self,
+        volume: RawVolume,
+    ) -> Result<Option<crate::VolumeName>, Error<D::Error>> {
+        let directory = self.open_root_dir(volume)?;
+        // this can't fail - we literally just opened it
+        let inner = || -> Result<Option<crate::VolumeName>, Error<D::Error>> {
+            let directory_idx = self.get_dir_by_id(directory).expect("Dir ID error");
+            let volume_idx = self.get_volume_by_id(self.open_dirs[directory_idx].volume_id)?;
+            let mut maybe_volume_name = None;
+            match &self.open_volumes[volume_idx].volume_type {
+                VolumeType::Fat(fat) => {
+                    fat.iterate_dir(&self.block_device, &self.open_dirs[directory_idx], |de| {
+                        if de.attributes == Attributes::create_from_fat(Attributes::VOLUME) {
+                            maybe_volume_name = Some(unsafe { de.name.clone().to_volume_label() })
+                        }
+                    })?;
+                }
+            }
+            Ok(maybe_volume_name)
+        };
+        let result = inner();
+        self.close_dir(directory)?;
+        result
+    }
+
     /// Check if a file is open
     ///
     /// Returns `true` if it's open, `false`, otherwise.
@@ -1384,7 +1411,7 @@ mod tests {
                     blocks_per_cluster: 8,
                     first_data_block: BlockCount(15136),
                     fat_start: BlockCount(32),
-                    name: fat::VolumeName::new(*b"Pictures   "),
+                    name: fat::VolumeName::create_from_str("Pictures").unwrap(),
                     free_clusters_count: None,
                     next_free_cluster: None,
                     cluster_count: 965_788,

@@ -1,5 +1,7 @@
 //! Filename related types
 
+use crate::fat::VolumeName;
+
 /// Various filename related errors that can occur.
 #[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
 #[derive(Debug, Clone)]
@@ -40,17 +42,19 @@ impl ToShortFileName for &str {
     }
 }
 
-/// An MS-DOS 8.3 filename. 7-bit ASCII only. All lower-case is converted to
-/// upper-case by default.
+/// An MS-DOS 8.3 filename.
+///
+/// ISO-8859-1 encoding is assumed. All lower-case is converted to upper-case by
+/// default.
 #[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
 #[derive(PartialEq, Eq, Clone)]
 pub struct ShortFileName {
-    pub(crate) contents: [u8; 11],
+    pub(crate) contents: [u8; Self::TOTAL_LEN],
 }
 
 impl ShortFileName {
-    const FILENAME_BASE_MAX_LEN: usize = 8;
-    const FILENAME_MAX_LEN: usize = 11;
+    const BASE_LEN: usize = 8;
+    const TOTAL_LEN: usize = 11;
 
     /// Get a short file name containing "..", which means "parent directory".
     pub const fn parent_dir() -> Self {
@@ -68,22 +72,24 @@ impl ShortFileName {
 
     /// Get base name (without extension) of the file.
     pub fn base_name(&self) -> &[u8] {
-        Self::bytes_before_space(&self.contents[..Self::FILENAME_BASE_MAX_LEN])
+        Self::bytes_before_space(&self.contents[..Self::BASE_LEN])
     }
 
     /// Get extension of the file (without base name).
     pub fn extension(&self) -> &[u8] {
-        Self::bytes_before_space(&self.contents[Self::FILENAME_BASE_MAX_LEN..])
+        Self::bytes_before_space(&self.contents[Self::BASE_LEN..])
     }
 
     fn bytes_before_space(bytes: &[u8]) -> &[u8] {
-        bytes.split(|b| *b == b' ').next().unwrap_or(&bytes[0..0])
+        bytes.split(|b| *b == b' ').next().unwrap_or(&[])
     }
 
     /// Create a new MS-DOS 8.3 space-padded file name as stored in the directory entry.
+    ///
+    /// The output uses ISO-8859-1 encoding.
     pub fn create_from_str(name: &str) -> Result<ShortFileName, FilenameError> {
         let mut sfn = ShortFileName {
-            contents: [b' '; Self::FILENAME_MAX_LEN],
+            contents: [b' '; Self::TOTAL_LEN],
         };
 
         // Special case `..`, which means "parent directory".
@@ -98,47 +104,52 @@ impl ShortFileName {
 
         let mut idx = 0;
         let mut seen_dot = false;
-        for ch in name.bytes() {
+        for ch in name.chars() {
             match ch {
                 // Microsoft say these are the invalid characters
-                0x00..=0x1F
-                | 0x20
-                | 0x22
-                | 0x2A
-                | 0x2B
-                | 0x2C
-                | 0x2F
-                | 0x3A
-                | 0x3B
-                | 0x3C
-                | 0x3D
-                | 0x3E
-                | 0x3F
-                | 0x5B
-                | 0x5C
-                | 0x5D
-                | 0x7C => {
+                '\u{0000}'..='\u{001F}'
+                | '"'
+                | '*'
+                | '+'
+                | ','
+                | '/'
+                | ':'
+                | ';'
+                | '<'
+                | '='
+                | '>'
+                | '?'
+                | '['
+                | '\\'
+                | ']'
+                | ' '
+                | '|' => {
                     return Err(FilenameError::InvalidCharacter);
                 }
-                // Denotes the start of the file extension
-                b'.' => {
-                    if (1..=Self::FILENAME_BASE_MAX_LEN).contains(&idx) {
-                        idx = Self::FILENAME_BASE_MAX_LEN;
+                x if x > '\u{00FF}' => {
+                    // We only handle ISO-8859-1 which is Unicode Code Points
+                    // \U+0000 to \U+00FF. This is above that.
+                    return Err(FilenameError::InvalidCharacter);
+                }
+                '.' => {
+                    // Denotes the start of the file extension
+                    if (1..=Self::BASE_LEN).contains(&idx) {
+                        idx = Self::BASE_LEN;
                         seen_dot = true;
                     } else {
                         return Err(FilenameError::MisplacedPeriod);
                     }
                 }
                 _ => {
-                    let ch = ch.to_ascii_uppercase();
+                    let b = ch.to_ascii_uppercase() as u8;
                     if seen_dot {
-                        if (Self::FILENAME_BASE_MAX_LEN..Self::FILENAME_MAX_LEN).contains(&idx) {
-                            sfn.contents[idx] = ch;
+                        if (Self::BASE_LEN..Self::TOTAL_LEN).contains(&idx) {
+                            sfn.contents[idx] = b;
                         } else {
                             return Err(FilenameError::NameTooLong);
                         }
-                    } else if idx < Self::FILENAME_BASE_MAX_LEN {
-                        sfn.contents[idx] = ch;
+                    } else if idx < Self::BASE_LEN {
+                        sfn.contents[idx] = b;
                     } else {
                         return Err(FilenameError::NameTooLong);
                     }
@@ -152,65 +163,17 @@ impl ShortFileName {
         Ok(sfn)
     }
 
-    /// Create a new MS-DOS 8.3 space-padded file name as stored in the directory entry.
-    /// Use this for volume labels with mixed case.
-    pub fn create_from_str_mixed_case(name: &str) -> Result<ShortFileName, FilenameError> {
-        let mut sfn = ShortFileName {
-            contents: [b' '; Self::FILENAME_MAX_LEN],
-        };
-        let mut idx = 0;
-        let mut seen_dot = false;
-        for ch in name.bytes() {
-            match ch {
-                // Microsoft say these are the invalid characters
-                0x00..=0x1F
-                | 0x20
-                | 0x22
-                | 0x2A
-                | 0x2B
-                | 0x2C
-                | 0x2F
-                | 0x3A
-                | 0x3B
-                | 0x3C
-                | 0x3D
-                | 0x3E
-                | 0x3F
-                | 0x5B
-                | 0x5C
-                | 0x5D
-                | 0x7C => {
-                    return Err(FilenameError::InvalidCharacter);
-                }
-                // Denotes the start of the file extension
-                b'.' => {
-                    if (1..=Self::FILENAME_BASE_MAX_LEN).contains(&idx) {
-                        idx = Self::FILENAME_BASE_MAX_LEN;
-                        seen_dot = true;
-                    } else {
-                        return Err(FilenameError::MisplacedPeriod);
-                    }
-                }
-                _ => {
-                    if seen_dot {
-                        if (Self::FILENAME_BASE_MAX_LEN..Self::FILENAME_MAX_LEN).contains(&idx) {
-                            sfn.contents[idx] = ch;
-                        } else {
-                            return Err(FilenameError::NameTooLong);
-                        }
-                    } else if idx < Self::FILENAME_BASE_MAX_LEN {
-                        sfn.contents[idx] = ch;
-                    } else {
-                        return Err(FilenameError::NameTooLong);
-                    }
-                    idx += 1;
-                }
-            }
+    /// Convert a Short File Name to a Volume Label.
+    ///
+    /// # Safety
+    ///
+    /// Volume Labels can contain things that Short File Names cannot, so only
+    /// do this conversion if you have the name of a directory entry with the
+    /// 'Volume Label' attribute.
+    pub unsafe fn to_volume_label(self) -> VolumeName {
+        VolumeName {
+            contents: self.contents,
         }
-        if idx == 0 {
-            return Err(FilenameError::FilenameEmpty);
-        }
-        Ok(sfn)
     }
 }
 
@@ -219,10 +182,12 @@ impl core::fmt::Display for ShortFileName {
         let mut printed = 0;
         for (i, &c) in self.contents.iter().enumerate() {
             if c != b' ' {
-                if i == Self::FILENAME_BASE_MAX_LEN {
+                if i == Self::BASE_LEN {
                     write!(f, ".")?;
                     printed += 1;
                 }
+                // converting a byte to a codepoint means you are assuming
+                // ISO-8859-1 encoding, because that's how Unicode was designed.
                 write!(f, "{}", c as char)?;
                 printed += 1;
             }

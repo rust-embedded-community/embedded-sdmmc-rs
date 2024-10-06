@@ -85,11 +85,13 @@ impl<'a> Bpb<'a> {
     // FAT16/FAT32 functions
 
     /// Get the Volume Label string for this volume
-    pub fn volume_label(&self) -> &[u8] {
+    pub fn volume_label(&self) -> [u8; 11] {
+        let mut result = [0u8; 11];
         match self.fat_type {
-            FatType::Fat16 => &self.data[43..=53],
-            FatType::Fat32 => &self.data[71..=81],
+            FatType::Fat16 => result.copy_from_slice(&self.data[43..=53]),
+            FatType::Fat32 => result.copy_from_slice(&self.data[71..=81]),
         }
+        result
     }
 
     // FAT32 only functions
