@@ -29,7 +29,6 @@ impl BlockCache {
         &mut self,
         block_device: &D,
         block_idx: BlockIdx,
-        reason: &str,
     ) -> Result<&Block, Error<D::Error>>
     where
         D: BlockDevice,
@@ -37,7 +36,7 @@ impl BlockCache {
         if Some(block_idx) != self.idx {
             self.idx = Some(block_idx);
             block_device
-                .read(core::slice::from_mut(&mut self.block), block_idx, reason)
+                .read(core::slice::from_mut(&mut self.block), block_idx)
                 .map_err(Error::DeviceError)?;
         }
         Ok(&self.block)

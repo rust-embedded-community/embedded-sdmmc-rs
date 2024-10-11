@@ -2,8 +2,10 @@
 //!
 //! The volume manager handles partitions and open files on a block device.
 
-use byteorder::{ByteOrder, LittleEndian};
 use core::convert::TryFrom;
+
+use byteorder::{ByteOrder, LittleEndian};
+use heapless::Vec;
 
 use crate::fat::{self, BlockCache, FatType, OnDiskDirEntry, RESERVED_ENTRIES};
 
@@ -12,11 +14,10 @@ use crate::filesystem::{
     SearchIdGenerator, TimeSource, ToShortFileName, MAX_FILE_SIZE,
 };
 use crate::{
-    debug, Block, BlockCount, BlockDevice, BlockIdx, Error, RawVolume, ShortFileName, Volume,
-    VolumeIdx, VolumeInfo, VolumeType, PARTITION_ID_FAT16, PARTITION_ID_FAT16_LBA,
+    debug, trace, Block, BlockCount, BlockDevice, BlockIdx, Error, RawVolume, ShortFileName,
+    Volume, VolumeIdx, VolumeInfo, VolumeType, PARTITION_ID_FAT16, PARTITION_ID_FAT16_LBA,
     PARTITION_ID_FAT32_CHS_LBA, PARTITION_ID_FAT32_LBA,
 };
-use heapless::Vec;
 
 /// Wraps a block device and gives access to the FAT-formatted volumes within
 /// it.
@@ -142,8 +143,9 @@ where
 
         let (part_type, lba_start, num_blocks) = {
             let mut blocks = [Block::new()];
+            trace!("Reading partition table");
             self.block_device
-                .read(&mut blocks, BlockIdx(0), "read_mbr")
+                .read(&mut blocks, BlockIdx(0))
                 .map_err(Error::DeviceError)?;
             let block = &blocks[0];
             // We only support Master Boot Record (MBR) partitioned cards, not
@@ -632,8 +634,9 @@ where
             )?;
             self.open_files[file_idx].current_cluster = current_cluster;
             let mut blocks = [Block::new()];
+            trace!("Reading file ID {:?}", file);
             self.block_device
-                .read(&mut blocks, block_idx, "read")
+                .read(&mut blocks, block_idx)
                 .map_err(Error::DeviceError)?;
             let block = &blocks[0];
             let to_copy = block_avail
@@ -747,9 +750,9 @@ where
             let mut blocks = [Block::new()];
             let to_copy = core::cmp::min(block_avail, bytes_to_write - written);
             if block_offset != 0 {
-                debug!("Partial block write");
+                debug!("Reading for partial block write");
                 self.block_device
-                    .read(&mut blocks, block_idx, "read")
+                    .read(&mut blocks, block_idx)
                     .map_err(Error::DeviceError)?;
             }
             let block = &mut blocks[0];
@@ -1157,12 +1160,7 @@ mod tests {
         type Error = Error;
 
         /// Read one or more blocks, starting at the given block index.
-        fn read(
-            &self,
-            blocks: &mut [Block],
-            start_block_idx: BlockIdx,
-            _reason: &str,
-        ) -> Result<(), Self::Error> {
+        fn read(&self, blocks: &mut [Block], start_block_idx: BlockIdx) -> Result<(), Self::Error> {
             // Actual blocks taken from an SD card, except I've changed the start and length of partition 0.
             static BLOCKS: [Block; 3] = [
                 Block {
