@@ -81,7 +81,7 @@ use filesystem::Handle;
 pub use crate::blockdevice::{Block, BlockCount, BlockDevice, BlockIdx};
 
 #[doc(inline)]
-pub use crate::fat::FatVolume;
+pub use crate::fat::{FatVolume, VolumeName};
 
 #[doc(inline)]
 pub use crate::filesystem::{

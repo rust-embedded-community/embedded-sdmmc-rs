@@ -60,6 +60,12 @@ fn open_all_volumes() {
 
     // This isn't a valid volume
     assert!(matches!(
+        volume_mgr.open_raw_volume(embedded_sdmmc::VolumeIdx(3)),
+        Err(embedded_sdmmc::Error::FormatError(_e))
+    ));
+
+    // This isn't a valid volume
+    assert!(matches!(
         volume_mgr.open_raw_volume(embedded_sdmmc::VolumeIdx(9)),
         Err(embedded_sdmmc::Error::NoSuchVolume)
     ));
