@@ -313,11 +313,10 @@ impl FatVolume {
                         block_device
                             .read(&mut blocks, block, "read_dir")
                             .map_err(Error::DeviceError)?;
-                        let entries_per_block = Block::LEN / OnDiskDirEntry::LEN;
-                        for entry in 0..entries_per_block {
-                            let start = entry * OnDiskDirEntry::LEN;
-                            let end = (entry + 1) * OnDiskDirEntry::LEN;
-                            let dir_entry = OnDiskDirEntry::new(&blocks[0][start..end]);
+                        for (i, dir_entry_bytes) in
+                            blocks[0].chunks_exact_mut(OnDiskDirEntry::LEN).enumerate()
+                        {
+                            let dir_entry = OnDiskDirEntry::new(dir_entry_bytes);
                             // 0x00 or 0xE5 represents a free entry
                             if !dir_entry.is_valid() {
                                 let ctime = time_source.get_timestamp();
@@ -327,9 +326,9 @@ impl FatVolume {
                                     ClusterId::EMPTY,
                                     ctime,
                                     block,
-                                    start as u32,
+                                    (i * OnDiskDirEntry::LEN) as u32,
                                 );
-                                blocks[0][start..start + 32]
+                                dir_entry_bytes
                                     .copy_from_slice(&entry.serialize(FatType::Fat16)[..]);
                                 block_device
                                     .write(&blocks, block)
@@ -381,10 +380,10 @@ impl FatVolume {
                             .map_err(Error::DeviceError)?;
                         // Are any entries in the block we just loaded blank? If so
                         // we can use them.
-                        for entry in 0..Block::LEN / OnDiskDirEntry::LEN {
-                            let start = entry * OnDiskDirEntry::LEN;
-                            let end = (entry + 1) * OnDiskDirEntry::LEN;
-                            let dir_entry = OnDiskDirEntry::new(&blocks[0][start..end]);
+                        for (i, dir_entry_bytes) in
+                            blocks[0].chunks_exact_mut(OnDiskDirEntry::LEN).enumerate()
+                        {
+                            let dir_entry = OnDiskDirEntry::new(dir_entry_bytes);
                             // 0x00 or 0xE5 represents a free entry
                             if !dir_entry.is_valid() {
                                 let ctime = time_source.get_timestamp();
@@ -394,9 +393,9 @@ impl FatVolume {
                                     ClusterId(0),
                                     ctime,
                                     block,
-                                    start as u32,
+                                    (i * OnDiskDirEntry::LEN) as u32,
                                 );
-                                blocks[0][start..start + 32]
+                                dir_entry_bytes
                                     .copy_from_slice(&entry.serialize(FatType::Fat32)[..]);
                                 block_device
                                     .write(&blocks, block)
@@ -483,16 +482,14 @@ impl FatVolume {
         while let Some(cluster) = current_cluster {
             for block_idx in first_dir_block_num.range(dir_size) {
                 let block = block_cache.read(block_device, block_idx, "read_dir")?;
-                for entry in 0..Block::LEN / OnDiskDirEntry::LEN {
-                    let start = entry * OnDiskDirEntry::LEN;
-                    let end = (entry + 1) * OnDiskDirEntry::LEN;
-                    let dir_entry = OnDiskDirEntry::new(&block[start..end]);
+                for (i, dir_entry_bytes) in block.chunks_exact(OnDiskDirEntry::LEN).enumerate() {
+                    let dir_entry = OnDiskDirEntry::new(dir_entry_bytes);
                     if dir_entry.is_end() {
                         // Can quit early
                         return Ok(());
                     } else if dir_entry.is_valid() && !dir_entry.is_lfn() {
                         // Safe, since Block::LEN always fits on a u32
-                        let start = u32::try_from(start).unwrap();
+                        let start = (i * OnDiskDirEntry::LEN) as u32;
                         let entry = dir_entry.get_entry(FatType::Fat16, block_idx, start);
                         func(&entry);
                     }
@@ -538,16 +535,16 @@ impl FatVolume {
                 block_device
                     .read(&mut blocks, block, "read_dir")
                     .map_err(Error::DeviceError)?;
-                for entry in 0..Block::LEN / OnDiskDirEntry::LEN {
-                    let start = entry * OnDiskDirEntry::LEN;
-                    let end = (entry + 1) * OnDiskDirEntry::LEN;
-                    let dir_entry = OnDiskDirEntry::new(&blocks[0][start..end]);
+                for (i, dir_entry_bytes) in
+                    blocks[0].chunks_exact_mut(OnDiskDirEntry::LEN).enumerate()
+                {
+                    let dir_entry = OnDiskDirEntry::new(dir_entry_bytes);
                     if dir_entry.is_end() {
                         // Can quit early
                         return Ok(());
                     } else if dir_entry.is_valid() && !dir_entry.is_lfn() {
                         // Safe, since Block::LEN always fits on a u32
-                        let start = u32::try_from(start).unwrap();
+                        let start = (i * OnDiskDirEntry::LEN) as u32;
                         let entry = dir_entry.get_entry(FatType::Fat32, block, start);
                         func(&entry);
                     }
@@ -664,17 +661,15 @@ impl FatVolume {
         block_device
             .read(&mut blocks, block, "read_dir")
             .map_err(Error::DeviceError)?;
-        for entry in 0..Block::LEN / OnDiskDirEntry::LEN {
-            let start = entry * OnDiskDirEntry::LEN;
-            let end = (entry + 1) * OnDiskDirEntry::LEN;
-            let dir_entry = OnDiskDirEntry::new(&blocks[0][start..end]);
+        for (i, dir_entry_bytes) in blocks[0].chunks_exact_mut(OnDiskDirEntry::LEN).enumerate() {
+            let dir_entry = OnDiskDirEntry::new(dir_entry_bytes);
             if dir_entry.is_end() {
                 // Can quit early
                 break;
             } else if dir_entry.matches(match_name) {
                 // Found it
                 // Safe, since Block::LEN always fits on a u32
-                let start = u32::try_from(start).unwrap();
+                let start = (i * OnDiskDirEntry::LEN) as u32;
                 return Ok(dir_entry.get_entry(fat_type, block, start));
             }
         }
@@ -800,15 +795,15 @@ impl FatVolume {
         block_device
             .read(&mut blocks, block, "read_dir")
             .map_err(Error::DeviceError)?;
-        for entry in 0..Block::LEN / OnDiskDirEntry::LEN {
-            let start = entry * OnDiskDirEntry::LEN;
-            let end = (entry + 1) * OnDiskDirEntry::LEN;
-            let dir_entry = OnDiskDirEntry::new(&blocks[0][start..end]);
+        for (i, dir_entry_bytes) in blocks[0].chunks_exact_mut(OnDiskDirEntry::LEN).enumerate() {
+            let dir_entry = OnDiskDirEntry::new(dir_entry_bytes);
             if dir_entry.is_end() {
                 // Can quit early
                 break;
             } else if dir_entry.matches(match_name) {
                 let mut blocks = blocks;
+                let start = i * OnDiskDirEntry::LEN;
+                // set first byte to the 'unused' marker
                 blocks[0].contents[start] = 0xE5;
                 return block_device
                     .write(&blocks, block)
