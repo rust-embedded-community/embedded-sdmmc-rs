@@ -2,10 +2,16 @@
 
 use core::num::Wrapping;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
 /// Unique ID used to identify things in the open Volume/File/Directory lists
 pub struct Handle(pub(crate) u32);
+
+impl core::fmt::Debug for Handle {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{:#08x}", self.0)
+    }
+}
 
 /// A Handle Generator.
 ///
