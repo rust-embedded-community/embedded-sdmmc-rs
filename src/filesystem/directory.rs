@@ -2,7 +2,7 @@ use core::convert::TryFrom;
 
 use crate::blockdevice::BlockIdx;
 use crate::fat::{FatType, OnDiskDirEntry};
-use crate::filesystem::{Attributes, ClusterId, SearchId, ShortFileName, Timestamp};
+use crate::filesystem::{Attributes, ClusterId, Handle, ShortFileName, Timestamp};
 use crate::{Error, RawVolume, VolumeManager};
 
 use super::ToShortFileName;
@@ -47,7 +47,7 @@ pub struct DirEntry {
 /// and there's a reason we did it this way.
 #[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub struct RawDirectory(pub(crate) SearchId);
+pub struct RawDirectory(pub(crate) Handle);
 
 impl RawDirectory {
     /// Convert a raw directory into a droppable [`Directory`]
@@ -240,9 +240,9 @@ where
 #[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
 #[derive(Debug, Clone)]
 pub(crate) struct DirectoryInfo {
-    /// Unique ID for this directory.
+    /// The handle for this directory.
     pub(crate) directory_id: RawDirectory,
-    /// The unique ID for the volume this directory is on
+    /// The handle for the volume this directory is on
     pub(crate) volume_id: RawVolume,
     /// The starting point of the directory listing.
     pub(crate) cluster: ClusterId,

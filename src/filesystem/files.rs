@@ -1,6 +1,6 @@
 use super::TimeSource;
 use crate::{
-    filesystem::{ClusterId, DirEntry, SearchId},
+    filesystem::{ClusterId, DirEntry, Handle},
     BlockDevice, Error, RawVolume, VolumeManager,
 };
 use embedded_io::{ErrorType, Read, Seek, SeekFrom, Write};
@@ -23,7 +23,7 @@ use embedded_io::{ErrorType, Read, Seek, SeekFrom, Write};
 /// reason we did it this way.
 #[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub struct RawFile(pub(crate) SearchId);
+pub struct RawFile(pub(crate) Handle);
 
 impl RawFile {
     /// Convert a raw file into a droppable [`File`]
@@ -283,10 +283,10 @@ pub enum Mode {
 #[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
 #[derive(Debug, Clone)]
 pub(crate) struct FileInfo {
-    /// Unique ID for this file
-    pub(crate) file_id: RawFile,
-    /// The unique ID for the volume this directory is on
-    pub(crate) volume_id: RawVolume,
+    /// Handle for this file
+    pub(crate) raw_file: RawFile,
+    /// The handle for the volume this directory is on
+    pub(crate) raw_volume: RawVolume,
     /// The last cluster we accessed, and how many bytes that short-cuts us.
     ///
     /// This saves us walking from the very start of the FAT chain when we move

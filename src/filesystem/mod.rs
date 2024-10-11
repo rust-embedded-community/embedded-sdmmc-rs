@@ -11,7 +11,7 @@ mod cluster;
 mod directory;
 mod filename;
 mod files;
-mod search_id;
+mod handles;
 mod timestamp;
 
 pub use self::attributes::Attributes;
@@ -19,7 +19,7 @@ pub use self::cluster::ClusterId;
 pub use self::directory::{DirEntry, Directory, RawDirectory};
 pub use self::filename::{FilenameError, ShortFileName, ToShortFileName};
 pub use self::files::{File, FileError, Mode, RawFile};
-pub use self::search_id::{SearchId, SearchIdGenerator};
+pub use self::handles::{Handle, HandleGenerator};
 pub use self::timestamp::{TimeSource, Timestamp};
 
 pub(crate) use self::directory::DirectoryInfo;

@@ -1,11 +1,13 @@
+//! Contains the Handles and the HandleGenerator.
+
 use core::num::Wrapping;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
-/// Unique ID used to search for files and directories in the open Volume/File/Directory lists
-pub struct SearchId(pub(crate) u32);
+/// Unique ID used to identify things in the open Volume/File/Directory lists
+pub struct Handle(pub(crate) u32);
 
-/// A Search ID generator.
+/// A Handle Generator.
 ///
 /// This object will always return a different ID.
 ///
@@ -13,23 +15,23 @@ pub struct SearchId(pub(crate) u32);
 /// files, and if they do, they are unlikely to hold one file open and then
 /// open/close `2**32 - 1` others.
 #[derive(Debug)]
-pub struct SearchIdGenerator {
+pub struct HandleGenerator {
     next_id: Wrapping<u32>,
 }
 
-impl SearchIdGenerator {
-    /// Create a new generator of Search IDs.
+impl HandleGenerator {
+    /// Create a new generator of Handles.
     pub const fn new(offset: u32) -> Self {
         Self {
             next_id: Wrapping(offset),
         }
     }
 
-    /// Generate a new, unique [`SearchId`].
-    pub fn get(&mut self) -> SearchId {
+    /// Generate a new, unique [`Handle`].
+    pub fn generate(&mut self) -> Handle {
         let id = self.next_id;
         self.next_id += 1;
-        SearchId(id.0)
+        Handle(id.0)
     }
 }
 
