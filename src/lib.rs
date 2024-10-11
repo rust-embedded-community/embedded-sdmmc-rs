@@ -202,6 +202,10 @@ where
     DiskFull,
     /// A directory with that name already exists
     DirAlreadyExists,
+    /// The filesystem tried to gain a lock whilst already locked.
+    ///
+    /// This is a bug in the filesystem. Please open an issue.
+    LockError,
 }
 
 impl<E: Debug> embedded_io::Error for Error<E> {
@@ -216,7 +220,8 @@ impl<E: Debug> embedded_io::Error for Error<E> {
             | Error::EndOfFile
             | Error::DiskFull
             | Error::NotEnoughSpace
-            | Error::AllocationError => ErrorKind::Other,
+            | Error::AllocationError
+            | Error::LockError => ErrorKind::Other,
             Error::NoSuchVolume
             | Error::FilenameError(_)
             | Error::BadHandle

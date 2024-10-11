@@ -136,7 +136,7 @@ where
         const PARTITION_INFO_LBA_START_INDEX: usize = 8;
         const PARTITION_INFO_NUM_BLOCKS_INDEX: usize = 12;
 
-        let mut data = self.data.borrow_mut();
+        let mut data = self.data.try_borrow_mut().map_err(|_| Error::LockError)?;
 
         if data.open_volumes.is_full() {
             return Err(Error::TooManyOpenVolumes);
@@ -220,7 +220,7 @@ where
     pub fn open_root_dir(&self, volume: RawVolume) -> Result<RawDirectory, Error<D::Error>> {
         // Opening a root directory twice is OK
 
-        let mut data = self.data.borrow_mut();
+        let mut data = self.data.try_borrow_mut().map_err(|_| Error::LockError)?;
 
         let directory_id = RawDirectory(data.id_generator.generate());
         let dir_info = DirectoryInfo {
@@ -249,7 +249,7 @@ where
     where
         N: ToShortFileName,
     {
-        let mut data = self.data.borrow_mut();
+        let mut data = self.data.try_borrow_mut().map_err(|_| Error::LockError)?;
 
         if data.open_dirs.is_full() {
             return Err(Error::TooManyOpenDirs);
@@ -312,7 +312,7 @@ where
     /// Close a directory. You cannot perform operations on an open directory
     /// and so must close it if you want to do something with it.
     pub fn close_dir(&self, directory: RawDirectory) -> Result<(), Error<D::Error>> {
-        let mut data = self.data.borrow_mut();
+        let mut data = self.data.try_borrow_mut().map_err(|_| Error::LockError)?;
 
         for (idx, info) in data.open_dirs.iter().enumerate() {
             if directory == info.raw_directory {
@@ -327,7 +327,7 @@ where
     ///
     /// You can't close it if there are any files or directories open on it.
     pub fn close_volume(&self, volume: RawVolume) -> Result<(), Error<D::Error>> {
-        let mut data = self.data.borrow_mut();
+        let mut data = self.data.try_borrow_mut().map_err(|_| Error::LockError)?;
 
         for f in data.open_files.iter() {
             if f.raw_volume == volume {
@@ -395,7 +395,7 @@ where
     where
         N: ToShortFileName,
     {
-        let mut data = self.data.borrow_mut();
+        let mut data = self.data.try_borrow_mut().map_err(|_| Error::LockError)?;
 
         // This check is load-bearing - we do an unchecked push later.
         if data.open_files.is_full() {
@@ -627,7 +627,7 @@ where
 
     /// Read from an open file.
     pub fn read(&self, file: RawFile, buffer: &mut [u8]) -> Result<usize, Error<D::Error>> {
-        let mut data = self.data.borrow_mut();
+        let mut data = self.data.try_borrow_mut().map_err(|_| Error::LockError)?;
 
         let file_idx = data.get_file_by_id(file)?;
         let volume_idx = data.get_volume_by_id(data.open_files[file_idx].raw_volume)?;
@@ -676,7 +676,7 @@ where
         #[cfg(feature = "log")]
         debug!("write(file={:?}, buffer={:x?}", file, buffer);
 
-        let mut data = self.data.borrow_mut();
+        let mut data = self.data.try_borrow_mut().map_err(|_| Error::LockError)?;
 
         // Clone this so we can touch our other structures. Need to ensure we
         // write it back at the end.
@@ -802,7 +802,7 @@ where
     /// Close a file with the given raw file handle.
     pub fn close_file(&self, file: RawFile) -> Result<(), Error<D::Error>> {
         let flush_result = self.flush_file(file);
-        let mut data = self.data.borrow_mut();
+        let mut data = self.data.try_borrow_mut().map_err(|_| Error::LockError)?;
         let file_idx = data.get_file_by_id(file)?;
         data.open_files.swap_remove(file_idx);
         flush_result
@@ -811,7 +811,7 @@ where
     /// Flush (update the entry) for a file with the given raw file handle.
     pub fn flush_file(&self, file: RawFile) -> Result<(), Error<D::Error>> {
         use core::ops::DerefMut;
-        let mut data = self.data.borrow_mut();
+        let mut data = self.data.try_borrow_mut().map_err(|_| Error::LockError)?;
         let data = data.deref_mut();
 
         let file_id = data.get_file_by_id(file)?;
@@ -854,7 +854,7 @@ where
 
     /// Seek a file with an offset from the start of the file.
     pub fn file_seek_from_start(&self, file: RawFile, offset: u32) -> Result<(), Error<D::Error>> {
-        let mut data = self.data.borrow_mut();
+        let mut data = self.data.try_borrow_mut().map_err(|_| Error::LockError)?;
         let file_idx = data.get_file_by_id(file)?;
         data.open_files[file_idx]
             .seek_from_start(offset)
@@ -868,7 +868,7 @@ where
         file: RawFile,
         offset: i32,
     ) -> Result<(), Error<D::Error>> {
-        let mut data = self.data.borrow_mut();
+        let mut data = self.data.try_borrow_mut().map_err(|_| Error::LockError)?;
         let file_idx = data.get_file_by_id(file)?;
         data.open_files[file_idx]
             .seek_from_current(offset)
@@ -878,7 +878,7 @@ where
 
     /// Seek a file with an offset back from the end of the file.
     pub fn file_seek_from_end(&self, file: RawFile, offset: u32) -> Result<(), Error<D::Error>> {
-        let mut data = self.data.borrow_mut();
+        let mut data = self.data.try_borrow_mut().map_err(|_| Error::LockError)?;
         let file_idx = data.get_file_by_id(file)?;
         data.open_files[file_idx]
             .seek_from_end(offset)
@@ -910,7 +910,7 @@ where
         N: ToShortFileName,
     {
         use core::ops::DerefMut;
-        let mut data = self.data.borrow_mut();
+        let mut data = self.data.try_borrow_mut().map_err(|_| Error::LockError)?;
         let data = data.deref_mut();
 
         // This check is load-bearing - we do an unchecked push later.
