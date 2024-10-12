@@ -176,8 +176,9 @@ impl FatVolume {
                     return Ok(());
                 }
                 let mut blocks = [Block::new()];
+                trace!("Reading info sector");
                 block_device
-                    .read(&mut blocks, fat32_info.info_location, "read_info_sector")
+                    .read(&mut blocks, fat32_info.info_location)
                     .map_err(Error::DeviceError)?;
                 let block = &mut blocks[0];
                 if let Some(count) = self.free_clusters_count {
@@ -186,6 +187,7 @@ impl FatVolume {
                 if let Some(next_free_cluster) = self.next_free_cluster {
                     block[492..496].copy_from_slice(&next_free_cluster.0.to_le_bytes());
                 }
+                trace!("Writing info sector");
                 block_device
                     .write(&blocks, fat32_info.info_location)
                     .map_err(Error::DeviceError)?;
@@ -219,8 +221,9 @@ impl FatVolume {
                 let fat_offset = cluster.0 * 2;
                 this_fat_block_num = self.lba_start + self.fat_start.offset_bytes(fat_offset);
                 let this_fat_ent_offset = (fat_offset % Block::LEN_U32) as usize;
+                trace!("Reading FAT");
                 block_device
-                    .read(&mut blocks, this_fat_block_num, "read_fat")
+                    .read(&mut blocks, this_fat_block_num)
                     .map_err(Error::DeviceError)?;
                 // See <https://en.wikipedia.org/wiki/Design_of_the_FAT_file_system>
                 let entry = match new_value {
@@ -240,8 +243,9 @@ impl FatVolume {
                 let fat_offset = cluster.0 * 4;
                 this_fat_block_num = self.lba_start + self.fat_start.offset_bytes(fat_offset);
                 let this_fat_ent_offset = (fat_offset % Block::LEN_U32) as usize;
+                trace!("Reading FAT");
                 block_device
-                    .read(&mut blocks, this_fat_block_num, "read_fat")
+                    .read(&mut blocks, this_fat_block_num)
                     .map_err(Error::DeviceError)?;
                 let entry = match new_value {
                     ClusterId::INVALID => 0x0FFF_FFF6,
@@ -259,6 +263,7 @@ impl FatVolume {
                 );
             }
         }
+        trace!("Writing FAT");
         block_device
             .write(&blocks, this_fat_block_num)
             .map_err(Error::DeviceError)?;
@@ -283,8 +288,8 @@ impl FatVolume {
                 let fat_offset = cluster.0 * 2;
                 let this_fat_block_num = self.lba_start + self.fat_start.offset_bytes(fat_offset);
                 let this_fat_ent_offset = (fat_offset % Block::LEN_U32) as usize;
-                let block =
-                    fat_block_cache.read(block_device, this_fat_block_num, "next_cluster")?;
+                trace!("Reading FAT");
+                let block = fat_block_cache.read(block_device, this_fat_block_num)?;
                 let fat_entry =
                     LittleEndian::read_u16(&block[this_fat_ent_offset..=this_fat_ent_offset + 1]);
                 match fat_entry {
@@ -306,8 +311,8 @@ impl FatVolume {
                 let fat_offset = cluster.0 * 4;
                 let this_fat_block_num = self.lba_start + self.fat_start.offset_bytes(fat_offset);
                 let this_fat_ent_offset = (fat_offset % Block::LEN_U32) as usize;
-                let block =
-                    fat_block_cache.read(block_device, this_fat_block_num, "next_cluster")?;
+                trace!("Reading FAT");
+                let block = fat_block_cache.read(block_device, this_fat_block_num)?;
                 let fat_entry =
                     LittleEndian::read_u32(&block[this_fat_ent_offset..=this_fat_ent_offset + 3])
                         & 0x0FFF_FFFF;
@@ -406,14 +411,14 @@ impl FatVolume {
                 let mut blocks = [Block::new()];
                 while let Some(cluster) = current_cluster {
                     for block in first_dir_block_num.range(dir_size) {
+                        trace!("Reading directory");
                         block_device
-                            .read(&mut blocks, block, "read_dir")
+                            .read(&mut blocks, block)
                             .map_err(Error::DeviceError)?;
-                        let entries_per_block = Block::LEN / OnDiskDirEntry::LEN;
-                        for entry in 0..entries_per_block {
-                            let start = entry * OnDiskDirEntry::LEN;
-                            let end = (entry + 1) * OnDiskDirEntry::LEN;
-                            let dir_entry = OnDiskDirEntry::new(&blocks[0][start..end]);
+                        for (i, dir_entry_bytes) in
+                            blocks[0].chunks_exact_mut(OnDiskDirEntry::LEN).enumerate()
+                        {
+                            let dir_entry = OnDiskDirEntry::new(dir_entry_bytes);
                             // 0x00 or 0xE5 represents a free entry
                             if !dir_entry.is_valid() {
                                 let ctime = time_source.get_timestamp();
@@ -423,10 +428,11 @@ impl FatVolume {
                                     ClusterId::EMPTY,
                                     ctime,
                                     block,
-                                    start as u32,
+                                    (i * OnDiskDirEntry::LEN) as u32,
                                 );
-                                blocks[0][start..start + 32]
+                                dir_entry_bytes
                                     .copy_from_slice(&entry.serialize(FatType::Fat16)[..]);
+                                trace!("Updating directory");
                                 block_device
                                     .write(&blocks, block)
                                     .map_err(Error::DeviceError)?;
@@ -472,15 +478,16 @@ impl FatVolume {
                     // Loop through the blocks in the cluster
                     for block in first_dir_block_num.range(dir_size) {
                         // Read a block of directory entries
+                        trace!("Reading directory");
                         block_device
-                            .read(&mut blocks, block, "read_dir")
+                            .read(&mut blocks, block)
                             .map_err(Error::DeviceError)?;
                         // Are any entries in the block we just loaded blank? If so
                         // we can use them.
-                        for entry in 0..Block::LEN / OnDiskDirEntry::LEN {
-                            let start = entry * OnDiskDirEntry::LEN;
-                            let end = (entry + 1) * OnDiskDirEntry::LEN;
-                            let dir_entry = OnDiskDirEntry::new(&blocks[0][start..end]);
+                        for (i, dir_entry_bytes) in
+                            blocks[0].chunks_exact_mut(OnDiskDirEntry::LEN).enumerate()
+                        {
+                            let dir_entry = OnDiskDirEntry::new(dir_entry_bytes);
                             // 0x00 or 0xE5 represents a free entry
                             if !dir_entry.is_valid() {
                                 let ctime = time_source.get_timestamp();
@@ -490,10 +497,11 @@ impl FatVolume {
                                     ClusterId(0),
                                     ctime,
                                     block,
-                                    start as u32,
+                                    (i * OnDiskDirEntry::LEN) as u32,
                                 );
-                                blocks[0][start..start + 32]
+                                dir_entry_bytes
                                     .copy_from_slice(&entry.serialize(FatType::Fat32)[..]);
+                                trace!("Updating directory");
                                 block_device
                                     .write(&blocks, block)
                                     .map_err(Error::DeviceError)?;
@@ -578,17 +586,16 @@ impl FatVolume {
         let mut block_cache = BlockCache::empty();
         while let Some(cluster) = current_cluster {
             for block_idx in first_dir_block_num.range(dir_size) {
-                let block = block_cache.read(block_device, block_idx, "read_dir")?;
-                for entry in 0..Block::LEN / OnDiskDirEntry::LEN {
-                    let start = entry * OnDiskDirEntry::LEN;
-                    let end = (entry + 1) * OnDiskDirEntry::LEN;
-                    let dir_entry = OnDiskDirEntry::new(&block[start..end]);
+                trace!("Reading FAT");
+                let block = block_cache.read(block_device, block_idx)?;
+                for (i, dir_entry_bytes) in block.chunks_exact(OnDiskDirEntry::LEN).enumerate() {
+                    let dir_entry = OnDiskDirEntry::new(dir_entry_bytes);
                     if dir_entry.is_end() {
                         // Can quit early
                         return Ok(());
                     } else if dir_entry.is_valid() && !dir_entry.is_lfn() {
                         // Block::LEN always fits on a u32
-                        let start = start as u32;
+                        let start = (i * OnDiskDirEntry::LEN) as u32;
                         let entry = dir_entry.get_entry(FatType::Fat16, block_idx, start);
                         func(&entry);
                     }
@@ -631,19 +638,20 @@ impl FatVolume {
         while let Some(cluster) = current_cluster {
             let block_idx = self.cluster_to_block(cluster);
             for block in block_idx.range(BlockCount(u32::from(self.blocks_per_cluster))) {
+                trace!("Reading FAT");
                 block_device
-                    .read(&mut blocks, block, "read_dir")
+                    .read(&mut blocks, block)
                     .map_err(Error::DeviceError)?;
-                for entry in 0..Block::LEN / OnDiskDirEntry::LEN {
-                    let start = entry * OnDiskDirEntry::LEN;
-                    let end = (entry + 1) * OnDiskDirEntry::LEN;
-                    let dir_entry = OnDiskDirEntry::new(&blocks[0][start..end]);
+                for (i, dir_entry_bytes) in
+                    blocks[0].chunks_exact_mut(OnDiskDirEntry::LEN).enumerate()
+                {
+                    let dir_entry = OnDiskDirEntry::new(dir_entry_bytes);
                     if dir_entry.is_end() {
                         // Can quit early
                         return Ok(());
                     } else if dir_entry.is_valid() && !dir_entry.is_lfn() {
                         // Block::LEN always fits on a u32
-                        let start = start as u32;
+                        let start = (i * OnDiskDirEntry::LEN) as u32;
                         let entry = dir_entry.get_entry(FatType::Fat32, block, start);
                         func(&entry);
                     }
@@ -757,20 +765,19 @@ impl FatVolume {
         D: BlockDevice,
     {
         let mut blocks = [Block::new()];
+        trace!("Reading directory");
         block_device
-            .read(&mut blocks, block, "read_dir")
+            .read(&mut blocks, block)
             .map_err(Error::DeviceError)?;
-        for entry in 0..Block::LEN / OnDiskDirEntry::LEN {
-            let start = entry * OnDiskDirEntry::LEN;
-            let end = (entry + 1) * OnDiskDirEntry::LEN;
-            let dir_entry = OnDiskDirEntry::new(&blocks[0][start..end]);
+        for (i, dir_entry_bytes) in blocks[0].chunks_exact_mut(OnDiskDirEntry::LEN).enumerate() {
+            let dir_entry = OnDiskDirEntry::new(dir_entry_bytes);
             if dir_entry.is_end() {
                 // Can quit early
                 break;
             } else if dir_entry.matches(match_name) {
                 // Found it
                 // Block::LEN always fits on a u32
-                let start = start as u32;
+                let start = (i * OnDiskDirEntry::LEN) as u32;
                 return Ok(dir_entry.get_entry(fat_type, block, start));
             }
         }
@@ -893,19 +900,21 @@ impl FatVolume {
         D: BlockDevice,
     {
         let mut blocks = [Block::new()];
+        trace!("Reading directory");
         block_device
-            .read(&mut blocks, block, "read_dir")
+            .read(&mut blocks, block)
             .map_err(Error::DeviceError)?;
-        for entry in 0..Block::LEN / OnDiskDirEntry::LEN {
-            let start = entry * OnDiskDirEntry::LEN;
-            let end = (entry + 1) * OnDiskDirEntry::LEN;
-            let dir_entry = OnDiskDirEntry::new(&blocks[0][start..end]);
+        for (i, dir_entry_bytes) in blocks[0].chunks_exact_mut(OnDiskDirEntry::LEN).enumerate() {
+            let dir_entry = OnDiskDirEntry::new(dir_entry_bytes);
             if dir_entry.is_end() {
                 // Can quit early
                 break;
             } else if dir_entry.matches(match_name) {
                 let mut blocks = blocks;
+                let start = i * OnDiskDirEntry::LEN;
+                // set first byte to the 'unused' marker
                 blocks[0].contents[start] = 0xE5;
+                trace!("Updating directory");
                 return block_device
                     .write(&blocks, block)
                     .map_err(Error::DeviceError);
@@ -943,7 +952,7 @@ impl FatVolume {
                         .map_err(|_| Error::ConversionError)?;
                     trace!("Reading block {:?}", this_fat_block_num);
                     block_device
-                        .read(&mut blocks, this_fat_block_num, "next_cluster")
+                        .read(&mut blocks, this_fat_block_num)
                         .map_err(Error::DeviceError)?;
 
                     while this_fat_ent_offset <= Block::LEN - 2 {
@@ -974,7 +983,7 @@ impl FatVolume {
                         .map_err(|_| Error::ConversionError)?;
                     trace!("Reading block {:?}", this_fat_block_num);
                     block_device
-                        .read(&mut blocks, this_fat_block_num, "next_cluster")
+                        .read(&mut blocks, this_fat_block_num)
                         .map_err(Error::DeviceError)?;
 
                     while this_fat_ent_offset <= Block::LEN - 4 {
@@ -1070,6 +1079,7 @@ impl FatVolume {
             let first_block = self.cluster_to_block(new_cluster);
             let num_blocks = BlockCount(u32::from(self.blocks_per_cluster));
             for block in first_block.range(num_blocks) {
+                trace!("Zeroing cluster");
                 block_device
                     .write(&blocks, block)
                     .map_err(Error::DeviceError)?;
@@ -1142,14 +1152,16 @@ impl FatVolume {
             FatSpecificInfo::Fat32(_) => FatType::Fat32,
         };
         let mut blocks = [Block::new()];
+        trace!("Reading directory for update");
         block_device
-            .read(&mut blocks, entry.entry_block, "read")
+            .read(&mut blocks, entry.entry_block)
             .map_err(Error::DeviceError)?;
         let block = &mut blocks[0];
 
         let start = usize::try_from(entry.entry_offset).map_err(|_| Error::ConversionError)?;
         block[start..start + 32].copy_from_slice(&entry.serialize(fat_type)[..]);
 
+        trace!("Updating directory");
         block_device
             .write(&blocks, entry.entry_block)
             .map_err(Error::DeviceError)?;
@@ -1169,8 +1181,9 @@ where
     D::Error: core::fmt::Debug,
 {
     let mut blocks = [Block::new()];
+    trace!("Reading BPB");
     block_device
-        .read(&mut blocks, lba_start, "read_bpb")
+        .read(&mut blocks, lba_start)
         .map_err(Error::DeviceError)?;
     let block = &blocks[0];
     let bpb = Bpb::create_from_bytes(block).map_err(Error::FormatError)?;
@@ -1214,12 +1227,9 @@ where
             // Safe to unwrap since this is a Fat32 Type
             let info_location = bpb.fs_info_block().unwrap();
             let mut info_blocks = [Block::new()];
+            trace!("Reading info block");
             block_device
-                .read(
-                    &mut info_blocks,
-                    lba_start + info_location,
-                    "read_info_sector",
-                )
+                .read(&mut info_blocks, lba_start + info_location)
                 .map_err(Error::DeviceError)?;
             let info_block = &info_blocks[0];
             let info_sector =

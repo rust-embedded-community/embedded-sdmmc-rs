@@ -34,22 +34,14 @@ impl LinuxBlockDevice {
 impl BlockDevice for LinuxBlockDevice {
     type Error = std::io::Error;
 
-    fn read(
-        &self,
-        blocks: &mut [Block],
-        start_block_idx: BlockIdx,
-        reason: &str,
-    ) -> Result<(), Self::Error> {
+    fn read(&self, blocks: &mut [Block], start_block_idx: BlockIdx) -> Result<(), Self::Error> {
         self.file
             .borrow_mut()
             .seek(SeekFrom::Start(start_block_idx.into_bytes()))?;
         for block in blocks.iter_mut() {
             self.file.borrow_mut().read_exact(&mut block.contents)?;
             if self.print_blocks {
-                println!(
-                    "Read block ({}) {:?}: {:?}",
-                    reason, start_block_idx, &block
-                );
+                println!("Read block {:?}: {:?}", start_block_idx, &block);
             }
         }
         Ok(())
