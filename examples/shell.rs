@@ -250,13 +250,13 @@ impl Context {
         println!("Directory listing of {:?}", path);
         let dir = self.resolve_existing_directory(path)?;
         // tree_dir will close this directory, always
-        self.tree_dir(dir)
+        Self::tree_dir(dir)
     }
 
     /// Print a recursive directory listing for the given open directory.
     ///
     /// Will close the given directory.
-    fn tree_dir<'a>(&'a self, dir: Directory<'a>) -> Result<(), Error> {
+    fn tree_dir(dir: Directory) -> Result<(), Error> {
         let mut children = Vec::new();
         dir.iterate_dir(|entry| {
             println!(
@@ -272,17 +272,9 @@ impl Context {
         })?;
         for child in children {
             println!("Entering {}", child);
-            let child_dir = match dir.open_dir(&child) {
-                Ok(child_dir) => child_dir,
-                Err(e) => {
-                    return Err(e);
-                }
-            };
-            let result = self.tree_dir(child_dir);
+            let child_dir = dir.open_dir(&child)?;
+            Self::tree_dir(child_dir)?;
             println!("Returning from {}", child);
-            if let Err(e) = result {
-                return Err(e);
-            }
         }
         Ok(())
     }
