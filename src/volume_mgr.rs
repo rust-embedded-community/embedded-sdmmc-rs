@@ -10,8 +10,8 @@ use heapless::Vec;
 use crate::fat::{self, BlockCache, FatType, OnDiskDirEntry, RESERVED_ENTRIES};
 
 use crate::filesystem::{
-    Attributes, ClusterId, DirEntry, DirectoryInfo, FileInfo, Mode, RawDirectory, RawFile,
-    SearchIdGenerator, TimeSource, ToShortFileName, MAX_FILE_SIZE,
+    Attributes, ClusterId, DirEntry, DirectoryInfo, FileInfo, HandleGenerator, Mode, RawDirectory,
+    RawFile, TimeSource, ToShortFileName, MAX_FILE_SIZE,
 };
 use crate::{
     debug, trace, Block, BlockCount, BlockDevice, BlockIdx, Error, RawVolume, ShortFileName,
@@ -38,7 +38,7 @@ pub struct VolumeManager<
 {
     pub(crate) block_device: D,
     pub(crate) time_source: T,
-    id_generator: SearchIdGenerator,
+    id_generator: HandleGenerator,
     open_volumes: Vec<VolumeInfo, MAX_VOLUMES>,
     open_dirs: Vec<DirectoryInfo, MAX_DIRS>,
     open_files: Vec<FileInfo, MAX_FILES>,
@@ -87,7 +87,7 @@ where
         VolumeManager {
             block_device,
             time_source,
-            id_generator: SearchIdGenerator::new(id_offset),
+            id_generator: HandleGenerator::new(id_offset),
             open_volumes: Vec::new(),
             open_dirs: Vec::new(),
             open_files: Vec::new(),
@@ -192,9 +192,9 @@ where
             | PARTITION_ID_FAT16_LBA
             | PARTITION_ID_FAT16 => {
                 let volume = fat::parse_volume(&self.block_device, lba_start, num_blocks)?;
-                let id = RawVolume(self.id_generator.get());
+                let id = RawVolume(self.id_generator.generate());
                 let info = VolumeInfo {
-                    volume_id: id,
+                    raw_volume: id,
                     idx: volume_idx,
                     volume_type: volume,
                 };
@@ -213,7 +213,7 @@ where
     pub fn open_root_dir(&mut self, volume: RawVolume) -> Result<RawDirectory, Error<D::Error>> {
         // Opening a root directory twice is OK
 
-        let directory_id = RawDirectory(self.id_generator.get());
+        let directory_id = RawDirectory(self.id_generator.generate());
         let dir_info = DirectoryInfo {
             volume_id: volume,
             cluster: ClusterId::ROOT_DIR,
@@ -253,10 +253,10 @@ where
         // Open the directory
         if short_file_name == ShortFileName::this_dir() {
             // short-cut (root dir doesn't have ".")
-            let directory_id = RawDirectory(self.id_generator.get());
+            let directory_id = RawDirectory(self.id_generator.generate());
             let dir_info = DirectoryInfo {
                 directory_id,
-                volume_id: self.open_volumes[volume_idx].volume_id,
+                volume_id: self.open_volumes[volume_idx].raw_volume,
                 cluster: parent_dir_info.cluster,
             };
 
@@ -283,10 +283,10 @@ where
         // no cached state and so opening a directory twice is allowable.
 
         // Remember this open directory.
-        let directory_id = RawDirectory(self.id_generator.get());
+        let directory_id = RawDirectory(self.id_generator.generate());
         let dir_info = DirectoryInfo {
             directory_id,
-            volume_id: self.open_volumes[volume_idx].volume_id,
+            volume_id: self.open_volumes[volume_idx].raw_volume,
             cluster: dir_entry.cluster,
         };
 
@@ -314,7 +314,7 @@ where
     /// You can't close it if there are any files or directories open on it.
     pub fn close_volume(&mut self, volume: RawVolume) -> Result<(), Error<D::Error>> {
         for f in self.open_files.iter() {
-            if f.volume_id == volume {
+            if f.raw_volume == volume {
                 return Err(Error::VolumeStillInUse);
             }
         }
@@ -399,12 +399,12 @@ where
         }
 
         let mode = solve_mode_variant(mode, true);
-        let file_id = RawFile(self.id_generator.get());
+        let file_id = RawFile(self.id_generator.generate());
 
         let file = match mode {
             Mode::ReadOnly => FileInfo {
-                file_id,
-                volume_id: volume,
+                raw_file: file_id,
+                raw_volume: volume,
                 current_cluster: (0, dir_entry.cluster),
                 current_offset: 0,
                 mode,
@@ -413,8 +413,8 @@ where
             },
             Mode::ReadWriteAppend => {
                 let mut file = FileInfo {
-                    file_id,
-                    volume_id: volume,
+                    raw_file: file_id,
+                    raw_volume: volume,
                     current_cluster: (0, dir_entry.cluster),
                     current_offset: 0,
                     mode,
@@ -427,8 +427,8 @@ where
             }
             Mode::ReadWriteTruncate => {
                 let mut file = FileInfo {
-                    file_id,
-                    volume_id: volume,
+                    raw_file: file_id,
+                    raw_volume: volume,
                     current_cluster: (0, dir_entry.cluster),
                     current_offset: 0,
                     mode,
@@ -512,7 +512,7 @@ where
 
         // Check if it's open already
         if let Some(dir_entry) = &dir_entry {
-            if self.file_is_open(volume_info.volume_id, dir_entry) {
+            if self.file_is_open(volume_info.raw_volume, dir_entry) {
                 return Err(Error::FileAlreadyOpen);
             }
         }
@@ -536,11 +536,11 @@ where
                     )?,
                 };
 
-                let file_id = RawFile(self.id_generator.get());
+                let file_id = RawFile(self.id_generator.generate());
 
                 let file = FileInfo {
-                    file_id,
-                    volume_id,
+                    raw_file: file_id,
+                    raw_volume: volume_id,
                     current_cluster: (0, entry.cluster),
                     current_offset: 0,
                     mode,
@@ -600,12 +600,39 @@ where
         Ok(())
     }
 
+    /// Search the root directory for a volume label
+    pub fn get_root_volume_label(
+        &mut self,
+        volume: RawVolume,
+    ) -> Result<Option<crate::VolumeName>, Error<D::Error>> {
+        let directory = self.open_root_dir(volume)?;
+        // this can't fail - we literally just opened it
+        let inner = || -> Result<Option<crate::VolumeName>, Error<D::Error>> {
+            let directory_idx = self.get_dir_by_id(directory).expect("Dir ID error");
+            let volume_idx = self.get_volume_by_id(self.open_dirs[directory_idx].volume_id)?;
+            let mut maybe_volume_name = None;
+            match &self.open_volumes[volume_idx].volume_type {
+                VolumeType::Fat(fat) => {
+                    fat.iterate_dir(&self.block_device, &self.open_dirs[directory_idx], |de| {
+                        if de.attributes == Attributes::create_from_fat(Attributes::VOLUME) {
+                            maybe_volume_name = Some(unsafe { de.name.clone().to_volume_label() })
+                        }
+                    })?;
+                }
+            }
+            Ok(maybe_volume_name)
+        };
+        let result = inner();
+        self.close_dir(directory)?;
+        result
+    }
+
     /// Check if a file is open
     ///
     /// Returns `true` if it's open, `false`, otherwise.
     fn file_is_open(&self, volume: RawVolume, dir_entry: &DirEntry) -> bool {
         for f in self.open_files.iter() {
-            if f.volume_id == volume
+            if f.raw_volume == volume
                 && f.entry.entry_block == dir_entry.entry_block
                 && f.entry.entry_offset == dir_entry.entry_offset
             {
@@ -618,7 +645,7 @@ where
     /// Read from an open file.
     pub fn read(&mut self, file: RawFile, buffer: &mut [u8]) -> Result<usize, Error<D::Error>> {
         let file_idx = self.get_file_by_id(file)?;
-        let volume_idx = self.get_volume_by_id(self.open_files[file_idx].volume_id)?;
+        let volume_idx = self.get_volume_by_id(self.open_files[file_idx].raw_volume)?;
         // Calculate which file block the current offset lies within
         // While there is more to read, read the block and copy in to the buffer.
         // If we need to find the next cluster, walk the FAT.
@@ -665,7 +692,7 @@ where
         // Clone this so we can touch our other structures. Need to ensure we
         // write it back at the end.
         let file_idx = self.get_file_by_id(file)?;
-        let volume_idx = self.get_volume_by_id(self.open_files[file_idx].volume_id)?;
+        let volume_idx = self.get_volume_by_id(self.open_files[file_idx].raw_volume)?;
 
         if self.open_files[file_idx].mode == Mode::ReadOnly {
             return Err(Error::ReadOnly);
@@ -688,7 +715,7 @@ where
         }
 
         // Clone this so we can touch our other structures.
-        let volume_idx = self.get_volume_by_id(self.open_files[file_idx].volume_id)?;
+        let volume_idx = self.get_volume_by_id(self.open_files[file_idx].raw_volume)?;
 
         if (self.open_files[file_idx].current_cluster.1) < self.open_files[file_idx].entry.cluster {
             debug!("Rewinding to start");
@@ -794,11 +821,11 @@ where
         let file_info = self
             .open_files
             .iter()
-            .find(|info| info.file_id == file)
+            .find(|info| info.raw_file == file)
             .ok_or(Error::BadHandle)?;
 
         if file_info.dirty {
-            let volume_idx = self.get_volume_by_id(file_info.volume_id)?;
+            let volume_idx = self.get_volume_by_id(file_info.raw_volume)?;
             match self.open_volumes[volume_idx].volume_type {
                 VolumeType::Fat(ref mut fat) => {
                     debug!("Updating FAT info sector");
@@ -1024,7 +1051,7 @@ where
 
     fn get_volume_by_id(&self, volume: RawVolume) -> Result<usize, Error<D::Error>> {
         for (idx, v) in self.open_volumes.iter().enumerate() {
-            if v.volume_id == volume {
+            if v.raw_volume == volume {
                 return Ok(idx);
             }
         }
@@ -1042,7 +1069,7 @@ where
 
     fn get_file_by_id(&self, file: RawFile) -> Result<usize, Error<D::Error>> {
         for (idx, f) in self.open_files.iter().enumerate() {
-            if f.file_id == file {
+            if f.raw_file == file {
                 return Ok(idx);
             }
         }
@@ -1130,7 +1157,7 @@ fn solve_mode_variant(mode: Mode, dir_entry_is_some: bool) -> Mode {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::filesystem::SearchId;
+    use crate::filesystem::Handle;
     use crate::Timestamp;
 
     struct DummyBlockDevice;
@@ -1369,12 +1396,12 @@ mod tests {
             VolumeManager::new_with_limits(DummyBlockDevice, Clock, 0xAA00_0000);
 
         let v = c.open_raw_volume(VolumeIdx(0)).unwrap();
-        let expected_id = RawVolume(SearchId(0xAA00_0000));
+        let expected_id = RawVolume(Handle(0xAA00_0000));
         assert_eq!(v, expected_id);
         assert_eq!(
             &c.open_volumes[0],
             &VolumeInfo {
-                volume_id: expected_id,
+                raw_volume: expected_id,
                 idx: VolumeIdx(0),
                 volume_type: VolumeType::Fat(crate::FatVolume {
                     lba_start: BlockIdx(1),
@@ -1382,7 +1409,7 @@ mod tests {
                     blocks_per_cluster: 8,
                     first_data_block: BlockCount(15136),
                     fat_start: BlockCount(32),
-                    name: fat::VolumeName::new(*b"Pictures   "),
+                    name: fat::VolumeName::create_from_str("Pictures").unwrap(),
                     free_clusters_count: None,
                     next_free_cluster: None,
                     cluster_count: 965_788,

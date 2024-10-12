@@ -75,13 +75,13 @@ pub mod sdcard;
 
 use core::fmt::Debug;
 use embedded_io::ErrorKind;
-use filesystem::SearchId;
+use filesystem::Handle;
 
 #[doc(inline)]
 pub use crate::blockdevice::{Block, BlockCount, BlockDevice, BlockIdx};
 
 #[doc(inline)]
-pub use crate::fat::FatVolume;
+pub use crate::fat::{FatVolume, VolumeName};
 
 #[doc(inline)]
 pub use crate::filesystem::{
@@ -247,10 +247,19 @@ where
     }
 }
 
-/// A partition with a filesystem within it.
+/// A handle to a volume.
+///
+/// A volume is a partition with a filesystem within it.
+///
+/// Do NOT drop this object! It doesn't hold a reference to the Volume Manager
+/// it was created from and the VolumeManager will think you still have the
+/// volume open if you just drop it, and it won't let you open the file again.
+///
+/// Instead you must pass it to [`crate::VolumeManager::close_volume`] to close
+/// it cleanly.
 #[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub struct RawVolume(SearchId);
+pub struct RawVolume(Handle);
 
 impl RawVolume {
     /// Convert a raw volume into a droppable [`Volume`]
@@ -272,7 +281,7 @@ impl RawVolume {
     }
 }
 
-/// An open volume on disk, which closes on drop.
+/// A handle for an open volume on disk, which closes on drop.
 ///
 /// In contrast to a `RawVolume`, a `Volume` holds a mutable reference to its
 /// parent `VolumeManager`, which restricts which operations you can perform.
@@ -373,9 +382,9 @@ where
 #[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct VolumeInfo {
-    /// Search ID for this volume.
-    volume_id: RawVolume,
-    /// TODO: some kind of index
+    /// Handle for this volume.
+    raw_volume: RawVolume,
+    /// Which volume (i.e. partition) we opened on the disk
     idx: VolumeIdx,
     /// What kind of volume this is
     volume_type: VolumeType,

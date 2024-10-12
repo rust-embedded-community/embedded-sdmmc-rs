@@ -138,7 +138,11 @@ mod test {
         "#;
         let results = [
             Expected::Short(DirEntry {
-                name: ShortFileName::create_from_str_mixed_case("boot").unwrap(),
+                name: unsafe {
+                    VolumeName::create_from_str("boot")
+                        .unwrap()
+                        .to_short_filename()
+                },
                 mtime: Timestamp::from_calendar(2015, 11, 21, 19, 35, 18).unwrap(),
                 ctime: Timestamp::from_calendar(2015, 11, 21, 19, 35, 18).unwrap(),
                 attributes: Attributes::create_from_fat(Attributes::VOLUME),
@@ -348,7 +352,7 @@ mod test {
         assert_eq!(bpb.fat_size16(), 32);
         assert_eq!(bpb.total_blocks32(), 122_880);
         assert_eq!(bpb.footer(), 0xAA55);
-        assert_eq!(bpb.volume_label(), b"boot       ");
+        assert_eq!(bpb.volume_label(), *b"boot       ");
         assert_eq!(bpb.fat_size(), 32);
         assert_eq!(bpb.total_blocks(), 122_880);
         assert_eq!(bpb.fat_type, FatType::Fat16);

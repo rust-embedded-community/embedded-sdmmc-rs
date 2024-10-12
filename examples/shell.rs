@@ -230,10 +230,17 @@ impl Context {
         let dir = self.resolve_existing_directory(path)?;
         let mut dir = dir.to_directory(&mut self.volume_mgr);
         dir.iterate_dir(|entry| {
-            println!(
-                "{:12} {:9} {} {} {:08X?} {:?}",
-                entry.name, entry.size, entry.ctime, entry.mtime, entry.cluster, entry.attributes
-            );
+            if !entry.attributes.is_volume() && !entry.attributes.is_lfn() {
+                println!(
+                    "{:12} {:9} {} {} {:08X?} {:?}",
+                    entry.name,
+                    entry.size,
+                    entry.ctime,
+                    entry.mtime,
+                    entry.cluster,
+                    entry.attributes
+                );
+            }
         })?;
         Ok(())
     }
@@ -310,6 +317,8 @@ impl Context {
         for fragment in full_path.iterate_components().filter(|s| !s.is_empty()) {
             if fragment == ".." {
                 s.path.pop();
+            } else if fragment == "." {
+                // do nothing
             } else {
                 s.path.push(fragment.to_owned());
             }
@@ -533,7 +542,11 @@ fn main() -> Result<(), Error> {
     for volume_no in 0..4 {
         match ctx.volume_mgr.open_raw_volume(VolumeIdx(volume_no)) {
             Ok(volume) => {
-                println!("Volume # {}: found", Context::volume_to_letter(volume_no));
+                println!(
+                    "Volume # {}: found, label: {:?}",
+                    Context::volume_to_letter(volume_no),
+                    ctx.volume_mgr.get_root_volume_label(volume)?
+                );
                 match ctx.volume_mgr.open_root_dir(volume) {
                     Ok(root_dir) => {
                         ctx.volumes[volume_no] = Some(VolumeState {
