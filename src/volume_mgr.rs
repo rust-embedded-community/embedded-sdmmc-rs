@@ -218,8 +218,9 @@ where
     /// You can then read the directory entries with `iterate_dir`, or you can
     /// use `open_file_in_dir`.
     pub fn open_root_dir(&self, volume: RawVolume) -> Result<RawDirectory, Error<D::Error>> {
-        // Opening a root directory twice is OK
+        debug!("Opening root on {:?}", volume);
 
+        // Opening a root directory twice is OK
         let mut data = self.data.try_borrow_mut().map_err(|_| Error::LockError)?;
 
         let directory_id = RawDirectory(data.id_generator.generate());
@@ -232,6 +233,8 @@ where
         data.open_dirs
             .push(dir_info)
             .map_err(|_| Error::TooManyOpenDirs)?;
+
+        debug!("Opened root on {:?}, got {:?}", volume, directory_id);
 
         Ok(directory_id)
     }
@@ -312,6 +315,7 @@ where
     /// Close a directory. You cannot perform operations on an open directory
     /// and so must close it if you want to do something with it.
     pub fn close_dir(&self, directory: RawDirectory) -> Result<(), Error<D::Error>> {
+        debug!("Closing {:?}", directory);
         let mut data = self.data.try_borrow_mut().map_err(|_| Error::LockError)?;
 
         for (idx, info) in data.open_dirs.iter().enumerate() {
@@ -600,28 +604,47 @@ where
         Ok(())
     }
 
-    /// Search the root directory for a volume label
+    /// Get the volume label
+    ///
+    /// Will look in the BPB for a volume label, and if nothing is found, will
+    /// search the root directory for a volume label.
     pub fn get_root_volume_label(
         &self,
-        volume: RawVolume,
+        raw_volume: RawVolume,
     ) -> Result<Option<crate::VolumeName>, Error<D::Error>> {
-        let directory = self.open_root_dir(volume)?;
+        debug!("Reading volume label for {:?}", raw_volume);
+        // prefer the one in the BPB - it's easier to get
         let data = self.data.borrow();
-        // this can't fail - we literally just opened it
-        let directory_idx = data
-            .get_dir_by_id::<D::Error>(directory)
-            .expect("Dir ID error");
-        let volume_idx = data.get_volume_by_id(data.open_dirs[directory_idx].raw_volume)?;
-        let mut maybe_volume_name = None;
+        let volume_idx = data.get_volume_by_id(raw_volume)?;
         match &data.open_volumes[volume_idx].volume_type {
             VolumeType::Fat(fat) => {
-                fat.iterate_dir(&self.block_device, &data.open_dirs[directory_idx], |de| {
-                    if de.attributes == Attributes::create_from_fat(Attributes::VOLUME) {
-                        maybe_volume_name = Some(unsafe { de.name.clone().to_volume_label() })
-                    }
-                })?;
+                if !fat.name.name().is_empty() {
+                    debug!(
+                        "Got volume label {:?} for {:?} from BPB",
+                        fat.name, raw_volume
+                    );
+                    return Ok(Some(fat.name.clone()));
+                }
             }
         }
+        drop(data);
+
+        // Nothing in the BPB, let's do it the slow way
+        let root_dir = self.open_root_dir(raw_volume)?.to_directory(self);
+        let mut maybe_volume_name = None;
+        root_dir.iterate_dir(|de| {
+            if maybe_volume_name.is_none()
+                && de.attributes == Attributes::create_from_fat(Attributes::VOLUME)
+            {
+                maybe_volume_name = Some(unsafe { de.name.clone().to_volume_label() })
+            }
+        })?;
+
+        debug!(
+            "Got volume label {:?} for {:?} from root",
+            maybe_volume_name, raw_volume
+        );
+
         Ok(maybe_volume_name)
     }
 
