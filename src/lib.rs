@@ -27,10 +27,10 @@
 //! {
 //!     let sdcard = SdCard::new(spi, delay);
 //!     println!("Card size is {} bytes", sdcard.num_bytes()?);
-//!     let mut volume_mgr = VolumeManager::new(sdcard, ts);
-//!     let mut volume0 = volume_mgr.open_volume(VolumeIdx(0))?;
+//!     let volume_mgr = VolumeManager::new(sdcard, ts);
+//!     let volume0 = volume_mgr.open_volume(VolumeIdx(0))?;
 //!     println!("Volume 0: {:?}", volume0);
-//!     let mut root_dir = volume0.open_root_dir()?;
+//!     let root_dir = volume0.open_root_dir()?;
 //!     let mut my_file = root_dir.open_file_in_dir("MY_FILE.TXT", Mode::ReadOnly)?;
 //!     while !my_file.is_eof() {
 //!         let mut buffer = [0u8; 32];
@@ -47,8 +47,8 @@
 //!
 //! * `log`: Enabled by default. Generates log messages using the `log` crate.
 //! * `defmt-log`: By turning off the default features and enabling the
-//! `defmt-log` feature you can configure this crate to log messages over defmt
-//! instead.
+//!   `defmt-log` feature you can configure this crate to log messages over defmt
+//!   instead.
 //!
 //! You cannot enable both the `log` feature and the `defmt-log` feature.
 
@@ -202,6 +202,11 @@ where
     DiskFull,
     /// A directory with that name already exists
     DirAlreadyExists,
+    /// The filesystem tried to gain a lock whilst already locked.
+    ///
+    /// This is either a bug in the filesystem, or you tried to access the
+    /// filesystem API from inside a directory iterator (that isn't allowed).
+    LockError,
 }
 
 impl<E: Debug> embedded_io::Error for Error<E> {
@@ -216,7 +221,8 @@ impl<E: Debug> embedded_io::Error for Error<E> {
             | Error::EndOfFile
             | Error::DiskFull
             | Error::NotEnoughSpace
-            | Error::AllocationError => ErrorKind::Other,
+            | Error::AllocationError
+            | Error::LockError => ErrorKind::Other,
             Error::NoSuchVolume
             | Error::FilenameError(_)
             | Error::BadHandle
@@ -271,7 +277,7 @@ impl RawVolume {
         const MAX_VOLUMES: usize,
     >(
         self,
-        volume_mgr: &mut VolumeManager<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>,
+        volume_mgr: &VolumeManager<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>,
     ) -> Volume<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>
     where
         D: crate::BlockDevice,
@@ -295,7 +301,7 @@ where
     T: crate::TimeSource,
 {
     raw_volume: RawVolume,
-    volume_mgr: &'a mut VolumeManager<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>,
+    volume_mgr: &'a VolumeManager<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>,
 }
 
 impl<'a, D, T, const MAX_DIRS: usize, const MAX_FILES: usize, const MAX_VOLUMES: usize>
@@ -307,7 +313,7 @@ where
     /// Create a new `Volume` from a `RawVolume`
     pub fn new(
         raw_volume: RawVolume,
-        volume_mgr: &'a mut VolumeManager<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>,
+        volume_mgr: &'a VolumeManager<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>,
     ) -> Volume<'a, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES> {
         Volume {
             raw_volume,
@@ -320,7 +326,7 @@ where
     /// You can then read the directory entries with `iterate_dir`, or you can
     /// use `open_file_in_dir`.
     pub fn open_root_dir(
-        &mut self,
+        &self,
     ) -> Result<crate::Directory<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>, Error<D::Error>> {
         let d = self.volume_mgr.open_root_dir(self.raw_volume)?;
         Ok(d.to_directory(self.volume_mgr))
