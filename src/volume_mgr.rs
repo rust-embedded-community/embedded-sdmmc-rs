@@ -264,8 +264,9 @@ where
         let short_file_name = name.to_short_filename().map_err(Error::FilenameError)?;
 
         // Open the directory
+
+        // Should we short-cut? (root dir doesn't have ".")
         if short_file_name == ShortFileName::this_dir() {
-            // short-cut (root dir doesn't have ".")
             let directory_id = RawDirectory(data.id_generator.generate());
             let dir_info = DirectoryInfo {
                 raw_directory: directory_id,
@@ -279,6 +280,8 @@ where
 
             return Ok(directory_id);
         }
+
+        // ok we'll actually look for the directory then
 
         let dir_entry = match &data.open_volumes[volume_idx].volume_type {
             VolumeType::Fat(fat) => fat.find_directory_entry(
