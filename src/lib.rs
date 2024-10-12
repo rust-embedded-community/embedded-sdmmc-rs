@@ -204,7 +204,8 @@ where
     DirAlreadyExists,
     /// The filesystem tried to gain a lock whilst already locked.
     ///
-    /// This is a bug in the filesystem. Please open an issue.
+    /// This is either a bug in the filesystem, or you tried to access the
+    /// filesystem API from inside a directory iterator (that isn't allowed).
     LockError,
 }
 
