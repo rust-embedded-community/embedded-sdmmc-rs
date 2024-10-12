@@ -221,7 +221,7 @@ impl FatVolume {
                 let fat_offset = cluster.0 * 2;
                 this_fat_block_num = self.lba_start + self.fat_start.offset_bytes(fat_offset);
                 let this_fat_ent_offset = (fat_offset % Block::LEN_U32) as usize;
-                trace!("Reading FAT");
+                trace!("Reading FAT for update");
                 block_device
                     .read(&mut blocks, this_fat_block_num)
                     .map_err(Error::DeviceError)?;
@@ -243,7 +243,7 @@ impl FatVolume {
                 let fat_offset = cluster.0 * 4;
                 this_fat_block_num = self.lba_start + self.fat_start.offset_bytes(fat_offset);
                 let this_fat_ent_offset = (fat_offset % Block::LEN_U32) as usize;
-                trace!("Reading FAT");
+                trace!("Reading FAT for update");
                 block_device
                     .read(&mut blocks, this_fat_block_num)
                     .map_err(Error::DeviceError)?;
@@ -263,7 +263,7 @@ impl FatVolume {
                 );
             }
         }
-        trace!("Writing FAT");
+        trace!("Updating FAT");
         block_device
             .write(&blocks, this_fat_block_num)
             .map_err(Error::DeviceError)?;
@@ -288,7 +288,7 @@ impl FatVolume {
                 let fat_offset = cluster.0 * 2;
                 let this_fat_block_num = self.lba_start + self.fat_start.offset_bytes(fat_offset);
                 let this_fat_ent_offset = (fat_offset % Block::LEN_U32) as usize;
-                trace!("Reading FAT");
+                trace!("Walkng FAT");
                 let block = fat_block_cache.read(block_device, this_fat_block_num)?;
                 let fat_entry =
                     LittleEndian::read_u16(&block[this_fat_ent_offset..=this_fat_ent_offset + 1]);
@@ -311,7 +311,7 @@ impl FatVolume {
                 let fat_offset = cluster.0 * 4;
                 let this_fat_block_num = self.lba_start + self.fat_start.offset_bytes(fat_offset);
                 let this_fat_ent_offset = (fat_offset % Block::LEN_U32) as usize;
-                trace!("Reading FAT");
+                trace!("Walking FAT");
                 let block = fat_block_cache.read(block_device, this_fat_block_num)?;
                 let fat_entry =
                     LittleEndian::read_u32(&block[this_fat_ent_offset..=this_fat_ent_offset + 3])
@@ -586,7 +586,7 @@ impl FatVolume {
         let mut block_cache = BlockCache::empty();
         while let Some(cluster) = current_cluster {
             for block_idx in first_dir_block_num.range(dir_size) {
-                trace!("Reading FAT");
+                trace!("Reading directory");
                 let block = block_cache.read(block_device, block_idx)?;
                 for (i, dir_entry_bytes) in block.chunks_exact(OnDiskDirEntry::LEN).enumerate() {
                     let dir_entry = OnDiskDirEntry::new(dir_entry_bytes);
@@ -638,7 +638,7 @@ impl FatVolume {
         while let Some(cluster) = current_cluster {
             let block_idx = self.cluster_to_block(cluster);
             for block in block_idx.range(BlockCount(u32::from(self.blocks_per_cluster))) {
-                trace!("Reading FAT");
+                trace!("Reading directory");
                 block_device
                     .read(&mut blocks, block)
                     .map_err(Error::DeviceError)?;
