@@ -112,6 +112,7 @@ where
     /// Read a block, and return a reference to it.
     pub fn read(&mut self, block_idx: BlockIdx) -> Result<&Block, D::Error> {
         if self.block_idx != Some(block_idx) {
+            self.block_idx = None;
             self.block_device.read(&mut self.block, block_idx)?;
             self.block_idx = Some(block_idx);
         }
@@ -121,6 +122,7 @@ where
     /// Read a block, and return a reference to it.
     pub fn read_mut(&mut self, block_idx: BlockIdx) -> Result<&mut Block, D::Error> {
         if self.block_idx != Some(block_idx) {
+            self.block_idx = None;
             self.block_device.read(&mut self.block, block_idx)?;
             self.block_idx = Some(block_idx);
         }
