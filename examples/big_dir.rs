@@ -3,7 +3,9 @@ extern crate embedded_sdmmc;
 mod linux;
 use linux::*;
 
-use embedded_sdmmc::{Error, VolumeManager};
+use embedded_sdmmc::Error;
+
+type VolumeManager = embedded_sdmmc::VolumeManager<LinuxBlockDevice, Clock, 8, 4, 4>;
 
 fn main() -> Result<(), embedded_sdmmc::Error<std::io::Error>> {
     env_logger::init();
@@ -11,8 +13,7 @@ fn main() -> Result<(), embedded_sdmmc::Error<std::io::Error>> {
     let filename = args.next().unwrap_or_else(|| "/dev/mmcblk0".into());
     let print_blocks = args.find(|x| x == "-v").map(|_| true).unwrap_or(false);
     let lbd = LinuxBlockDevice::new(filename, print_blocks).map_err(Error::DeviceError)?;
-    let volume_mgr: VolumeManager<LinuxBlockDevice, Clock, 8, 8, 4> =
-        VolumeManager::new_with_limits(lbd, Clock, 0xAA00_0000);
+    let volume_mgr: VolumeManager = VolumeManager::new_with_limits(lbd, Clock, 0xAA00_0000);
     let volume = volume_mgr
         .open_volume(embedded_sdmmc::VolumeIdx(1))
         .unwrap();
