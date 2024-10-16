@@ -61,9 +61,9 @@
 //
 // ****************************************************************************
 
-// #[cfg(test)]
-// #[macro_use]
-// extern crate hex_literal;
+#[cfg(test)]
+#[macro_use]
+extern crate hex_literal;
 
 #[macro_use]
 mod structure;
@@ -71,7 +71,7 @@ mod structure;
 pub mod blockdevice;
 pub mod fat;
 pub mod filesystem;
-// pub mod sdcard;
+pub mod sdcard;
 
 use core::fmt::Debug;
 use embedded_io::ErrorKind;
@@ -91,11 +91,11 @@ pub use crate::filesystem::{
 
 use filesystem::DirectoryInfo;
 
-// #[doc(inline)]
-// pub use crate::sdcard::Error as SdCardError;
+#[doc(inline)]
+pub use crate::sdcard::Error as SdCardError;
 
-// #[doc(inline)]
-// pub use crate::sdcard::SdCard;
+#[doc(inline)]
+pub use crate::sdcard::SdCard;
 
 mod volume_mgr;
 #[doc(inline)]
