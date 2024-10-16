@@ -27,7 +27,7 @@ impl BlockCache {
     }
     pub(crate) fn read<D>(
         &mut self,
-        block_device: &D,
+        block_device: &mut D,
         block_idx: BlockIdx,
     ) -> Result<&Block, Error<D::Error>>
     where

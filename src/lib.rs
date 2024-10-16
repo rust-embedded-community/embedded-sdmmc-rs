@@ -61,9 +61,9 @@
 //
 // ****************************************************************************
 
-#[cfg(test)]
-#[macro_use]
-extern crate hex_literal;
+// #[cfg(test)]
+// #[macro_use]
+// extern crate hex_literal;
 
 #[macro_use]
 mod structure;
@@ -71,7 +71,7 @@ mod structure;
 pub mod blockdevice;
 pub mod fat;
 pub mod filesystem;
-pub mod sdcard;
+// pub mod sdcard;
 
 use core::fmt::Debug;
 use embedded_io::ErrorKind;
@@ -91,11 +91,11 @@ pub use crate::filesystem::{
 
 use filesystem::DirectoryInfo;
 
-#[doc(inline)]
-pub use crate::sdcard::Error as SdCardError;
+// #[doc(inline)]
+// pub use crate::sdcard::Error as SdCardError;
 
-#[doc(inline)]
-pub use crate::sdcard::SdCard;
+// #[doc(inline)]
+// pub use crate::sdcard::SdCard;
 
 mod volume_mgr;
 #[doc(inline)]
@@ -277,7 +277,7 @@ impl RawVolume {
         const MAX_VOLUMES: usize,
     >(
         self,
-        volume_mgr: &VolumeManager<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>,
+        volume_mgr: &mut VolumeManager<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>,
     ) -> Volume<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>
     where
         D: crate::BlockDevice,
@@ -301,7 +301,7 @@ where
     T: crate::TimeSource,
 {
     raw_volume: RawVolume,
-    volume_mgr: &'a VolumeManager<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>,
+    volume_mgr: &'a mut VolumeManager<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>,
 }
 
 impl<'a, D, T, const MAX_DIRS: usize, const MAX_FILES: usize, const MAX_VOLUMES: usize>
@@ -313,7 +313,7 @@ where
     /// Create a new `Volume` from a `RawVolume`
     pub fn new(
         raw_volume: RawVolume,
-        volume_mgr: &'a VolumeManager<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>,
+        volume_mgr: &'a mut VolumeManager<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>,
     ) -> Volume<'a, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES> {
         Volume {
             raw_volume,
@@ -326,7 +326,7 @@ where
     /// You can then read the directory entries with `iterate_dir`, or you can
     /// use `open_file_in_dir`.
     pub fn open_root_dir(
-        &self,
+        &mut self,
     ) -> Result<crate::Directory<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>, Error<D::Error>> {
         let d = self.volume_mgr.open_root_dir(self.raw_volume)?;
         Ok(d.to_directory(self.volume_mgr))
