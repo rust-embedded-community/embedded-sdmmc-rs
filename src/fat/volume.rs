@@ -596,8 +596,8 @@ impl FatVolume {
                     } else if dir_entry.is_valid() && !dir_entry.is_lfn() {
                         // Block::LEN always fits on a u32
                         let start = (i * OnDiskDirEntry::LEN) as u32;
-                        let mut entry = dir_entry.get_entry(FatType::Fat16, block_idx, start);
-                        func(&mut entry);
+                        let entry = dir_entry.get_entry(FatType::Fat16, block_idx, start);
+                        func(&entry);
                     }
                 }
             }
@@ -652,8 +652,8 @@ impl FatVolume {
                     } else if dir_entry.is_valid() && !dir_entry.is_lfn() {
                         // Block::LEN always fits on a u32
                         let start = (i * OnDiskDirEntry::LEN) as u32;
-                        let mut entry = dir_entry.get_entry(FatType::Fat32, block, start);
-                        func(&mut entry);
+                        let entry = dir_entry.get_entry(FatType::Fat32, block, start);
+                        func(&entry);
                     }
                 }
             }
