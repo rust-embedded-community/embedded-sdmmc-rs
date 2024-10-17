@@ -74,7 +74,7 @@ pub mod filesystem;
 pub mod sdcard;
 
 use core::fmt::Debug;
-use embedded_io::ErrorKind;
+use embedded_io_async::ErrorKind;
 use filesystem::Handle;
 
 #[doc(inline)]
@@ -209,7 +209,7 @@ where
     LockError,
 }
 
-impl<E: Debug> embedded_io::Error for Error<E> {
+impl<E: Debug> embedded_io_async::Error for Error<E> {
     fn kind(&self) -> ErrorKind {
         match self {
             Error::DeviceError(_)

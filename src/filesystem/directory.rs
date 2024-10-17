@@ -110,37 +110,37 @@ where
     /// Open a directory.
     ///
     /// You can then read the directory entries with `iterate_dir` and `open_file_in_dir`.
-    pub fn open_dir<N>(
+    pub async fn open_dir<N>(
         &mut self,
         name: N,
     ) -> Result<Directory<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>, Error<D::Error>>
     where
         N: ToShortFileName,
     {
-        let d = self.volume_mgr.open_dir(self.raw_directory, name)?;
+        let d = self.volume_mgr.open_dir(self.raw_directory, name).await?;
         Ok(d.to_directory(self.volume_mgr))
     }
 
     /// Change to a directory, mutating this object.
     ///
     /// You can then read the directory entries with `iterate_dir` and `open_file_in_dir`.
-    pub fn change_dir<N>(&mut self, name: N) -> Result<(), Error<D::Error>>
+    pub async fn change_dir<N>(&mut self, name: N) -> Result<(), Error<D::Error>>
     where
         N: ToShortFileName,
     {
-        let d = self.volume_mgr.open_dir(self.raw_directory, name)?;
+        let d = self.volume_mgr.open_dir(self.raw_directory, name).await?;
         self.volume_mgr.close_dir(self.raw_directory).unwrap();
         self.raw_directory = d;
         Ok(())
     }
 
     /// Look in a directory for a named file.
-    pub fn find_directory_entry<N>(&mut self, name: N) -> Result<DirEntry, Error<D::Error>>
+    pub async fn find_directory_entry<N>(&mut self, name: N) -> Result<DirEntry, Error<D::Error>>
     where
         N: ToShortFileName,
     {
         self.volume_mgr
-            .find_directory_entry(self.raw_directory, name)
+            .find_directory_entry(self.raw_directory, name).await
     }
 
     /// Call a callback function for each directory entry in a directory.
@@ -152,15 +152,15 @@ where
     /// object is already locked in order to do the iteration.
     ///
     /// </div>
-    pub fn iterate_dir<F>(&mut self, func: F) -> Result<(), Error<D::Error>>
+    pub async fn iterate_dir<F>(&mut self, func: F) -> Result<(), Error<D::Error>>
     where
         F: FnMut(&DirEntry),
     {
-        self.volume_mgr.iterate_dir(self.raw_directory, func)
+        self.volume_mgr.iterate_dir(self.raw_directory, func).await
     }
 
     /// Open a file with the given full path. A file can only be opened once.
-    pub fn open_file_in_dir<N>(
+    pub async fn open_file_in_dir<N>(
         &mut self,
         name: N,
         mode: crate::Mode,
@@ -170,24 +170,24 @@ where
     {
         let f = self
             .volume_mgr
-            .open_file_in_dir(self.raw_directory, name, mode)?;
+            .open_file_in_dir(self.raw_directory, name, mode).await?;
         Ok(f.to_file(self.volume_mgr))
     }
 
     /// Delete a closed file with the given filename, if it exists.
-    pub fn delete_file_in_dir<N>(&mut self, name: N) -> Result<(), Error<D::Error>>
+    pub async fn delete_file_in_dir<N>(&mut self, name: N) -> Result<(), Error<D::Error>>
     where
         N: ToShortFileName,
     {
-        self.volume_mgr.delete_file_in_dir(self.raw_directory, name)
+        self.volume_mgr.delete_file_in_dir(self.raw_directory, name).await
     }
 
     /// Make a directory inside this directory
-    pub fn make_dir_in_dir<N>(&mut self, name: N) -> Result<(), Error<D::Error>>
+    pub async fn make_dir_in_dir<N>(&mut self, name: N) -> Result<(), Error<D::Error>>
     where
         N: ToShortFileName,
     {
-        self.volume_mgr.make_dir_in_dir(self.raw_directory, name)
+        self.volume_mgr.make_dir_in_dir(self.raw_directory, name).await
     }
 
     /// Convert back to a raw directory
