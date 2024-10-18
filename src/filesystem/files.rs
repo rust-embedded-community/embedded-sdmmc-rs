@@ -3,7 +3,12 @@ use crate::{
     filesystem::{ClusterId, DirEntry, Handle},
     BlockDevice, Error, RawVolume, VolumeManager,
 };
+
+#[cfg(feature="is_sync")]
 use embedded_io::{ErrorType, Read, Seek, SeekFrom, Write};
+
+#[cfg(not(feature="is_sync"))]
+use embedded_io_async::{ErrorType, Read, Seek, SeekFrom, Write};
 
 /// A handle for an open file on disk.
 ///
@@ -29,7 +34,7 @@ impl RawFile {
     /// Convert a raw file into a droppable [`File`]
     pub fn to_file<D, T, const MAX_DIRS: usize, const MAX_FILES: usize, const MAX_VOLUMES: usize>(
         self,
-        volume_mgr: &VolumeManager<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>,
+        volume_mgr: &mut VolumeManager<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>,
     ) -> File<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>
     where
         D: crate::BlockDevice,
@@ -53,7 +58,7 @@ where
     T: crate::TimeSource,
 {
     raw_file: RawFile,
-    volume_mgr: &'a VolumeManager<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>,
+    volume_mgr: &'a mut VolumeManager<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>,
 }
 
 impl<'a, D, T, const MAX_DIRS: usize, const MAX_FILES: usize, const MAX_VOLUMES: usize>
@@ -65,7 +70,7 @@ where
     /// Create a new `File` from a `RawFile`
     pub fn new(
         raw_file: RawFile,
-        volume_mgr: &'a VolumeManager<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>,
+        volume_mgr: &'a mut VolumeManager<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>,
     ) -> File<'a, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES> {
         File {
             raw_file,
@@ -76,13 +81,15 @@ where
     /// Read from the file
     ///
     /// Returns how many bytes were read, or an error.
-    pub fn read(&self, buffer: &mut [u8]) -> Result<usize, crate::Error<D::Error>> {
-        self.volume_mgr.read(self.raw_file, buffer)
+    #[maybe_async::maybe_async]
+    pub async fn read(&mut self, buffer: &mut [u8]) -> Result<usize, crate::Error<D::Error>> {
+        self.volume_mgr.read(self.raw_file, buffer).await
     }
 
     /// Write to the file
-    pub fn write(&self, buffer: &[u8]) -> Result<(), crate::Error<D::Error>> {
-        self.volume_mgr.write(self.raw_file, buffer)
+    #[maybe_async::maybe_async]
+    pub async fn write(&mut self, buffer: &[u8]) -> Result<(), crate::Error<D::Error>> {
+        self.volume_mgr.write(self.raw_file, buffer).await
     }
 
     /// Check if a file is at End Of File.
@@ -130,16 +137,18 @@ where
     }
 
     /// Flush any written data by updating the directory entry.
-    pub fn flush(&self) -> Result<(), Error<D::Error>> {
-        self.volume_mgr.flush_file(self.raw_file)
+    #[maybe_async::maybe_async]
+    pub async fn flush(&mut self) -> Result<(), Error<D::Error>> {
+        self.volume_mgr.flush_file(self.raw_file).await
     }
 
     /// Consume the `File` handle and close it. The behavior of this is similar
     /// to using [`core::mem::drop`] or letting the `File` go out of scope,
     /// except this lets the user handle any errors that may occur in the process,
     /// whereas when using drop, any errors will be discarded silently.
-    pub fn close(self) -> Result<(), Error<D::Error>> {
-        let result = self.volume_mgr.close_file(self.raw_file);
+    #[maybe_async::maybe_async]
+    pub async fn close(self) -> Result<(), Error<D::Error>> {
+        let result = self.volume_mgr.close_file(self.raw_file).await;
         core::mem::forget(self);
         result
     }
@@ -186,11 +195,12 @@ impl<
         const MAX_VOLUMES: usize,
     > Read for File<'_, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>
 {
-    fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+    #[maybe_async::maybe_async]
+    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         if buf.is_empty() {
             Ok(0)
         } else {
-            self.read(buf)
+            self.read(buf).await
         }
     }
 }
@@ -203,17 +213,19 @@ impl<
         const MAX_VOLUMES: usize,
     > Write for File<'_, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>
 {
-    fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+    #[maybe_async::maybe_async]
+    async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         if buf.is_empty() {
             Ok(0)
         } else {
-            self.write(buf)?;
+            self.write(buf).await?;
             Ok(buf.len())
         }
     }
+    #[maybe_async::maybe_async]
 
-    fn flush(&mut self) -> Result<(), Self::Error> {
-        Self::flush(self)
+    async fn flush(&mut self) -> Result<(), Self::Error> {
+        Self::flush(self).await
     }
 }
 
@@ -225,7 +237,8 @@ impl<
         const MAX_VOLUMES: usize,
     > Seek for File<'_, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>
 {
-    fn seek(&mut self, pos: SeekFrom) -> Result<u64, Self::Error> {
+    #[maybe_async::maybe_async]
+    async fn seek(&mut self, pos: SeekFrom) -> Result<u64, Self::Error> {
         match pos {
             SeekFrom::Start(offset) => {
                 self.seek_from_start(offset.try_into().map_err(|_| Error::InvalidOffset)?)?

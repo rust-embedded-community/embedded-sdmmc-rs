@@ -25,9 +25,10 @@ impl BlockCache {
             idx: None,
         }
     }
-    pub(crate) fn read<D>(
+    #[maybe_async::maybe_async]
+    pub(crate) async fn read<D>(
         &mut self,
-        block_device: &D,
+        block_device: &mut D,
         block_idx: BlockIdx,
     ) -> Result<&Block, Error<D::Error>>
     where
@@ -36,7 +37,7 @@ impl BlockCache {
         if Some(block_idx) != self.idx {
             self.idx = Some(block_idx);
             block_device
-                .read(core::slice::from_mut(&mut self.block), block_idx)
+                .read(core::slice::from_mut(&mut self.block), block_idx).await
                 .map_err(Error::DeviceError)?;
         }
         Ok(&self.block)

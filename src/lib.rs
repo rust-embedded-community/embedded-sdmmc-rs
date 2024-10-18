@@ -74,7 +74,13 @@ pub mod filesystem;
 pub mod sdcard;
 
 use core::fmt::Debug;
+
+#[cfg(feature="is_sync")]
 use embedded_io::ErrorKind;
+
+#[cfg(not(feature="is_sync"))]
+use embedded_io_async::ErrorKind;
+
 use filesystem::Handle;
 
 #[doc(inline)]
@@ -209,7 +215,7 @@ where
     LockError,
 }
 
-impl<E: Debug> embedded_io::Error for Error<E> {
+impl<E: Debug> embedded_io_async::Error for Error<E> {
     fn kind(&self) -> ErrorKind {
         match self {
             Error::DeviceError(_)
@@ -277,7 +283,7 @@ impl RawVolume {
         const MAX_VOLUMES: usize,
     >(
         self,
-        volume_mgr: &VolumeManager<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>,
+        volume_mgr: &mut VolumeManager<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>,
     ) -> Volume<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>
     where
         D: crate::BlockDevice,
@@ -301,7 +307,7 @@ where
     T: crate::TimeSource,
 {
     raw_volume: RawVolume,
-    volume_mgr: &'a VolumeManager<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>,
+    volume_mgr: &'a mut VolumeManager<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>,
 }
 
 impl<'a, D, T, const MAX_DIRS: usize, const MAX_FILES: usize, const MAX_VOLUMES: usize>
@@ -313,7 +319,7 @@ where
     /// Create a new `Volume` from a `RawVolume`
     pub fn new(
         raw_volume: RawVolume,
-        volume_mgr: &'a VolumeManager<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>,
+        volume_mgr: &'a mut VolumeManager<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>,
     ) -> Volume<'a, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES> {
         Volume {
             raw_volume,
@@ -326,7 +332,7 @@ where
     /// You can then read the directory entries with `iterate_dir`, or you can
     /// use `open_file_in_dir`.
     pub fn open_root_dir(
-        &self,
+        &mut self,
     ) -> Result<crate::Directory<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>, Error<D::Error>> {
         let d = self.volume_mgr.open_root_dir(self.raw_volume)?;
         Ok(d.to_directory(self.volume_mgr))
