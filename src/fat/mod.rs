@@ -14,35 +14,6 @@ pub enum FatType {
     Fat32,
 }
 
-pub(crate) struct BlockCache {
-    block: Block,
-    idx: Option<BlockIdx>,
-}
-impl BlockCache {
-    pub fn empty() -> Self {
-        BlockCache {
-            block: Block::new(),
-            idx: None,
-        }
-    }
-    pub(crate) fn read<D>(
-        &mut self,
-        block_device: &D,
-        block_idx: BlockIdx,
-    ) -> Result<&Block, Error<D::Error>>
-    where
-        D: BlockDevice,
-    {
-        if Some(block_idx) != self.idx {
-            self.idx = Some(block_idx);
-            block_device
-                .read(core::slice::from_mut(&mut self.block), block_idx)
-                .map_err(Error::DeviceError)?;
-        }
-        Ok(&self.block)
-    }
-}
-
 mod bpb;
 mod info;
 mod ondiskdirentry;
@@ -52,8 +23,6 @@ pub use bpb::Bpb;
 pub use info::{Fat16Info, Fat32Info, FatSpecificInfo, InfoSector};
 pub use ondiskdirentry::OnDiskDirEntry;
 pub use volume::{parse_volume, FatVolume, VolumeName};
-
-use crate::{Block, BlockDevice, BlockIdx, Error};
 
 // ****************************************************************************
 //
