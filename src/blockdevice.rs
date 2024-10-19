@@ -75,13 +75,19 @@ impl Default for Block {
 
 /// A block device - a device which can read and write blocks (or
 /// sectors). Only supports devices which are <= 2 TiB in size.
+#[allow(async_fn_in_trait)]
+#[maybe_async::maybe_async(AFIT)]
 pub trait BlockDevice {
     /// The errors that the `BlockDevice` can return. Must be debug formattable.
     type Error: core::fmt::Debug;
     /// Read one or more blocks, starting at the given block index.
-    fn read(&self, blocks: &mut [Block], start_block_idx: BlockIdx) -> Result<(), Self::Error>;
+    async fn read(
+        &self,
+        blocks: &mut [Block],
+        start_block_idx: BlockIdx,
+    ) -> Result<(), Self::Error>;
     /// Write one or more blocks, starting at the given block index.
-    fn write(&self, blocks: &[Block], start_block_idx: BlockIdx) -> Result<(), Self::Error>;
+    async fn write(&self, blocks: &[Block], start_block_idx: BlockIdx) -> Result<(), Self::Error>;
     /// Determine how many blocks this device can hold.
     fn num_blocks(&self) -> Result<BlockCount, Self::Error>;
 }
@@ -110,31 +116,36 @@ where
     }
 
     /// Read a block, and return a reference to it.
-    pub fn read(&mut self, block_idx: BlockIdx) -> Result<&Block, D::Error> {
+    #[maybe_async::maybe_async]
+    pub async fn read(&mut self, block_idx: BlockIdx) -> Result<&Block, D::Error> {
         if self.block_idx != Some(block_idx) {
             self.block_idx = None;
-            self.block_device.read(&mut self.block, block_idx)?;
+            self.block_device.read(&mut self.block, block_idx).await?;
             self.block_idx = Some(block_idx);
         }
         Ok(&self.block[0])
     }
 
     /// Read a block, and return a reference to it.
-    pub fn read_mut(&mut self, block_idx: BlockIdx) -> Result<&mut Block, D::Error> {
+    #[maybe_async::maybe_async]
+    pub async fn read_mut(&mut self, block_idx: BlockIdx) -> Result<&mut Block, D::Error> {
         if self.block_idx != Some(block_idx) {
             self.block_idx = None;
-            self.block_device.read(&mut self.block, block_idx)?;
+            self.block_device.read(&mut self.block, block_idx).await?;
             self.block_idx = Some(block_idx);
         }
         Ok(&mut self.block[0])
     }
 
     /// Write back a block you read with [`Self::read_mut`] and then modified.
-    pub fn write_back(&mut self) -> Result<(), D::Error> {
-        self.block_device.write(
-            &self.block,
-            self.block_idx.expect("write_back with no read"),
-        )
+    #[maybe_async::maybe_async]
+    pub async fn write_back(&mut self) -> Result<(), D::Error> {
+        self.block_device
+            .write(
+                &self.block,
+                self.block_idx.expect("write_back with no read"),
+            )
+            .await
     }
 
     /// Access a blank sector

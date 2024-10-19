@@ -15,8 +15,10 @@ byteorder = {version = "1", default-features = false}
 defmt = {version = "0.3", optional = true}
 embedded-hal = "1.0.0"
 embedded-io = "0.6.1"
+embedded-io-async = "0.6.1"
 heapless = "^0.8"
 log = {version = "0.4", default-features = false, optional = true}
+maybe-async = {version = "0.2"}
 
 [dev-dependencies]
 chrono = "0.4"
@@ -27,6 +29,7 @@ hex-literal = "0.4.1"
 sha2 = "0.10"
 
 [features]
-default = ["log"]
+default = ["log", "is_sync"]
 defmt-log = ["dep:defmt"]
 log = ["dep:log"]
+is_sync = ["maybe-async/is_sync"]

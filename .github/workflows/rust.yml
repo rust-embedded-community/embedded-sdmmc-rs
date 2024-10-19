@@ -18,6 +18,6 @@ jobs:
     steps:
     - uses: actions/checkout@v1
     - name: Build
-      run: cargo build --no-default-features --features ${{matrix.features}} --verbose
+      run: cargo build --no-default-features --features ${{matrix.features}},is_sync --verbose
     - name: Run Tests
-      run: cargo test --no-default-features --features ${{matrix.features}} --verbose
+      run: cargo test --no-default-features --features ${{matrix.features}},is_sync --verbose
