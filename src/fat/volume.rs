@@ -11,6 +11,7 @@ use crate::{
 };
 use byteorder::{ByteOrder, LittleEndian};
 use core::convert::TryFrom;
+use heapless::String;
 
 use super::BlockCache;
 
@@ -532,6 +533,10 @@ impl FatVolume {
         };
         let mut blocks = [Block::new()];
         let mut block_cache = BlockCache::empty();
+
+        let mut lfn_buffer = [[' '; 13]; 8];
+        let mut lfn_pointer = 0;
+
         while let Some(cluster) = current_cluster {
             let block_idx = self.cluster_to_block(cluster);
             for block in block_idx.range(BlockCount(u32::from(self.blocks_per_cluster))) {
@@ -545,11 +550,33 @@ impl FatVolume {
                     if dir_entry.is_end() {
                         // Can quit early
                         return Ok(());
-                    } else if dir_entry.is_valid() && !dir_entry.is_lfn() {
-                        // Safe, since Block::LEN always fits on a u32
-                        let start = u32::try_from(start).unwrap();
-                        let entry = dir_entry.get_entry(FatType::Fat32, block, start);
-                        func(&entry);
+                    } else if dir_entry.is_valid() {
+                        if dir_entry.is_lfn() {
+                            if let Some((_, _, data)) = dir_entry.lfn_contents() {
+                                lfn_buffer[lfn_pointer] = data.clone();
+                                lfn_pointer += 1;
+                            }
+                        } else {
+                            if lfn_pointer > 0 {
+                                let mut filename: String<255> = String::new();
+                                while lfn_pointer > 0 {
+                                    lfn_pointer -= 1;
+                                    for i in 0..13 {
+                                        // This will only happen on last chunk after last
+                                        // character, so simple break is enough
+                                        if lfn_buffer[lfn_pointer][i] == '\0' {
+                                            break;
+                                        } else {
+                                            filename.push(lfn_buffer[lfn_pointer][i]);
+                                        }
+                                    }
+                                }
+                            }
+                            // Safe, since Block::LEN always fits on a u32
+                            let start = u32::try_from(start).unwrap();
+                            let entry = dir_entry.get_entry(FatType::Fat32, block, start);
+                            func(&entry);
+                        }
                     }
                 }
             }
