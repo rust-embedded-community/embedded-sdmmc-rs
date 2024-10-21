@@ -3,7 +3,7 @@
 /// A cluster is a consecutive group of blocks. Each cluster has a a numeric ID.
 /// Some numeric IDs are reserved for special purposes.
 #[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd)]
+#[derive(Copy, Clone, PartialEq, Eq, Ord, PartialOrd)]
 pub struct ClusterId(pub(crate) u32);
 
 impl ClusterId {
@@ -30,6 +30,34 @@ impl core::ops::Add<u32> for ClusterId {
 impl core::ops::AddAssign<u32> for ClusterId {
     fn add_assign(&mut self, rhs: u32) {
         self.0 += rhs;
+    }
+}
+
+impl core::fmt::Debug for ClusterId {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "ClusterId(")?;
+        match *self {
+            Self::INVALID => {
+                write!(f, "INVALID")?;
+            }
+            Self::BAD => {
+                write!(f, "BAD")?;
+            }
+            Self::EMPTY => {
+                write!(f, "EMPTY")?;
+            }
+            Self::ROOT_DIR => {
+                write!(f, "ROOT_DIR")?;
+            }
+            Self::END_OF_FILE => {
+                write!(f, "END_OF_FILE")?;
+            }
+            ClusterId(value) => {
+                write!(f, "{:#08x}", value)?;
+            }
+        }
+        write!(f, ")")?;
+        Ok(())
     }
 }
 

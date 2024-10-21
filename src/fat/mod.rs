@@ -14,36 +14,6 @@ pub enum FatType {
     Fat32,
 }
 
-pub(crate) struct BlockCache {
-    block: Block,
-    idx: Option<BlockIdx>,
-}
-impl BlockCache {
-    pub fn empty() -> Self {
-        BlockCache {
-            block: Block::new(),
-            idx: None,
-        }
-    }
-    pub(crate) fn read<D>(
-        &mut self,
-        block_device: &D,
-        block_idx: BlockIdx,
-        reason: &str,
-    ) -> Result<&Block, Error<D::Error>>
-    where
-        D: BlockDevice,
-    {
-        if Some(block_idx) != self.idx {
-            self.idx = Some(block_idx);
-            block_device
-                .read(core::slice::from_mut(&mut self.block), block_idx, reason)
-                .map_err(Error::DeviceError)?;
-        }
-        Ok(&self.block)
-    }
-}
-
 mod bpb;
 mod info;
 mod ondiskdirentry;
@@ -53,8 +23,6 @@ pub use bpb::Bpb;
 pub use info::{Fat16Info, Fat32Info, FatSpecificInfo, InfoSector};
 pub use ondiskdirentry::OnDiskDirEntry;
 pub use volume::{parse_volume, FatVolume, VolumeName};
-
-use crate::{Block, BlockDevice, BlockIdx, Error};
 
 // ****************************************************************************
 //
@@ -139,7 +107,11 @@ mod test {
         "#;
         let results = [
             Expected::Short(DirEntry {
-                name: ShortFileName::create_from_str_mixed_case("boot").unwrap(),
+                name: unsafe {
+                    VolumeName::create_from_str("boot")
+                        .unwrap()
+                        .to_short_filename()
+                },
                 mtime: Timestamp::from_calendar(2015, 11, 21, 19, 35, 18).unwrap(),
                 ctime: Timestamp::from_calendar(2015, 11, 21, 19, 35, 18).unwrap(),
                 attributes: Attributes::create_from_fat(Attributes::VOLUME),
@@ -349,7 +321,7 @@ mod test {
         assert_eq!(bpb.fat_size16(), 32);
         assert_eq!(bpb.total_blocks32(), 122_880);
         assert_eq!(bpb.footer(), 0xAA55);
-        assert_eq!(bpb.volume_label(), b"boot       ");
+        assert_eq!(bpb.volume_label(), *b"boot       ");
         assert_eq!(bpb.fat_size(), 32);
         assert_eq!(bpb.total_blocks(), 122_880);
         assert_eq!(bpb.fat_type, FatType::Fat16);

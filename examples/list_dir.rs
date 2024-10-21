@@ -32,24 +32,25 @@
 //! $ cargo run --example list_dir -- ./disk.img
 //! ```
 
-extern crate embedded_sdmmc;
-
 mod linux;
 use linux::*;
 
-use embedded_sdmmc::{Directory, VolumeIdx, VolumeManager};
+use embedded_sdmmc::{ShortFileName, VolumeIdx};
 
 type Error = embedded_sdmmc::Error<std::io::Error>;
+
+type Directory<'a> = embedded_sdmmc::Directory<'a, LinuxBlockDevice, Clock, 8, 4, 4>;
+type VolumeManager = embedded_sdmmc::VolumeManager<LinuxBlockDevice, Clock, 8, 4, 4>;
 
 fn main() -> Result<(), Error> {
     env_logger::init();
     let mut args = std::env::args().skip(1);
     let filename = args.next().unwrap_or_else(|| "/dev/mmcblk0".into());
     let print_blocks = args.find(|x| x == "-v").map(|_| true).unwrap_or(false);
+
     let lbd = LinuxBlockDevice::new(filename, print_blocks).map_err(Error::DeviceError)?;
-    let mut volume_mgr: VolumeManager<LinuxBlockDevice, Clock, 8, 8, 4> =
-        VolumeManager::new_with_limits(lbd, Clock, 0xAA00_0000);
-    let mut volume = volume_mgr.open_volume(VolumeIdx(0))?;
+    let volume_mgr: VolumeManager = VolumeManager::new_with_limits(lbd, Clock, 0xAA00_0000);
+    let volume = volume_mgr.open_volume(VolumeIdx(0))?;
     let root_dir = volume.open_root_dir()?;
     list_dir(root_dir, "/")?;
     Ok(())
@@ -58,10 +59,7 @@ fn main() -> Result<(), Error> {
 /// Recursively print a directory listing for the open directory given.
 ///
 /// The path is for display purposes only.
-fn list_dir(
-    mut directory: Directory<LinuxBlockDevice, Clock, 8, 8, 4>,
-    path: &str,
-) -> Result<(), Error> {
+fn list_dir(directory: Directory<'_>, path: &str) -> Result<(), Error> {
     println!("Listing {}", path);
     let mut children = Vec::new();
     directory.iterate_dir(|entry| {
@@ -77,8 +75,8 @@ fn list_dir(
             }
         );
         if entry.attributes.is_directory()
-            && entry.name != embedded_sdmmc::ShortFileName::parent_dir()
-            && entry.name != embedded_sdmmc::ShortFileName::this_dir()
+            && entry.name != ShortFileName::parent_dir()
+            && entry.name != ShortFileName::this_dir()
         {
             children.push(entry.name.clone());
         }
