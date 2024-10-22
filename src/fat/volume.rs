@@ -12,7 +12,7 @@ use crate::{
 };
 use byteorder::{ByteOrder, LittleEndian};
 use core::convert::TryFrom;
-use heapless::String;
+use heapless::{String, Vec};
 
 /// An MS-DOS 11 character volume label.
 ///
@@ -615,8 +615,9 @@ impl FatVolume {
             _ => Some(dir_info.cluster),
         };
 
-        let mut lfn_buffer = [[' '; 13]; 8];
-        let mut lfn_pointer = 0;
+        let mut lfn_stack = Vec::<String<32>, 8>::new();
+        let mut current_checksum: Option<u8> = None;
+        let mut current_sequence: Option<u8> = None;
 
         while let Some(cluster) = current_cluster {
             let start_block_idx = self.cluster_to_block(cluster);
@@ -630,26 +631,50 @@ impl FatVolume {
                         return Ok(());
                     } else if dir_entry.is_valid() {
                         if dir_entry.is_lfn() {
-                            if let Some((_, _, data)) = dir_entry.lfn_contents() {
-                                lfn_buffer[lfn_pointer] = data.clone();
-                                lfn_pointer += 1;
+                            if let Some((is_start, sequence, data, checksum)) =
+                                dir_entry.lfn_contents()
+                            {
+                                // Case for malformed LFN entries, if they ale placed before
+                                // actual entries
+                                let checksum_ok = match current_checksum {
+                                    Some(c) => c == checksum,
+                                    None => true,
+                                };
+                                let sequence_ok = match current_sequence {
+                                    Some(s) => sequence == s - 1 && sequence < 8,
+                                    None => true,
+                                };
+                                if is_start || !checksum_ok || !sequence_ok {
+                                    lfn_stack.clear();
+                                    current_checksum = None;
+                                    current_sequence = None;
+                                } else {
+                                    current_checksum = Some(checksum);
+                                    current_sequence = Some(sequence);
+                                }
+
+                                let mut name_chunk: String<32> = String::new();
+                                for i in 0..13 {
+                                    if data[i] == '\0' {
+                                        break;
+                                    }
+                                    name_chunk.push(data[i]).unwrap();
+                                }
+                                lfn_stack.push(name_chunk).unwrap();
                             }
                         } else {
-                            if lfn_pointer > 0 {
+                            if !lfn_stack.is_empty() {
                                 let mut filename: String<255> = String::new();
-                                while lfn_pointer > 0 {
-                                    lfn_pointer -= 1;
-                                    for i in 0..13 {
-                                        // This will only happen on last chunk after last
-                                        // character, so simple break is enough
-                                        if lfn_buffer[lfn_pointer][i] == '\0' {
-                                            break;
-                                        } else {
-                                            filename.push(lfn_buffer[lfn_pointer][i]);
-                                        }
-                                    }
+                                lfn_stack.reverse();
+                                for name_chunk in lfn_stack.iter() {
+                                    filename.push_str(name_chunk).unwrap();
                                 }
                             }
+
+                            lfn_stack.clear();
+                            current_checksum = None;
+                            current_sequence = None;
+                            // TODO calculate checksum and compare with shorf file name
                             // Safe, since Block::LEN always fits on a u32
                             let start = (i * OnDiskDirEntry::LEN) as u32;
                             let entry = dir_entry.get_entry(FatType::Fat32, block_idx, start);

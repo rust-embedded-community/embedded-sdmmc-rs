@@ -78,11 +78,12 @@ impl<'a> OnDiskDirEntry<'a> {
     }
 
     /// If this is an LFN, get the contents so we can re-assemble the filename.
-    pub fn lfn_contents(&self) -> Option<(bool, u8, [char; 13])> {
+    pub fn lfn_contents(&self) -> Option<(bool, u8, [char; 13], u8)> {
         if self.is_lfn() {
             let mut buffer = [' '; 13];
             let is_start = (self.data[0] & 0x40) != 0;
             let sequence = self.data[0] & 0x1F;
+            let checksum = self.data[13];
             // LFNs store UCS-2, so we can map from 16-bit char to 32-bit char without problem.
             buffer[0] =
                 core::char::from_u32(u32::from(LittleEndian::read_u16(&self.data[1..=2]))).unwrap();
@@ -118,7 +119,7 @@ impl<'a> OnDiskDirEntry<'a> {
             buffer[12] =
                 core::char::from_u32(u32::from(LittleEndian::read_u16(&self.data[30..=31])))
                     .unwrap();
-            Some((is_start, sequence, buffer))
+            Some((is_start, sequence, buffer, checksum))
         } else {
             None
         }

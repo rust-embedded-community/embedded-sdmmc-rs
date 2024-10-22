@@ -252,11 +252,12 @@ mod test {
             let on_disk_entry = OnDiskDirEntry::new(part);
             match expected {
                 Expected::Lfn(start, index, contents) if on_disk_entry.is_lfn() => {
-                    let (calc_start, calc_index, calc_contents) =
+                    let (calc_start, calc_index, calc_contents, _) =
                         on_disk_entry.lfn_contents().unwrap();
                     assert_eq!(*start, calc_start);
                     assert_eq!(*index, calc_index);
                     assert_eq!(*contents, calc_contents);
+                    // TODO: Check checksum
                 }
                 Expected::Short(expected_entry) if !on_disk_entry.is_lfn() => {
                     let parsed_entry = on_disk_entry.get_entry(FatType::Fat32, BlockIdx(0), 0);
