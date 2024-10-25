@@ -84,7 +84,7 @@ mod test {
     fn test_dir_entries() {
         #[derive(Debug)]
         enum Expected {
-            Lfn(bool, u8, [char; 13]),
+            Lfn(bool, u8, u8, [u16; 13]),
             Short(DirEntry),
         }
         let raw_data = r#"
@@ -105,6 +105,7 @@ mod test {
         422e0064007400620000000f0059ffffffffffffffffffffffff0000ffffffff B..d.t.b.....Y..................
         01620063006d00320037000f0059300038002d0072007000690000002d006200 .b.c.m.2.7...Y0.8.-.r.p.i...-.b.
         "#;
+
         let results = [
             Expected::Short(DirEntry {
                 name: unsafe {
@@ -123,9 +124,10 @@ mod test {
             Expected::Lfn(
                 true,
                 1,
+                0x47,
                 [
-                    'o', 'v', 'e', 'r', 'l', 'a', 'y', 's', '\u{0000}', '\u{ffff}', '\u{ffff}',
-                    '\u{ffff}', '\u{ffff}',
+                    'o' as u16, 'v' as u16, 'e' as u16, 'r' as u16, 'l' as u16, 'a' as u16,
+                    'y' as u16, 's' as u16, 0x0000, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF,
                 ],
             ),
             Expected::Short(DirEntry {
@@ -141,16 +143,20 @@ mod test {
             Expected::Lfn(
                 true,
                 2,
+                0x79,
                 [
-                    '-', 'p', 'l', 'u', 's', '.', 'd', 't', 'b', '\u{0000}', '\u{ffff}',
-                    '\u{ffff}', '\u{ffff}',
+                    '-' as u16, 'p' as u16, 'l' as u16, 'u' as u16, 's' as u16, '.' as u16,
+                    'd' as u16, 't' as u16, 'b' as u16, 0x0000, 0xFFFF, 0xFFFF, 0xFFFF,
                 ],
             ),
             Expected::Lfn(
                 false,
                 1,
+                0x79,
                 [
-                    'b', 'c', 'm', '2', '7', '0', '8', '-', 'r', 'p', 'i', '-', 'b',
+                    'b' as u16, 'c' as u16, 'm' as u16, '2' as u16, '7' as u16, '0' as u16,
+                    '8' as u16, '-' as u16, 'r' as u16, 'p' as u16, 'i' as u16, '-' as u16,
+                    'b' as u16,
                 ],
             ),
             Expected::Short(DirEntry {
@@ -166,8 +172,11 @@ mod test {
             Expected::Lfn(
                 true,
                 1,
+                0x12,
                 [
-                    'C', 'O', 'P', 'Y', 'I', 'N', 'G', '.', 'l', 'i', 'n', 'u', 'x',
+                    'C' as u16, 'O' as u16, 'P' as u16, 'Y' as u16, 'I' as u16, 'N' as u16,
+                    'G' as u16, '.' as u16, 'l' as u16, 'i' as u16, 'n' as u16, 'u' as u16,
+                    'x' as u16,
                 ],
             ),
             Expected::Short(DirEntry {
@@ -183,16 +192,31 @@ mod test {
             Expected::Lfn(
                 true,
                 2,
+                0x67,
                 [
-                    'c', 'o', 'm', '\u{0}', '\u{ffff}', '\u{ffff}', '\u{ffff}', '\u{ffff}',
-                    '\u{ffff}', '\u{ffff}', '\u{ffff}', '\u{ffff}', '\u{ffff}',
+                    'c' as u16,
+                    'o' as u16,
+                    'm' as u16,
+                    '\u{0}' as u16,
+                    0xFFFF,
+                    0xFFFF,
+                    0xFFFF,
+                    0xFFFF,
+                    0xFFFF,
+                    0xFFFF,
+                    0xFFFF,
+                    0xFFFF,
+                    0xFFFF,
                 ],
             ),
             Expected::Lfn(
                 false,
                 1,
+                0x67,
                 [
-                    'L', 'I', 'C', 'E', 'N', 'C', 'E', '.', 'b', 'r', 'o', 'a', 'd',
+                    'L' as u16, 'I' as u16, 'C' as u16, 'E' as u16, 'N' as u16, 'C' as u16,
+                    'E' as u16, '.' as u16, 'b' as u16, 'r' as u16, 'o' as u16, 'a' as u16,
+                    'd' as u16,
                 ],
             ),
             Expected::Short(DirEntry {
@@ -208,16 +232,20 @@ mod test {
             Expected::Lfn(
                 true,
                 2,
+                0x19,
                 [
-                    '-', 'b', '.', 'd', 't', 'b', '\u{0000}', '\u{ffff}', '\u{ffff}', '\u{ffff}',
-                    '\u{ffff}', '\u{ffff}', '\u{ffff}',
+                    '-' as u16, 'b' as u16, '.' as u16, 'd' as u16, 't' as u16, 'b' as u16, 0x0000,
+                    0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF,
                 ],
             ),
             Expected::Lfn(
                 false,
                 1,
+                0x19,
                 [
-                    'b', 'c', 'm', '2', '7', '0', '9', '-', 'r', 'p', 'i', '-', '2',
+                    'b' as u16, 'c' as u16, 'm' as u16, '2' as u16, '7' as u16, '0' as u16,
+                    '9' as u16, '-' as u16, 'r' as u16, 'p' as u16, 'i' as u16, '-' as u16,
+                    '2' as u16,
                 ],
             ),
             Expected::Short(DirEntry {
@@ -233,16 +261,20 @@ mod test {
             Expected::Lfn(
                 true,
                 2,
+                0x59,
                 [
-                    '.', 'd', 't', 'b', '\u{0000}', '\u{ffff}', '\u{ffff}', '\u{ffff}', '\u{ffff}',
-                    '\u{ffff}', '\u{ffff}', '\u{ffff}', '\u{ffff}',
+                    '.' as u16, 'd' as u16, 't' as u16, 'b' as u16, 0x0000, 0xFFFF, 0xFFFF, 0xFFFF,
+                    0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF,
                 ],
             ),
             Expected::Lfn(
                 false,
                 1,
+                0x59,
                 [
-                    'b', 'c', 'm', '2', '7', '0', '8', '-', 'r', 'p', 'i', '-', 'b',
+                    'b' as u16, 'c' as u16, 'm' as u16, '2' as u16, '7' as u16, '0' as u16,
+                    '8' as u16, '-' as u16, 'r' as u16, 'p' as u16, 'i' as u16, '-' as u16,
+                    'b' as u16,
                 ],
             ),
         ];
@@ -251,12 +283,13 @@ mod test {
         for (part, expected) in data.chunks(OnDiskDirEntry::LEN).zip(results.iter()) {
             let on_disk_entry = OnDiskDirEntry::new(part);
             match expected {
-                Expected::Lfn(start, index, contents) if on_disk_entry.is_lfn() => {
-                    let (calc_start, calc_index, calc_contents) =
+                Expected::Lfn(start, index, csum, contents) if on_disk_entry.is_lfn() => {
+                    let (calc_start, calc_index, calc_csum, calc_contents) =
                         on_disk_entry.lfn_contents().unwrap();
                     assert_eq!(*start, calc_start);
                     assert_eq!(*index, calc_index);
                     assert_eq!(*contents, calc_contents);
+                    assert_eq!(*csum, calc_csum);
                 }
                 Expected::Short(expected_entry) if !on_disk_entry.is_lfn() => {
                     let parsed_entry = on_disk_entry.get_entry(FatType::Fat32, BlockIdx(0), 0);
