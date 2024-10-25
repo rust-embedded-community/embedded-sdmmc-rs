@@ -1,6 +1,7 @@
 //! Filename related types
 
 use crate::fat::VolumeName;
+use crate::trace;
 
 /// Various filename related errors that can occur.
 #[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
@@ -219,6 +220,83 @@ impl core::fmt::Debug for ShortFileName {
     }
 }
 
+/// Used to store a Long File Name
+///
+/// The const generic specifies the maximum capacity in bytes.
+pub struct LfnBuffer<const N: usize> {
+    /// We fill this buffer in from the back
+    inner: [u8; N],
+    /// How many bytes are free.
+    ///
+    /// This is also the byte index the string starts from.
+    free: usize,
+    /// Did we overflow?
+    overflow: bool,
+}
+
+impl<const N: usize> LfnBuffer<N> {
+    /// Create a new, empty, LFN Buffer
+    pub fn new() -> LfnBuffer<N> {
+        LfnBuffer {
+            inner: [0u8; N],
+            free: N,
+            overflow: false,
+        }
+    }
+
+    /// Empty out this buffer
+    pub fn clear(&mut self) {
+        self.free = N;
+        self.overflow = false;
+    }
+
+    /// Push the 13 UCS-2 characters into this string
+    ///
+    /// We assume they are pushed last-chunk-first, as you would find
+    /// them on disk.
+    pub fn push(&mut self, buffer: &[u16; 13]) {
+        // find the first null, if any
+        let null_idx = buffer
+            .iter()
+            .position(|&b| b == 0x0000)
+            .unwrap_or(buffer.len());
+        // take all the wide chars, up to the null (or go to the end)
+        let buffer = &buffer[0..null_idx];
+        for ch in buffer.iter().rev() {
+            let ch = char::from_u32(*ch as u32).unwrap_or('?');
+            trace!("LFN push {:?}", ch);
+            let mut ch_bytes = [0u8; 4];
+            // a buffer of length 4 is always enough
+            let ch_str = ch.encode_utf8(&mut ch_bytes);
+            if self.free < ch_str.len() {
+                self.overflow = true;
+                return;
+            }
+            // store the encoded character in the buffer, working backwards
+            for b in ch_str.bytes().rev() {
+                self.free -= 1;
+                self.inner[self.free] = b;
+            }
+        }
+    }
+
+    /// View this LFN buffer as a string-slice
+    pub fn as_str(&self) -> &str {
+        if self.overflow {
+            ""
+        } else {
+            // we always only put UTF-8 encoded data in here
+            unsafe { core::str::from_utf8_unchecked(&self.inner[self.free..]) }
+        }
+    }
+}
+
+impl<const N: usize> core::default::Default for LfnBuffer<N> {
+    fn default() -> Self {
+        LfnBuffer::new()
+    }
+}
+
 // ****************************************************************************
 //
 // Unit Tests
@@ -320,6 +398,30 @@ mod test {
                 .unwrap()
                 .csum()
         );
+    }
+
+    #[test]
+    fn one_piece() {
+        let mut buf: LfnBuffer<64> = LfnBuffer::new();
+        buf.push(&[
+            0x0030, 0x0031, 0x0032, 0x0033, 0x2202, 0x0000, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF,
+            0xFFFF, 0xFFFF,
+        ]);
+        assert_eq!(buf.as_str(), "0123∂");
+    }
+
+    #[test]
+    fn two_piece() {
+        let mut buf: LfnBuffer<64> = LfnBuffer::new();
+        buf.push(&[
+            0x0030, 0x0031, 0x0032, 0x0033, 0x2202, 0x0000, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF,
+            0xFFFF, 0xFFFF,
+        ]);
+        buf.push(&[
+            0x0041, 0x0042, 0x0043, 0x0044, 0x0045, 0x0046, 0x0047, 0x0048, 0x0049, 0x004a, 0x004b,
+            0x004c, 0x004d,
+        ]);
+        assert_eq!(buf.as_str(), "ABCDEFGHIJKLM0123∂");
     }
 }
 
