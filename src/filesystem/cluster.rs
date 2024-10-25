@@ -38,22 +38,22 @@ impl core::fmt::Debug for ClusterId {
         write!(f, "ClusterId(")?;
         match *self {
             Self::INVALID => {
-                write!(f, "INVALID")?;
+                write!(f, "{:08}", "INVALID")?;
             }
             Self::BAD => {
-                write!(f, "BAD")?;
+                write!(f, "{:08}", "BAD")?;
             }
             Self::EMPTY => {
-                write!(f, "EMPTY")?;
+                write!(f, "{:08}", "EMPTY")?;
             }
             Self::ROOT_DIR => {
-                write!(f, "ROOT_DIR")?;
+                write!(f, "{:08}", "ROOT")?;
             }
             Self::END_OF_FILE => {
-                write!(f, "END_OF_FILE")?;
+                write!(f, "{:08}", "EOF")?;
             }
             ClusterId(value) => {
-                write!(f, "{:#08x}", value)?;
+                write!(f, "{:08x}", value)?;
             }
         }
         write!(f, ")")?;
