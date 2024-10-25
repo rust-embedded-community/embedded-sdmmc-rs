@@ -241,6 +241,18 @@ pub fn crc16(data: &[u8]) -> u16 {
     crc
 }
 
+/// DOS name checksum
+pub fn dos_name_checksum(data: &[u8]) -> u8 {
+    let mut sum: u8 = 0;
+
+    for i in (1..=11).rev() {
+        sum = ((sum & 1) << 7) + (sum >> 1);
+        sum = sum.overflowing_add(data[11 - i]).0;
+    }
+
+    sum
+}
+
 // ****************************************************************************
 //
 // Unit Tests
@@ -262,6 +274,12 @@ mod test {
         // An actual CSD read from an SD card
         const DATA: [u8; 16] = hex!("00 26 00 32 5F 5A 83 AE FE FB CF FF 92 80 40 DF");
         assert_eq!(crc16(&DATA), 0x9fc5);
+    }
+
+    #[test]
+    fn test_name_checksum() {
+        const DATA: [u8; 15] = hex!("00 26 00 32 5F 59 83 C8 AD DB CF");
+        assert_eq!(dos_name_checksum(&DATA), 0x64);
     }
 
     #[test]

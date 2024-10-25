@@ -1,6 +1,9 @@
 //! Directory Entry as stored on-disk
 
-use crate::{fat::FatType, Attributes, BlockIdx, ClusterId, DirEntry, ShortFileName, Timestamp};
+use crate::{
+    fat::FatType, sdcard::proto::dos_name_checksum, Attributes, BlockIdx, ClusterId, DirEntry,
+    ShortFileName, Timestamp,
+};
 use byteorder::{ByteOrder, LittleEndian};
 
 /// A 32-byte directory entry as stored on-disk in a directory file.
@@ -177,6 +180,11 @@ impl<'a> OnDiskDirEntry<'a> {
         };
         result.name.contents.copy_from_slice(&self.data[0..11]);
         result
+    }
+
+    /// Get the CRC hash of this entry
+    pub fn get_name_hash(&self) -> u8 {
+        return dos_name_checksum(&self.data[0..11]);
     }
 }
 

@@ -644,26 +644,37 @@ impl FatVolume {
                                     Some(s) => sequence == s - 1 && sequence < 8,
                                     None => true,
                                 };
-                                if is_start || !checksum_ok || !sequence_ok {
+                                if is_start {
                                     lfn_stack.clear();
+
                                     current_checksum = None;
                                     current_sequence = None;
-                                } else {
+                                }
+                                if checksum_ok && sequence_ok {
                                     current_checksum = Some(checksum);
                                     current_sequence = Some(sequence);
-                                }
 
-                                let mut name_chunk: String<32> = String::new();
-                                for i in 0..13 {
-                                    if data[i] == '\0' {
-                                        break;
+                                    let mut name_chunk: String<32> = String::new();
+                                    for i in 0..13 {
+                                        if data[i] == '\0' {
+                                            break;
+                                        }
+                                        name_chunk.push(data[i]).unwrap();
                                     }
-                                    name_chunk.push(data[i]).unwrap();
+                                    lfn_stack.push(name_chunk).unwrap();
+                                } else {
+                                    lfn_stack.clear();
+
+                                    current_checksum = None;
+                                    current_sequence = None;
                                 }
-                                lfn_stack.push(name_chunk).unwrap();
                             }
                         } else {
-                            if !lfn_stack.is_empty() {
+                            let hash_correct = match current_checksum {
+                                Some(c) => c == dir_entry.get_name_hash(),
+                                None => false,
+                            };
+                            if !lfn_stack.is_empty() && hash_correct {
                                 let mut filename: String<255> = String::new();
                                 lfn_stack.reverse();
                                 for name_chunk in lfn_stack.iter() {
@@ -674,7 +685,7 @@ impl FatVolume {
                             lfn_stack.clear();
                             current_checksum = None;
                             current_sequence = None;
-                            // TODO calculate checksum and compare with shorf file name
+
                             // Safe, since Block::LEN always fits on a u32
                             let start = (i * OnDiskDirEntry::LEN) as u32;
                             let entry = dir_entry.get_entry(FatType::Fat32, block_idx, start);
