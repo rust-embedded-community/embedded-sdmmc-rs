@@ -175,6 +175,15 @@ impl ShortFileName {
             contents: self.contents,
         }
     }
+
+    /// Get the LFN checksum for this short filename
+    pub fn csum(&self) -> u8 {
+        let mut result = 0u8;
+        for b in self.contents.iter() {
+            result = result.rotate_right(1).wrapping_add(*b);
+        }
+        result
+    }
 }
 
 impl core::fmt::Display for ShortFileName {
@@ -301,6 +310,16 @@ mod test {
         assert!(ShortFileName::create_from_str(" ").is_err());
         assert!(ShortFileName::create_from_str("123456789").is_err());
         assert!(ShortFileName::create_from_str("12345678.ABCD").is_err());
+    }
+
+    #[test]
+    fn checksum() {
+        assert_eq!(
+            0xB3,
+            ShortFileName::create_from_str("UNARCH~1.DAT")
+                .unwrap()
+                .csum()
+        );
     }
 }
 
