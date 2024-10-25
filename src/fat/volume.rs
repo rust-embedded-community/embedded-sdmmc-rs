@@ -567,7 +567,13 @@ impl FatVolume {
                 csum: u8,
                 buffer: [u16; 13],
             ) -> Self {
+                #[cfg(feature = "log")]
                 debug!("LFN Contents {start} {sequence} {csum:02x} {buffer:04x?}");
+                #[cfg(feature = "defmt-log")]
+                debug!(
+                    "LFN Contents {=u8} {=u8} {=u8:02x} {=[?; 13]:#04x}",
+                    start, sequence, csum, buffer
+                );
                 match (start, sequence, self) {
                     (true, 0x01, _) => {
                         lfn_buffer.clear();
