@@ -244,12 +244,9 @@ pub fn crc16(data: &[u8]) -> u16 {
 /// DOS name checksum
 pub fn dos_name_checksum(data: &[u8]) -> u8 {
     let mut sum: u8 = 0;
-
-    for i in (1..=11).rev() {
-        sum = ((sum & 1) << 7) + (sum >> 1);
-        sum = sum.overflowing_add(data[11 - i]).0;
+    for item in data.iter() {
+        sum = sum.rotate_right(1).overflowing_add(*item).0;
     }
-
     sum
 }
 
@@ -278,8 +275,8 @@ mod test {
 
     #[test]
     fn test_name_checksum() {
-        const DATA: [u8; 15] = hex!("00 26 00 32 5F 59 83 C8 AD DB CF");
-        assert_eq!(dos_name_checksum(&DATA), 0x64);
+        const DATA: [u8; 15] = hex!("00 26 00 32 5F 59 83 C8 AD DB CF FF D2 40 40");
+        assert_eq!(dos_name_checksum(&DATA), 0xFA);
     }
 
     #[test]

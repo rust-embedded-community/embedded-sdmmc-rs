@@ -14,6 +14,79 @@ use byteorder::{ByteOrder, LittleEndian};
 use core::convert::TryFrom;
 use heapless::{String, Vec};
 
+/// Helper struct to construct a Long File Name (LFN)
+struct LFNStack {
+    stack: Vec<String<32>, 8>,
+    current_checksum: Option<u8>,
+    current_sequence: Option<u8>,
+}
+
+impl LFNStack {
+    pub fn new() -> Self {
+        Self {
+            stack: Vec::new(),
+            current_checksum: None,
+            current_sequence: None,
+        }
+    }
+
+    fn clear(&mut self) {
+        self.stack.clear();
+        self.current_checksum = None;
+        self.current_sequence = None;
+
+    }
+
+    pub fn maybe_push(&mut self, is_start: bool, sequence: u8, data: [char; 13], checksum: u8) {
+        if is_start {
+            self.clear();
+        }
+        // Case for malformed LFN entries, if they ale placed before
+        // actual entries
+        let checksum_ok = match self.current_checksum {
+            Some(c) => c == checksum,
+            None => true,
+        };
+        let sequence_ok = match self.current_sequence {
+            Some(s) => sequence == s - 1 && sequence < 8,
+            None => true,
+        };
+        if checksum_ok && sequence_ok {
+            self.current_checksum = Some(checksum);
+            self.current_sequence = Some(sequence);
+
+            let mut name_chunk: String<32> = String::new();
+            for i in 0..13 {
+                if data[i] == '\0' {
+                    break;
+                }
+                name_chunk.push(data[i]).unwrap();
+            }
+            self.stack.push(name_chunk).unwrap();
+        } else {
+            self.clear();
+        }
+    }
+
+    pub fn create_name(&mut self, hash: u8) -> Result<String<255>, ()> {
+        let hash_correct = match self.current_checksum {
+            Some(c) => c == hash,
+            None => false,
+        };
+        if self.stack.is_empty() || !hash_correct {
+            return Err(());
+        }
+        let mut filename: String<255> = String::new();
+        self.stack.reverse();
+        for name_chunk in self.stack.iter() {
+            filename.push_str(name_chunk).unwrap();
+        }
+        self.clear();
+
+        Ok(filename)
+    }
+}
+
 /// An MS-DOS 11 character volume label.
 ///
 /// ISO-8859-1 encoding is assumed. Trailing spaces are trimmed. Reserved
@@ -615,9 +688,7 @@ impl FatVolume {
             _ => Some(dir_info.cluster),
         };
 
-        let mut lfn_stack = Vec::<String<32>, 8>::new();
-        let mut current_checksum: Option<u8> = None;
-        let mut current_sequence: Option<u8> = None;
+        let mut lfn_stack = LFNStack::new();
 
         while let Some(cluster) = current_cluster {
             let start_block_idx = self.cluster_to_block(cluster);
@@ -634,57 +705,13 @@ impl FatVolume {
                             if let Some((is_start, sequence, data, checksum)) =
                                 dir_entry.lfn_contents()
                             {
-                                // Case for malformed LFN entries, if they ale placed before
-                                // actual entries
-                                let checksum_ok = match current_checksum {
-                                    Some(c) => c == checksum,
-                                    None => true,
-                                };
-                                let sequence_ok = match current_sequence {
-                                    Some(s) => sequence == s - 1 && sequence < 8,
-                                    None => true,
-                                };
-                                if is_start {
-                                    lfn_stack.clear();
-
-                                    current_checksum = None;
-                                    current_sequence = None;
-                                }
-                                if checksum_ok && sequence_ok {
-                                    current_checksum = Some(checksum);
-                                    current_sequence = Some(sequence);
-
-                                    let mut name_chunk: String<32> = String::new();
-                                    for i in 0..13 {
-                                        if data[i] == '\0' {
-                                            break;
-                                        }
-                                        name_chunk.push(data[i]).unwrap();
-                                    }
-                                    lfn_stack.push(name_chunk).unwrap();
-                                } else {
-                                    lfn_stack.clear();
-
-                                    current_checksum = None;
-                                    current_sequence = None;
-                                }
+                                lfn_stack.maybe_push(is_start, sequence, data, checksum);
                             }
                         } else {
-                            let hash_correct = match current_checksum {
-                                Some(c) => c == dir_entry.get_name_hash(),
-                                None => false,
+                            let lfn_filename = match lfn_stack.create_name(dir_entry.get_name_hash()) {
+                                Ok(n) => n,
+                                Err(_) => dir_entry.get_name(),
                             };
-                            if !lfn_stack.is_empty() && hash_correct {
-                                let mut filename: String<255> = String::new();
-                                lfn_stack.reverse();
-                                for name_chunk in lfn_stack.iter() {
-                                    filename.push_str(name_chunk).unwrap();
-                                }
-                            }
-
-                            lfn_stack.clear();
-                            current_checksum = None;
-                            current_sequence = None;
 
                             // Safe, since Block::LEN always fits on a u32
                             let start = (i * OnDiskDirEntry::LEN) as u32;

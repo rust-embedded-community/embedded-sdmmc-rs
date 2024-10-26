@@ -5,6 +5,7 @@ use crate::{
     ShortFileName, Timestamp,
 };
 use byteorder::{ByteOrder, LittleEndian};
+use heapless::String;
 
 /// A 32-byte directory entry as stored on-disk in a directory file.
 ///
@@ -185,6 +186,23 @@ impl<'a> OnDiskDirEntry<'a> {
     /// Get the CRC hash of this entry
     pub fn get_name_hash(&self) -> u8 {
         return dos_name_checksum(&self.data[0..11]);
+    }
+
+    /// Get short name in form of string
+    pub fn get_name(&self) -> String<255> {
+        let mut name: String<255> = String::new();
+        let mut seen_dot = false;
+        for it in &self.data[0..11] {
+            if *it == b' ' {
+                if !seen_dot {
+                    name.push('.');
+                    seen_dot = true;
+                }
+            } else {
+                name.push(*it as char);
+            }
+        }
+        name
     }
 }
 
