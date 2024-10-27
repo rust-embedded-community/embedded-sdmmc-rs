@@ -221,11 +221,9 @@ impl core::fmt::Debug for ShortFileName {
 }
 
 /// Used to store a Long File Name
-///
-/// The const generic specifies the maximum capacity in bytes.
-pub struct LfnBuffer<const N: usize> {
+pub struct LfnBuffer<'a> {
     /// We fill this buffer in from the back
-    inner: [u8; N],
+    inner: &'a mut [u8],
     /// How many bytes are free.
     ///
     /// This is also the byte index the string starts from.
@@ -234,19 +232,20 @@ pub struct LfnBuffer<const N: usize> {
     overflow: bool,
 }
 
-impl<const N: usize> LfnBuffer<N> {
-    /// Create a new, empty, LFN Buffer
-    pub fn new() -> LfnBuffer<N> {
+impl<'a> LfnBuffer<'a> {
+    /// Create a new, empty, LFN Buffer using the given mutable slice as its storage.
+    pub fn new(storage: &'a mut [u8]) -> LfnBuffer<'a> {
+        let len = storage.len();
         LfnBuffer {
-            inner: [0u8; N],
-            free: N,
+            inner: storage,
+            free: len,
             overflow: false,
         }
     }
 
     /// Empty out this buffer
     pub fn clear(&mut self) {
-        self.free = N;
+        self.free = self.inner.len();
         self.overflow = false;
     }
 
@@ -288,12 +287,6 @@ impl<const N: usize> LfnBuffer<N> {
             // we always only put UTF-8 encoded data in here
             unsafe { core::str::from_utf8_unchecked(&self.inner[self.free..]) }
         }
-    }
-}
-
-impl<const N: usize> core::default::Default for LfnBuffer<N> {
-    fn default() -> Self {
-        LfnBuffer::new()
     }
 }
 
@@ -402,7 +395,8 @@ mod test {
 
     #[test]
     fn one_piece() {
-        let mut buf: LfnBuffer<64> = LfnBuffer::new();
+        let mut storage = [0u8; 64];
+        let mut buf: LfnBuffer = LfnBuffer::new(&mut storage);
         buf.push(&[
             0x0030, 0x0031, 0x0032, 0x0033, 0x2202, 0x0000, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF,
             0xFFFF, 0xFFFF,
@@ -412,7 +406,8 @@ mod test {
 
     #[test]
     fn two_piece() {
-        let mut buf: LfnBuffer<64> = LfnBuffer::new();
+        let mut storage = [0u8; 64];
+        let mut buf: LfnBuffer = LfnBuffer::new(&mut storage);
         buf.push(&[
             0x0030, 0x0031, 0x0032, 0x0033, 0x2202, 0x0000, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF,
             0xFFFF, 0xFFFF,

@@ -176,9 +176,9 @@ where
     /// object is already locked in order to do the iteration.
     ///
     /// </div>
-    pub fn iterate_dir_lfn<F, const N: usize>(
+    pub fn iterate_dir_lfn<F>(
         &self,
-        lfn_buffer: &mut LfnBuffer<N>,
+        lfn_buffer: &mut LfnBuffer<'_>,
         func: F,
     ) -> Result<(), Error<D::Error>>
     where

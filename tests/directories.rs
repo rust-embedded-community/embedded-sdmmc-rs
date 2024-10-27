@@ -101,7 +101,8 @@ fn fat16_root_directory_listing() {
     ];
 
     let mut listing = Vec::new();
-    let mut lfn_buffer: LfnBuffer<128> = LfnBuffer::new();
+    let mut storage = [0u8; 128];
+    let mut lfn_buffer: LfnBuffer = LfnBuffer::new(&mut storage);
 
     volume_mgr
         .iterate_dir_lfn(root_dir, &mut lfn_buffer, |d, opt_lfn| {
@@ -288,7 +289,8 @@ fn fat32_root_directory_listing() {
     ];
 
     let mut listing = Vec::new();
-    let mut lfn_buffer: LfnBuffer<128> = LfnBuffer::new();
+    let mut storage = [0u8; 128];
+    let mut lfn_buffer: LfnBuffer = LfnBuffer::new(&mut storage);
 
     volume_mgr
         .iterate_dir_lfn(root_dir, &mut lfn_buffer, |d, opt_lfn| {

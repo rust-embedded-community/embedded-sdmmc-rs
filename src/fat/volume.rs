@@ -540,10 +540,10 @@ impl FatVolume {
     /// including the Long File Name.
     ///
     /// Useful for performing directory listings.
-    pub(crate) fn iterate_dir_lfn<D, F, const N: usize>(
+    pub(crate) fn iterate_dir_lfn<D, F>(
         &self,
         block_cache: &mut BlockCache<D>,
-        lfn_buffer: &mut LfnBuffer<N>,
+        lfn_buffer: &mut LfnBuffer<'_>,
         dir_info: &DirectoryInfo,
         mut func: F,
     ) -> Result<(), Error<D::Error>>
@@ -559,9 +559,9 @@ impl FatVolume {
         }
 
         impl SeqState {
-            fn update<const N: usize>(
+            fn update(
                 self,
-                lfn_buffer: &mut LfnBuffer<N>,
+                lfn_buffer: &mut LfnBuffer<'_>,
                 start: bool,
                 sequence: u8,
                 csum: u8,

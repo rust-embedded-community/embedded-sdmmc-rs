@@ -231,7 +231,8 @@ impl Context {
     fn dir(&self, path: &Path) -> Result<(), Error> {
         println!("Directory listing of {:?}", path);
         let dir = self.resolve_existing_directory(path)?;
-        let mut lfn_buffer = LfnBuffer::<256>::new();
+        let mut storage = [0u8; 128];
+        let mut lfn_buffer = LfnBuffer::new(&mut storage);
         dir.iterate_dir_lfn(&mut lfn_buffer, |entry, lfn| {
             if !entry.attributes.is_volume() {
                 print!(
