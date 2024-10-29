@@ -85,8 +85,8 @@ pub use crate::fat::{FatVolume, VolumeName};
 
 #[doc(inline)]
 pub use crate::filesystem::{
-    Attributes, ClusterId, DirEntry, Directory, File, FilenameError, Mode, RawDirectory, RawFile,
-    ShortFileName, TimeSource, Timestamp, MAX_FILE_SIZE,
+    Attributes, ClusterId, DirEntry, Directory, File, FilenameError, LfnBuffer, Mode, RawDirectory,
+    RawFile, ShortFileName, TimeSource, Timestamp, MAX_FILE_SIZE,
 };
 
 use filesystem::DirectoryInfo;

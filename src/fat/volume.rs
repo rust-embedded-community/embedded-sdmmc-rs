@@ -8,7 +8,7 @@ use crate::{
     },
     filesystem::FilenameError,
     trace, warn, Attributes, Block, BlockCache, BlockCount, BlockDevice, BlockIdx, ClusterId,
-    DirEntry, DirectoryInfo, Error, ShortFileName, TimeSource, VolumeType,
+    DirEntry, DirectoryInfo, Error, LfnBuffer, ShortFileName, TimeSource, VolumeType,
 };
 use byteorder::{ByteOrder, LittleEndian};
 use core::convert::TryFrom;
@@ -520,7 +520,7 @@ impl FatVolume {
         &self,
         block_cache: &mut BlockCache<D>,
         dir_info: &DirectoryInfo,
-        func: F,
+        mut func: F,
     ) -> Result<(), Error<D::Error>>
     where
         F: FnMut(&DirEntry),
@@ -528,10 +528,121 @@ impl FatVolume {
     {
         match &self.fat_specific_info {
             FatSpecificInfo::Fat16(fat16_info) => {
-                self.iterate_fat16(dir_info, fat16_info, block_cache, func)
+                self.iterate_fat16(dir_info, fat16_info, block_cache, |de, _| func(de))
             }
             FatSpecificInfo::Fat32(fat32_info) => {
-                self.iterate_fat32(dir_info, fat32_info, block_cache, func)
+                self.iterate_fat32(dir_info, fat32_info, block_cache, |de, _| func(de))
+            }
+        }
+    }
+
+    /// Calls callback `func` with every valid entry in the given directory,
+    /// including the Long File Name.
+    ///
+    /// Useful for performing directory listings.
+    pub(crate) fn iterate_dir_lfn<D, F>(
+        &self,
+        block_cache: &mut BlockCache<D>,
+        lfn_buffer: &mut LfnBuffer<'_>,
+        dir_info: &DirectoryInfo,
+        mut func: F,
+    ) -> Result<(), Error<D::Error>>
+    where
+        F: FnMut(&DirEntry, Option<&str>),
+        D: BlockDevice,
+    {
+        #[derive(Clone, Copy)]
+        enum SeqState {
+            Waiting,
+            Remaining { csum: u8, next: u8 },
+            Complete { csum: u8 },
+        }
+
+        impl SeqState {
+            fn update(
+                self,
+                lfn_buffer: &mut LfnBuffer<'_>,
+                start: bool,
+                sequence: u8,
+                csum: u8,
+                buffer: [u16; 13],
+            ) -> Self {
+                #[cfg(feature = "log")]
+                debug!("LFN Contents {start} {sequence} {csum:02x} {buffer:04x?}");
+                #[cfg(feature = "defmt-log")]
+                debug!(
+                    "LFN Contents {=u8} {=u8} {=u8:02x} {=[?; 13]:#04x}",
+                    start, sequence, csum, buffer
+                );
+                match (start, sequence, self) {
+                    (true, 0x01, _) => {
+                        lfn_buffer.clear();
+                        lfn_buffer.push(&buffer);
+                        SeqState::Complete { csum }
+                    }
+                    (true, 0x02..0x14, _) => {
+                        lfn_buffer.clear();
+                        lfn_buffer.push(&buffer);
+                        SeqState::Remaining {
+                            csum,
+                            next: sequence - 1,
+                        }
+                    }
+                    (false, 0x01, SeqState::Remaining { csum, next }) if next == sequence => {
+                        lfn_buffer.push(&buffer);
+                        SeqState::Complete { csum }
+                    }
+                    (false, 0x01..0x13, SeqState::Remaining { csum, next }) if next == sequence => {
+                        lfn_buffer.push(&buffer);
+                        SeqState::Remaining {
+                            csum,
+                            next: sequence - 1,
+                        }
+                    }
+                    _ => {
+                        // this seems wrong
+                        lfn_buffer.clear();
+                        SeqState::Waiting
+                    }
+                }
+            }
+        }
+
+        let mut seq_state = SeqState::Waiting;
+        match &self.fat_specific_info {
+            FatSpecificInfo::Fat16(fat16_info) => {
+                self.iterate_fat16(dir_info, fat16_info, block_cache, |de, odde| {
+                    if let Some((start, this_seqno, csum, buffer)) = odde.lfn_contents() {
+                        seq_state = seq_state.update(lfn_buffer, start, this_seqno, csum, buffer);
+                    } else if let SeqState::Complete { csum } = seq_state {
+                        if csum == de.name.csum() {
+                            // Checksum is good, and all the pieces are there
+                            func(de, Some(lfn_buffer.as_str()))
+                        } else {
+                            // Checksum was bad
+                            func(de, None)
+                        }
+                    } else {
+                        func(de, None)
+                    }
+                })
+            }
+            FatSpecificInfo::Fat32(fat32_info) => {
+                self.iterate_fat32(dir_info, fat32_info, block_cache, |de, odde| {
+                    if let Some((start, this_seqno, csum, buffer)) = odde.lfn_contents() {
+                        seq_state = seq_state.update(lfn_buffer, start, this_seqno, csum, buffer);
+                    } else if let SeqState::Complete { csum } = seq_state {
+                        if csum == de.name.csum() {
+                            // Checksum is good, and all the pieces are there
+                            func(de, Some(lfn_buffer.as_str()))
+                        } else {
+                            // Checksum was bad
+                            func(de, None)
+                        }
+                    } else {
+                        func(de, None)
+                    }
+                })
             }
         }
     }
@@ -544,7 +655,7 @@ impl FatVolume {
         mut func: F,
     ) -> Result<(), Error<D::Error>>
     where
-        F: FnMut(&DirEntry),
+        F: for<'odde> FnMut(&DirEntry, &OnDiskDirEntry<'odde>),
         D: BlockDevice,
     {
         // Root directories on FAT16 have a fixed size, because they use
@@ -573,11 +684,11 @@ impl FatVolume {
                     if dir_entry.is_end() {
                         // Can quit early
                         return Ok(());
-                    } else if dir_entry.is_valid() && !dir_entry.is_lfn() {
+                    } else if dir_entry.is_valid() {
                         // Safe, since Block::LEN always fits on a u32
                         let start = (i * OnDiskDirEntry::LEN) as u32;
                         let entry = dir_entry.get_entry(FatType::Fat16, block_idx, start);
-                        func(&entry);
+                        func(&entry, &dir_entry);
                     }
                 }
             }
@@ -604,7 +715,7 @@ impl FatVolume {
         mut func: F,
     ) -> Result<(), Error<D::Error>>
     where
-        F: FnMut(&DirEntry),
+        F: for<'odde> FnMut(&DirEntry, &OnDiskDirEntry<'odde>),
         D: BlockDevice,
     {
         // All directories on FAT32 have a cluster chain but the root
@@ -623,11 +734,11 @@ impl FatVolume {
                     if dir_entry.is_end() {
                         // Can quit early
                         return Ok(());
-                    } else if dir_entry.is_valid() && !dir_entry.is_lfn() {
+                    } else if dir_entry.is_valid() {
                         // Safe, since Block::LEN always fits on a u32
                         let start = (i * OnDiskDirEntry::LEN) as u32;
                         let entry = dir_entry.get_entry(FatType::Fat32, block_idx, start);
-                        func(&entry);
+                        func(&entry, &dir_entry);
                     }
                 }
             }
