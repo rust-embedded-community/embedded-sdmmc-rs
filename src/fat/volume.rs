@@ -1029,15 +1029,12 @@ impl FatVolume {
             *number_free_cluster -= 1;
         };
         if zero {
-            let blocks = [Block::new()];
             let start_block_idx = self.cluster_to_block(new_cluster);
             let num_blocks = BlockCount(u32::from(self.blocks_per_cluster));
             for block_idx in start_block_idx.range(num_blocks) {
-                trace!("Zeroing cluster");
-                block_cache
-                    .block_device()
-                    .write(&blocks, block_idx)
-                    .map_err(Error::DeviceError)?;
+                trace!("Zeroing cluster {:?}", block_idx);
+                let _block = block_cache.blank_mut(block_idx);
+                block_cache.write_back()?;
             }
         }
         debug!("All done, returning {:?}", new_cluster);
