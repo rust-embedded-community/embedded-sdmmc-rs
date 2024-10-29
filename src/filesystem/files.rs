@@ -1,9 +1,11 @@
 use super::TimeSource;
 use crate::{
     filesystem::{ClusterId, DirEntry, Handle},
-    BlockDevice, Error, RawVolume, VolumeManager,
+    Error, RawVolume, VolumeManager,
 };
+use core::fmt::Debug;
 use embedded_io::{ErrorType, Read, Seek, SeekFrom, Write};
+use embedded_storage::block::BlockDevice;
 
 /// A handle for an open file on disk.
 ///
@@ -32,7 +34,8 @@ impl RawFile {
         volume_mgr: &VolumeManager<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>,
     ) -> File<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>
     where
-        D: crate::BlockDevice,
+        D: BlockDevice,
+        D::Error: Debug,
         T: crate::TimeSource,
     {
         File::new(self, volume_mgr)
@@ -49,7 +52,8 @@ impl RawFile {
 /// the [`File::close`] method.
 pub struct File<'a, D, T, const MAX_DIRS: usize, const MAX_FILES: usize, const MAX_VOLUMES: usize>
 where
-    D: crate::BlockDevice,
+    D: BlockDevice,
+    D::Error: Debug,
     T: crate::TimeSource,
 {
     raw_file: RawFile,
@@ -59,7 +63,8 @@ where
 impl<'a, D, T, const MAX_DIRS: usize, const MAX_FILES: usize, const MAX_VOLUMES: usize>
     File<'a, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>
 where
-    D: crate::BlockDevice,
+    D: BlockDevice,
+    D::Error: Debug,
     T: crate::TimeSource,
 {
     /// Create a new `File` from a `RawFile`
@@ -148,7 +153,8 @@ where
 impl<'a, D, T, const MAX_DIRS: usize, const MAX_FILES: usize, const MAX_VOLUMES: usize> Drop
     for File<'a, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>
 where
-    D: crate::BlockDevice,
+    D: BlockDevice,
+    D::Error: Debug,
     T: crate::TimeSource,
 {
     fn drop(&mut self) {
@@ -159,7 +165,8 @@ where
 impl<'a, D, T, const MAX_DIRS: usize, const MAX_FILES: usize, const MAX_VOLUMES: usize>
     core::fmt::Debug for File<'a, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>
 where
-    D: crate::BlockDevice,
+    D: BlockDevice,
+    D::Error: Debug,
     T: crate::TimeSource,
 {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
@@ -174,6 +181,8 @@ impl<
         const MAX_FILES: usize,
         const MAX_VOLUMES: usize,
     > ErrorType for File<'_, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>
+where
+    D::Error: Debug,
 {
     type Error = crate::Error<D::Error>;
 }
@@ -185,6 +194,8 @@ impl<
         const MAX_FILES: usize,
         const MAX_VOLUMES: usize,
     > Read for File<'_, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>
+where
+    D::Error: Debug,
 {
     fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         if buf.is_empty() {
@@ -202,6 +213,8 @@ impl<
         const MAX_FILES: usize,
         const MAX_VOLUMES: usize,
     > Write for File<'_, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>
+where
+    D::Error: Debug,
 {
     fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         if buf.is_empty() {
@@ -224,6 +237,8 @@ impl<
         const MAX_FILES: usize,
         const MAX_VOLUMES: usize,
     > Seek for File<'_, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>
+where
+    D::Error: Debug,
 {
     fn seek(&mut self, pos: SeekFrom) -> Result<u64, Self::Error> {
         match pos {
@@ -246,6 +261,7 @@ impl<'a, D, T, const MAX_DIRS: usize, const MAX_FILES: usize, const MAX_VOLUMES:
     defmt::Format for File<'a, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>
 where
     D: crate::BlockDevice,
+    D::Error: Debug,
     T: crate::TimeSource,
 {
     fn format(&self, fmt: defmt::Formatter) {
