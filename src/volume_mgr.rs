@@ -12,7 +12,7 @@ use heapless::Vec;
 use crate::{
     debug, fat,
     filesystem::{
-        Attributes, ClusterId, DirEntry, DirectoryInfo, FileInfo, HandleGenerator, Mode,
+        Attributes, ClusterId, DirEntry, DirectoryInfo, FileInfo, HandleGenerator, LfnBuffer, Mode,
         RawDirectory, RawFile, TimeSource, ToShortFileName, MAX_FILE_SIZE,
     },
     trace, Block, BlockCache, BlockCount, BlockDevice, BlockIdx, Error, RawVolume, ShortFileName,
@@ -334,6 +334,7 @@ where
     /// You can't close it if there are any files or directories open on it.
     pub fn close_volume(&self, volume: RawVolume) -> Result<(), Error<D::Error>> {
         let mut data = self.data.try_borrow_mut().map_err(|_| Error::LockError)?;
+        let data = data.deref_mut();
 
         for f in data.open_files.iter() {
             if f.raw_volume == volume {
@@ -348,6 +349,12 @@ where
         }
 
         let volume_idx = data.get_volume_by_id(volume)?;
+
+        match &mut data.open_volumes[volume_idx].volume_type {
+            VolumeType::Fat(fat) => {
+                fat.update_info_sector(&mut data.block_cache)?;
+            }
+        }
 
         data.open_volumes.swap_remove(volume_idx);
 
@@ -382,6 +389,8 @@ where
 
     /// Call a callback function for each directory entry in a directory.
     ///
+    /// Long File Names will be ignored.
+    ///
     /// <div class="warning">
     ///
     /// Do not attempt to call any methods on the VolumeManager or any of its
@@ -389,7 +398,11 @@ where
     /// object is already locked in order to do the iteration.
     ///
     /// </div>
-    pub fn iterate_dir<F>(&self, directory: RawDirectory, func: F) -> Result<(), Error<D::Error>>
+    pub fn iterate_dir<F>(
+        &self,
+        directory: RawDirectory,
+        mut func: F,
+    ) -> Result<(), Error<D::Error>>
     where
         F: FnMut(&DirEntry),
     {
@@ -400,7 +413,59 @@ where
         let volume_idx = data.get_volume_by_id(data.open_dirs[directory_idx].raw_volume)?;
         match &data.open_volumes[volume_idx].volume_type {
             VolumeType::Fat(fat) => {
-                fat.iterate_dir(&mut data.block_cache, &data.open_dirs[directory_idx], func)
+                fat.iterate_dir(
+                    &mut data.block_cache,
+                    &data.open_dirs[directory_idx],
+                    |de| {
+                        // Hide all the LFN directory entries
+                        if !de.attributes.is_lfn() {
+                            func(de);
+                        }
+                    },
+                )
+            }
+        }
+    }
+
+    /// Call a callback function for each directory entry in a directory, and
+    /// process Long File Names.
+    ///
+    /// You must supply a [`LfnBuffer`] this API can use to temporarily hold the
+    /// Long File Name. If you pass one that isn't large enough, any Long File
+    /// Names that don't fit will be ignored and presented as if they only had a
+    /// Short File Name.
+    ///
+    /// <div class="warning">
+    ///
+    /// Do not attempt to call any methods on the VolumeManager or any of its
+    /// handles from inside the callback. You will get a lock error because the
+    /// object is already locked in order to do the iteration.
+    ///
+    /// </div>
+    pub fn iterate_dir_lfn<F>(
+        &self,
+        directory: RawDirectory,
+        lfn_buffer: &mut LfnBuffer<'_>,
+        func: F,
+    ) -> Result<(), Error<D::Error>>
+    where
+        F: FnMut(&DirEntry, Option<&str>),
+    {
+        let mut data = self.data.try_borrow_mut().map_err(|_| Error::LockError)?;
+        let data = data.deref_mut();
+
+        let directory_idx = data.get_dir_by_id(directory)?;
+        let volume_idx = data.get_volume_by_id(data.open_dirs[directory_idx].raw_volume)?;
+
+        match &data.open_volumes[volume_idx].volume_type {
+            VolumeType::Fat(fat) => {
+                // This API doesn't care about the on-disk directory entry, so we discard it
+                fat.iterate_dir_lfn(
+                    &mut data.block_cache,
+                    lfn_buffer,
+                    &data.open_dirs[directory_idx],
+                    func,
+                )
             }
         }
     }
@@ -1005,6 +1070,7 @@ where
         // Need mutable access for this
         match &mut data.open_volumes[volume_idx].volume_type {
             VolumeType::Fat(fat) => {
+                // TODO: Move this into the FAT volume code
                 debug!("Making dir entry");
                 let mut new_dir_entry_in_parent = fat.write_new_directory_entry(
                     &mut data.block_cache,
@@ -1493,6 +1559,7 @@ mod tests {
                     blocks_per_cluster: 8,
                     first_data_block: BlockCount(15136),
                     fat_start: BlockCount(32),
+                    second_fat_start: Some(BlockCount(32 + 0x0000_1D80)),
                     name: fat::VolumeName::create_from_str("Pictures").unwrap(),
                     free_clusters_count: None,
                     next_free_cluster: None,

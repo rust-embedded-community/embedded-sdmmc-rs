@@ -8,15 +8,21 @@ The format is based on [Keep a Changelog] and this project adheres to [Semantic 
 
 ### Changed
 
-- None
+- __Breaking Change__: `VolumeManager` now uses interior-mutability (with a `RefCell`) and so most methods are now `&self`. This also makes it easier to open multiple `File`, `Directory` or `Volume` objects at once.
+- __Breaking Change__: The `VolumeManager`, `File`, `Directory` and `Volume` no longer implement `Send` or `Sync.
+- `VolumeManager` uses an interior block cache of 512 bytes, increasing its size by about 520 bytes but hugely reducing stack space required at run-time.
+- __Breaking Change__: The `VolumeManager::device` method now takes a callback rather than giving you a reference to the underlying `BlockDevice`
+- __Breaking Change__: `Error:LockError` variant added.
+- __Breaking Change__: `SearchId` was renamed to `Handle`
 
 ### Added
 
 - `File` now implements the `embedded-io` `Read`, `Write` and `Seek` traits.
+- New `iterate_dir_lfn` method on `VolumeManager` and `Directory` - provides decoded Long File Names as `Option<&str>`
 
 ### Removed
 
-- None
+- __Breaking Change__: Removed the `reason: &str` argument from `BlockDevice`
 
 ## [Version 0.8.0] - 2024-07-12
 

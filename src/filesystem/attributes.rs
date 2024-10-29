@@ -71,31 +71,33 @@ impl Attributes {
 
 impl core::fmt::Debug for Attributes {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        // Worst case is "DRHSVA"
+        let mut output = heapless::String::<7>::new();
         if self.is_lfn() {
-            write!(f, "LFN")?;
+            output.push_str("LFN").unwrap();
         } else {
             if self.is_directory() {
-                write!(f, "D")?;
+                output.push_str("D").unwrap();
             } else {
-                write!(f, "F")?;
+                output.push_str("F").unwrap();
             }
             if self.is_read_only() {
-                write!(f, "R")?;
+                output.push_str("R").unwrap();
             }
             if self.is_hidden() {
-                write!(f, "H")?;
+                output.push_str("H").unwrap();
             }
             if self.is_system() {
-                write!(f, "S")?;
+                output.push_str("S").unwrap();
             }
             if self.is_volume() {
-                write!(f, "V")?;
+                output.push_str("V").unwrap();
             }
             if self.is_archive() {
-                write!(f, "A")?;
+                output.push_str("A").unwrap();
             }
         }
-        Ok(())
+        f.pad(&output)
     }
 }
 

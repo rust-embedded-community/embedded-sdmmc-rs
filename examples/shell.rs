@@ -71,7 +71,9 @@
 
 use std::{cell::RefCell, io::prelude::*};
 
-use embedded_sdmmc::{Error as EsError, RawDirectory, RawVolume, ShortFileName, VolumeIdx};
+use embedded_sdmmc::{
+    Error as EsError, LfnBuffer, RawDirectory, RawVolume, ShortFileName, VolumeIdx,
+};
 
 type VolumeManager = embedded_sdmmc::VolumeManager<LinuxBlockDevice, Clock, 8, 8, 4>;
 type Directory<'a> = embedded_sdmmc::Directory<'a, LinuxBlockDevice, Clock, 8, 8, 4>;
@@ -229,17 +231,24 @@ impl Context {
     fn dir(&self, path: &Path) -> Result<(), Error> {
         println!("Directory listing of {:?}", path);
         let dir = self.resolve_existing_directory(path)?;
-        dir.iterate_dir(|entry| {
-            if !entry.attributes.is_volume() && !entry.attributes.is_lfn() {
-                println!(
-                    "{:12} {:9} {} {} {:08X?} {:?}",
+        let mut storage = [0u8; 128];
+        let mut lfn_buffer = LfnBuffer::new(&mut storage);
+        dir.iterate_dir_lfn(&mut lfn_buffer, |entry, lfn| {
+            if !entry.attributes.is_volume() {
+                print!(
+                    "{:12} {:9} {} {} {:08X?} {:5?}",
                     entry.name,
                     entry.size,
                     entry.ctime,
                     entry.mtime,
                     entry.cluster,
-                    entry.attributes
+                    entry.attributes,
                 );
+                if let Some(lfn) = lfn {
+                    println!(" {:?}", lfn);
+                } else {
+                    println!();
+                }
             }
         })?;
         Ok(())

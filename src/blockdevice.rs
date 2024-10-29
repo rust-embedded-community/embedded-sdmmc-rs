@@ -137,6 +137,18 @@ where
         )
     }
 
+    /// Write back a block you read with [`Self::read_mut`] and then modified, but to two locations.
+    ///
+    /// This is useful for updating two File Allocation Tables.
+    pub fn write_back_with_duplicate(&mut self, duplicate: BlockIdx) -> Result<(), D::Error> {
+        self.block_device.write(
+            &self.block,
+            self.block_idx.expect("write_back with no read"),
+        )?;
+        self.block_device.write(&self.block, duplicate)?;
+        Ok(())
+    }
+
     /// Access a blank sector
     pub fn blank_mut(&mut self, block_idx: BlockIdx) -> &mut Block {
         self.block_idx = Some(block_idx);
