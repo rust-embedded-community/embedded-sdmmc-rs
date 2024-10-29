@@ -1,10 +1,11 @@
 //! Boot Parameter Block
 
 use crate::{
-    blockdevice::BlockCount,
+    blockdevice::block_count_from_bytes,
     fat::{FatType, OnDiskDirEntry},
 };
 use byteorder::{ByteOrder, LittleEndian};
+use embedded_storage::block::BlockCount;
 
 /// A Boot Parameter Block.
 ///
@@ -30,8 +31,10 @@ impl<'a> Bpb<'a> {
             return Err("Bad BPB footer");
         }
 
-        let root_dir_blocks =
-            BlockCount::from_bytes(u32::from(bpb.root_entries_count()) * OnDiskDirEntry::LEN_U32).0;
+        let root_dir_blocks = block_count_from_bytes(
+            u64::from(bpb.root_entries_count()) * u64::from(OnDiskDirEntry::LEN_U32),
+        )
+        .0 as u32;
         let non_data_blocks = u32::from(bpb.reserved_block_count())
             + (u32::from(bpb.num_fats()) * bpb.fat_size())
             + root_dir_blocks;
@@ -101,7 +104,7 @@ impl<'a> Bpb<'a> {
     pub fn fs_info_block(&self) -> Option<BlockCount> {
         match self.fat_type {
             FatType::Fat16 => None,
-            FatType::Fat32 => Some(BlockCount(u32::from(self.fs_info()))),
+            FatType::Fat32 => Some(BlockCount(self.fs_info().into())),
         }
     }
 

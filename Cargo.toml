@@ -15,6 +15,7 @@ byteorder = {version = "1", default-features = false}
 defmt = {version = "0.3", optional = true}
 embedded-hal = "1.0.0"
 embedded-io = "0.6.1"
+embedded-storage = { git = "https://github.com/qwandor/embedded-storage", branch = "block", default-features = false }
 heapless = "^0.8"
 log = {version = "0.4", default-features = false, optional = true}
 
@@ -28,5 +29,5 @@ sha2 = "0.10"
 
 [features]
 default = ["log"]
-defmt-log = ["dep:defmt"]
+defmt-log = ["dep:defmt", "embedded-storage/defmt"]
 log = ["dep:log"]

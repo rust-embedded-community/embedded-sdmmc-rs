@@ -85,13 +85,17 @@ where
 {
     type Error = Error;
 
-    fn read(&self, blocks: &mut [Block], start_block_idx: BlockIdx) -> Result<(), Self::Error> {
+    fn read(
+        &mut self,
+        first_block_index: BlockIdx,
+        blocks: &mut [Block],
+    ) -> Result<(), Self::Error> {
         let borrow = self.contents.borrow();
         let contents: &[u8] = borrow.as_ref();
-        let mut block_idx = start_block_idx;
+        let mut block_idx = first_block_index;
         for block in blocks.iter_mut() {
-            let start_offset = block_idx.0 as usize * embedded_sdmmc::Block::LEN;
-            let end_offset = start_offset + embedded_sdmmc::Block::LEN;
+            let start_offset = block_idx.0 as usize * embedded_sdmmc::blockdevice::BLOCK_LEN;
+            let end_offset = start_offset + embedded_sdmmc::blockdevice::BLOCK_LEN;
             if end_offset > contents.len() {
                 return Err(Error::OutOfBounds(block_idx));
             }
@@ -103,13 +107,13 @@ where
         Ok(())
     }
 
-    fn write(&self, blocks: &[Block], start_block_idx: BlockIdx) -> Result<(), Self::Error> {
+    fn write(&mut self, first_block_index: BlockIdx, blocks: &[Block]) -> Result<(), Self::Error> {
         let mut borrow = self.contents.borrow_mut();
         let contents: &mut [u8] = borrow.as_mut();
-        let mut block_idx = start_block_idx;
+        let mut block_idx = first_block_index;
         for block in blocks.iter() {
-            let start_offset = block_idx.0 as usize * embedded_sdmmc::Block::LEN;
-            let end_offset = start_offset + embedded_sdmmc::Block::LEN;
+            let start_offset = block_idx.0 as usize * embedded_sdmmc::blockdevice::BLOCK_LEN;
+            let end_offset = start_offset + embedded_sdmmc::blockdevice::BLOCK_LEN;
             if end_offset > contents.len() {
                 return Err(Error::OutOfBounds(block_idx));
             }
@@ -119,14 +123,14 @@ where
         Ok(())
     }
 
-    fn num_blocks(&self) -> Result<BlockCount, Self::Error> {
+    fn block_count(&self) -> Result<BlockCount, Self::Error> {
         let borrow = self.contents.borrow();
         let contents: &[u8] = borrow.as_ref();
-        let len_blocks = contents.len() / embedded_sdmmc::Block::LEN;
+        let len_blocks = contents.len() / embedded_sdmmc::blockdevice::BLOCK_LEN;
         if len_blocks > u32::MAX as usize {
             panic!("Test disk too large! Only 2**32 blocks allowed");
         }
-        Ok(BlockCount(len_blocks as u32))
+        Ok(BlockCount(len_blocks as u64))
     }
 }
 
