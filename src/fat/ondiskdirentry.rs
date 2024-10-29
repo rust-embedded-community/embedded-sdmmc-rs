@@ -78,47 +78,27 @@ impl<'a> OnDiskDirEntry<'a> {
     }
 
     /// If this is an LFN, get the contents so we can re-assemble the filename.
-    pub fn lfn_contents(&self) -> Option<(bool, u8, [char; 13])> {
+    pub fn lfn_contents(&self) -> Option<(bool, u8, u8, [u16; 13])> {
         if self.is_lfn() {
-            let mut buffer = [' '; 13];
             let is_start = (self.data[0] & 0x40) != 0;
             let sequence = self.data[0] & 0x1F;
-            // LFNs store UCS-2, so we can map from 16-bit char to 32-bit char without problem.
-            buffer[0] =
-                core::char::from_u32(u32::from(LittleEndian::read_u16(&self.data[1..=2]))).unwrap();
-            buffer[1] =
-                core::char::from_u32(u32::from(LittleEndian::read_u16(&self.data[3..=4]))).unwrap();
-            buffer[2] =
-                core::char::from_u32(u32::from(LittleEndian::read_u16(&self.data[5..=6]))).unwrap();
-            buffer[3] =
-                core::char::from_u32(u32::from(LittleEndian::read_u16(&self.data[7..=8]))).unwrap();
-            buffer[4] = core::char::from_u32(u32::from(LittleEndian::read_u16(&self.data[9..=10])))
-                .unwrap();
-            buffer[5] =
-                core::char::from_u32(u32::from(LittleEndian::read_u16(&self.data[14..=15])))
-                    .unwrap();
-            buffer[6] =
-                core::char::from_u32(u32::from(LittleEndian::read_u16(&self.data[16..=17])))
-                    .unwrap();
-            buffer[7] =
-                core::char::from_u32(u32::from(LittleEndian::read_u16(&self.data[18..=19])))
-                    .unwrap();
-            buffer[8] =
-                core::char::from_u32(u32::from(LittleEndian::read_u16(&self.data[20..=21])))
-                    .unwrap();
-            buffer[9] =
-                core::char::from_u32(u32::from(LittleEndian::read_u16(&self.data[22..=23])))
-                    .unwrap();
-            buffer[10] =
-                core::char::from_u32(u32::from(LittleEndian::read_u16(&self.data[24..=25])))
-                    .unwrap();
-            buffer[11] =
-                core::char::from_u32(u32::from(LittleEndian::read_u16(&self.data[28..=29])))
-                    .unwrap();
-            buffer[12] =
-                core::char::from_u32(u32::from(LittleEndian::read_u16(&self.data[30..=31])))
-                    .unwrap();
-            Some((is_start, sequence, buffer))
+            let csum = self.data[13];
+            let buffer = [
+                LittleEndian::read_u16(&self.data[1..=2]),
+                LittleEndian::read_u16(&self.data[3..=4]),
+                LittleEndian::read_u16(&self.data[5..=6]),
+                LittleEndian::read_u16(&self.data[7..=8]),
+                LittleEndian::read_u16(&self.data[9..=10]),
+                LittleEndian::read_u16(&self.data[14..=15]),
+                LittleEndian::read_u16(&self.data[16..=17]),
+                LittleEndian::read_u16(&self.data[18..=19]),
+                LittleEndian::read_u16(&self.data[20..=21]),
+                LittleEndian::read_u16(&self.data[22..=23]),
+                LittleEndian::read_u16(&self.data[24..=25]),
+                LittleEndian::read_u16(&self.data[28..=29]),
+                LittleEndian::read_u16(&self.data[30..=31]),
+            ];
+            Some((is_start, sequence, csum, buffer))
         } else {
             None
         }

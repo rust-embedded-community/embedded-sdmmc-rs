@@ -1,6 +1,6 @@
 //! Directory related tests
 
-use embedded_sdmmc::{Mode, ShortFileName};
+use embedded_sdmmc::{LfnBuffer, Mode, ShortFileName};
 
 mod utils;
 
@@ -48,52 +48,87 @@ fn fat16_root_directory_listing() {
         .expect("open root dir");
 
     let expected = [
-        ExpectedDirEntry {
-            name: String::from("README.TXT"),
-            mtime: String::from("2018-12-09 19:22:34"),
-            ctime: String::from("2018-12-09 19:22:34"),
-            size: 258,
-            is_dir: false,
-        },
-        ExpectedDirEntry {
-            name: String::from("EMPTY.DAT"),
-            mtime: String::from("2018-12-09 19:21:16"),
-            ctime: String::from("2018-12-09 19:21:16"),
-            size: 0,
-            is_dir: false,
-        },
-        ExpectedDirEntry {
-            name: String::from("TEST"),
-            mtime: String::from("2018-12-09 19:23:16"),
-            ctime: String::from("2018-12-09 19:23:16"),
-            size: 0,
-            is_dir: true,
-        },
-        ExpectedDirEntry {
-            name: String::from("64MB.DAT"),
-            mtime: String::from("2018-12-09 19:21:38"),
-            ctime: String::from("2018-12-09 19:21:38"),
-            size: 64 * 1024 * 1024,
-            is_dir: false,
-        },
+        (
+            ExpectedDirEntry {
+                name: String::from("README.TXT"),
+                mtime: String::from("2018-12-09 19:22:34"),
+                ctime: String::from("2018-12-09 19:22:34"),
+                size: 258,
+                is_dir: false,
+            },
+            None,
+        ),
+        (
+            ExpectedDirEntry {
+                name: String::from("EMPTY.DAT"),
+                mtime: String::from("2018-12-09 19:21:16"),
+                ctime: String::from("2018-12-09 19:21:16"),
+                size: 0,
+                is_dir: false,
+            },
+            None,
+        ),
+        (
+            ExpectedDirEntry {
+                name: String::from("TEST"),
+                mtime: String::from("2018-12-09 19:23:16"),
+                ctime: String::from("2018-12-09 19:23:16"),
+                size: 0,
+                is_dir: true,
+            },
+            None,
+        ),
+        (
+            ExpectedDirEntry {
+                name: String::from("64MB.DAT"),
+                mtime: String::from("2018-12-09 19:21:38"),
+                ctime: String::from("2018-12-09 19:21:38"),
+                size: 64 * 1024 * 1024,
+                is_dir: false,
+            },
+            None,
+        ),
+        (
+            ExpectedDirEntry {
+                name: String::from("FSEVEN~4"),
+                mtime: String::from("2024-10-25 16:30:42"),
+                ctime: String::from("2024-10-25 16:30:42"),
+                size: 0,
+                is_dir: true,
+            },
+            Some(String::from(".fseventsd")),
+        ),
     ];
 
     let mut listing = Vec::new();
+    let mut storage = [0u8; 128];
+    let mut lfn_buffer: LfnBuffer = LfnBuffer::new(&mut storage);
 
     volume_mgr
-        .iterate_dir(root_dir, |d| {
-            listing.push(d.clone());
+        .iterate_dir_lfn(root_dir, &mut lfn_buffer, |d, opt_lfn| {
+            listing.push((d.clone(), opt_lfn.map(String::from)));
         })
         .expect("iterate directory");
 
-    assert_eq!(expected.len(), listing.len());
     for (expected_entry, given_entry) in expected.iter().zip(listing.iter()) {
         assert_eq!(
-            expected_entry, given_entry,
+            expected_entry.0, given_entry.0,
+            "{:#?} does not match {:#?}",
+            given_entry, expected_entry
+        );
+        assert_eq!(
+            expected_entry.1, given_entry.1,
             "{:#?} does not match {:#?}",
             given_entry, expected_entry
         );
     }
+    assert_eq!(
+        expected.len(),
+        listing.len(),
+        "{:#?} != {:#?}",
+        expected,
+        listing
+    );
 }
 
 #[test]
@@ -151,7 +186,6 @@ fn fat16_sub_directory_listing() {
         })
         .expect("iterate directory");
 
-    assert_eq!(expected.len(), listing.len());
     for (expected_entry, given_entry) in expected.iter().zip(listing.iter()) {
         assert_eq!(
             expected_entry, given_entry,
@@ -159,6 +193,13 @@ fn fat16_sub_directory_listing() {
             given_entry, expected_entry
         );
     }
+    assert_eq!(
+        expected.len(),
+        listing.len(),
+        "{:#?} != {:#?}",
+        expected,
+        listing
+    );
 }
 
 #[test]
@@ -175,52 +216,107 @@ fn fat32_root_directory_listing() {
         .expect("open root dir");
 
     let expected = [
-        ExpectedDirEntry {
-            name: String::from("64MB.DAT"),
-            mtime: String::from("2018-12-09 19:22:56"),
-            ctime: String::from("2018-12-09 19:22:56"),
-            size: 64 * 1024 * 1024,
-            is_dir: false,
-        },
-        ExpectedDirEntry {
-            name: String::from("EMPTY.DAT"),
-            mtime: String::from("2018-12-09 19:22:56"),
-            ctime: String::from("2018-12-09 19:22:56"),
-            size: 0,
-            is_dir: false,
-        },
-        ExpectedDirEntry {
-            name: String::from("README.TXT"),
-            mtime: String::from("2023-09-21 09:48:06"),
-            ctime: String::from("2018-12-09 19:22:56"),
-            size: 258,
-            is_dir: false,
-        },
-        ExpectedDirEntry {
-            name: String::from("TEST"),
-            mtime: String::from("2018-12-09 19:23:20"),
-            ctime: String::from("2018-12-09 19:23:20"),
-            size: 0,
-            is_dir: true,
-        },
+        (
+            ExpectedDirEntry {
+                name: String::from("64MB.DAT"),
+                mtime: String::from("2018-12-09 19:22:56"),
+                ctime: String::from("2018-12-09 19:22:56"),
+                size: 64 * 1024 * 1024,
+                is_dir: false,
+            },
+            None,
+        ),
+        (
+            ExpectedDirEntry {
+                name: String::from("EMPTY.DAT"),
+                mtime: String::from("2018-12-09 19:22:56"),
+                ctime: String::from("2018-12-09 19:22:56"),
+                size: 0,
+                is_dir: false,
+            },
+            None,
+        ),
+        (
+            ExpectedDirEntry {
+                name: String::from("README.TXT"),
+                mtime: String::from("2023-09-21 09:48:06"),
+                ctime: String::from("2018-12-09 19:22:56"),
+                size: 258,
+                is_dir: false,
+            },
+            None,
+        ),
+        (
+            ExpectedDirEntry {
+                name: String::from("TEST"),
+                mtime: String::from("2018-12-09 19:23:20"),
+                ctime: String::from("2018-12-09 19:23:20"),
+                size: 0,
+                is_dir: true,
+            },
+            None,
+        ),
+        (
+            ExpectedDirEntry {
+                name: String::from("FSEVEN~4"),
+                mtime: String::from("2024-10-25 16:30:42"),
+                ctime: String::from("2024-10-25 16:30:42"),
+                size: 0,
+                is_dir: true,
+            },
+            Some(String::from(".fseventsd")),
+        ),
+        (
+            ExpectedDirEntry {
+                name: String::from("THISIS~9"),
+                mtime: String::from("2024-10-25 16:30:54"),
+                ctime: String::from("2024-10-25 16:30:50"),
+                size: 0,
+                is_dir: true,
+            },
+            Some(String::from("This is a long file name £99")),
+        ),
+        (
+            ExpectedDirEntry {
+                name: String::from("COPYO~13.TXT"),
+                mtime: String::from("2024-10-25 16:31:14"),
+                ctime: String::from("2018-12-09 19:22:56"),
+                size: 258,
+                is_dir: false,
+            },
+            Some(String::from("Copy of Readme.txt")),
+        ),
     ];
 
     let mut listing = Vec::new();
+    let mut storage = [0u8; 128];
+    let mut lfn_buffer: LfnBuffer = LfnBuffer::new(&mut storage);
 
     volume_mgr
-        .iterate_dir(root_dir, |d| {
-            listing.push(d.clone());
+        .iterate_dir_lfn(root_dir, &mut lfn_buffer, |d, opt_lfn| {
+            listing.push((d.clone(), opt_lfn.map(String::from)));
         })
         .expect("iterate directory");
 
-    assert_eq!(expected.len(), listing.len());
     for (expected_entry, given_entry) in expected.iter().zip(listing.iter()) {
         assert_eq!(
-            expected_entry, given_entry,
+            expected_entry.0, given_entry.0,
+            "{:#?} does not match {:#?}",
+            given_entry, expected_entry
+        );
+        assert_eq!(
+            expected_entry.1, given_entry.1,
             "{:#?} does not match {:#?}",
             given_entry, expected_entry
         );
     }
+    assert_eq!(
+        expected.len(),
+        listing.len(),
+        "{:#?} != {:#?}",
+        expected,
+        listing
+    );
 }
 
 #[test]

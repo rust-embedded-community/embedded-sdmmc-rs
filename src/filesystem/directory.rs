@@ -1,6 +1,6 @@
 use crate::blockdevice::BlockIdx;
 use crate::fat::{FatType, OnDiskDirEntry};
-use crate::filesystem::{Attributes, ClusterId, Handle, ShortFileName, Timestamp};
+use crate::filesystem::{Attributes, ClusterId, Handle, LfnBuffer, ShortFileName, Timestamp};
 use crate::{Error, RawVolume, VolumeManager};
 
 use super::ToShortFileName;
@@ -145,6 +145,8 @@ where
 
     /// Call a callback function for each directory entry in a directory.
     ///
+    /// Long File Names will be ignored.
+    ///
     /// <div class="warning">
     ///
     /// Do not attempt to call any methods on the VolumeManager or any of its
@@ -157,6 +159,33 @@ where
         F: FnMut(&DirEntry),
     {
         self.volume_mgr.iterate_dir(self.raw_directory, func)
+    }
+
+    /// Call a callback function for each directory entry in a directory, and
+    /// process Long File Names.
+    ///
+    /// You must supply a [`LfnBuffer`] this API can use to temporarily hold the
+    /// Long File Name. If you pass one that isn't large enough, any Long File
+    /// Names that don't fit will be ignored and presented as if they only had a
+    /// Short File Name.
+    ///
+    /// <div class="warning">
+    ///
+    /// Do not attempt to call any methods on the VolumeManager or any of its
+    /// handles from inside the callback. You will get a lock error because the
+    /// object is already locked in order to do the iteration.
+    ///
+    /// </div>
+    pub fn iterate_dir_lfn<F>(
+        &self,
+        lfn_buffer: &mut LfnBuffer<'_>,
+        func: F,
+    ) -> Result<(), Error<D::Error>>
+    where
+        F: FnMut(&DirEntry, Option<&str>),
+    {
+        self.volume_mgr
+            .iterate_dir_lfn(self.raw_directory, lfn_buffer, func)
     }
 
     /// Open a file with the given full path. A file can only be opened once.

@@ -17,7 +17,7 @@ mod timestamp;
 pub use self::attributes::Attributes;
 pub use self::cluster::ClusterId;
 pub use self::directory::{DirEntry, Directory, RawDirectory};
-pub use self::filename::{FilenameError, ShortFileName, ToShortFileName};
+pub use self::filename::{FilenameError, LfnBuffer, ShortFileName, ToShortFileName};
 pub use self::files::{File, FileError, Mode, RawFile};
 pub use self::handles::{Handle, HandleGenerator};
 pub use self::timestamp::{TimeSource, Timestamp};
