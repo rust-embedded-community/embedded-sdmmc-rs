@@ -5,8 +5,9 @@
 
 pub mod proto;
 
-use crate::{trace, Block, BlockCount, BlockDevice, BlockIdx};
+use crate::{trace, Block};
 use core::cell::RefCell;
+use embedded_storage::block::{BlockCount, BlockDevice, BlockIdx};
 use proto::*;
 
 // ****************************************************************************
@@ -162,27 +163,31 @@ where
     /// Read one or more blocks, starting at the given block index.
     ///
     /// This will trigger card (re-)initialisation.
-    fn read(&self, blocks: &mut [Block], start_block_idx: BlockIdx) -> Result<(), Self::Error> {
+    fn read(
+        &mut self,
+        first_block_index: BlockIdx,
+        blocks: &mut [Block],
+    ) -> Result<(), Self::Error> {
         let mut inner = self.inner.borrow_mut();
-        debug!("Read {} blocks @ {}", blocks.len(), start_block_idx.0,);
+        debug!("Read {} blocks @ {}", blocks.len(), first_block_index.0);
         inner.check_init()?;
-        inner.read(blocks, start_block_idx)
+        inner.read(first_block_index, blocks)
     }
 
     /// Write one or more blocks, starting at the given block index.
     ///
     /// This will trigger card (re-)initialisation.
-    fn write(&self, blocks: &[Block], start_block_idx: BlockIdx) -> Result<(), Self::Error> {
+    fn write(&mut self, first_block_index: BlockIdx, blocks: &[Block]) -> Result<(), Self::Error> {
         let mut inner = self.inner.borrow_mut();
-        debug!("Writing {} blocks @ {}", blocks.len(), start_block_idx.0);
+        debug!("Writing {} blocks @ {}", blocks.len(), first_block_index.0);
         inner.check_init()?;
-        inner.write(blocks, start_block_idx)
+        inner.write(first_block_index, blocks)
     }
 
     /// Determine how many blocks this device can hold.
     ///
     /// This will trigger card (re-)initialisation.
-    fn num_blocks(&self) -> Result<BlockCount, Self::Error> {
+    fn block_count(&self) -> Result<BlockCount, Self::Error> {
         let mut inner = self.inner.borrow_mut();
         inner.check_init()?;
         inner.num_blocks()
@@ -209,22 +214,25 @@ where
     DELAYER: embedded_hal::delay::DelayNs,
 {
     /// Read one or more blocks, starting at the given block index.
-    fn read(&mut self, blocks: &mut [Block], start_block_idx: BlockIdx) -> Result<(), Error> {
+    fn read(&mut self, first_block_index: BlockIdx, blocks: &mut [Block]) -> Result<(), Error> {
         let start_idx = match self.card_type {
-            Some(CardType::SD1 | CardType::SD2) => start_block_idx.0 * 512,
-            Some(CardType::SDHC) => start_block_idx.0,
+            Some(CardType::SD1 | CardType::SD2) => first_block_index.0 * 512,
+            Some(CardType::SDHC) => first_block_index.0,
             None => return Err(Error::CardNotFound),
         };
+        let start_idx = start_idx
+            .try_into()
+            .map_err(|_| Error::BlockOutOfBounds(start_idx))?;
 
         if blocks.len() == 1 {
             // Start a single-block read
             self.card_command(CMD17, start_idx)?;
-            self.read_data(&mut blocks[0].contents)?;
+            self.read_data(&mut blocks[0])?;
         } else {
             // Start a multi-block read
             self.card_command(CMD18, start_idx)?;
             for block in blocks.iter_mut() {
-                self.read_data(&mut block.contents)?;
+                self.read_data(block)?;
             }
             // Stop the read
             self.card_command(CMD12, 0)?;
@@ -233,16 +241,19 @@ where
     }
 
     /// Write one or more blocks, starting at the given block index.
-    fn write(&mut self, blocks: &[Block], start_block_idx: BlockIdx) -> Result<(), Error> {
+    fn write(&mut self, first_block_index: BlockIdx, blocks: &[Block]) -> Result<(), Error> {
         let start_idx = match self.card_type {
-            Some(CardType::SD1 | CardType::SD2) => start_block_idx.0 * 512,
-            Some(CardType::SDHC) => start_block_idx.0,
+            Some(CardType::SD1 | CardType::SD2) => first_block_index.0 * 512,
+            Some(CardType::SDHC) => first_block_index.0,
             None => return Err(Error::CardNotFound),
         };
+        let start_idx = start_idx
+            .try_into()
+            .map_err(|_| Error::BlockOutOfBounds(start_idx))?;
         if blocks.len() == 1 {
             // Start a single-block write
             self.card_command(CMD24, start_idx)?;
-            self.write_data(DATA_START_BLOCK, &blocks[0].contents)?;
+            self.write_data(DATA_START_BLOCK, &blocks[0])?;
             self.wait_not_busy(Delay::new_write())?;
             if self.card_command(CMD13, 0)? != 0x00 {
                 return Err(Error::WriteError);
@@ -262,7 +273,7 @@ where
             self.card_command(CMD25, start_idx)?;
             for block in blocks.iter() {
                 self.wait_not_busy(Delay::new_write())?;
-                self.write_data(WRITE_MULTIPLE_TOKEN, &block.contents)?;
+                self.write_data(WRITE_MULTIPLE_TOKEN, block)?;
             }
             // Stop the write
             self.wait_not_busy(Delay::new_write())?;
@@ -279,7 +290,7 @@ where
             Csd::V1(ref contents) => contents.card_capacity_blocks(),
             Csd::V2(ref contents) => contents.card_capacity_blocks(),
         };
-        Ok(BlockCount(num_blocks))
+        Ok(BlockCount(num_blocks.into()))
     }
 
     /// Return the usable size of this SD card in bytes.
@@ -624,6 +635,8 @@ pub enum Error {
     CardNotFound,
     /// Couldn't set a GPIO pin
     GpioError,
+    /// Tried to read or write a block out of bounds.
+    BlockOutOfBounds(u64),
 }
 
 /// The different types of card we support.

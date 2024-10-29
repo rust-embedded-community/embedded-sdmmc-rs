@@ -78,7 +78,8 @@ use embedded_io::ErrorKind;
 use filesystem::Handle;
 
 #[doc(inline)]
-pub use crate::blockdevice::{Block, BlockCache, BlockCount, BlockDevice, BlockIdx};
+pub use crate::blockdevice::{Block, BlockCache};
+pub use embedded_storage::block::{BlockCount, BlockDevice, BlockIdx};
 
 #[doc(inline)]
 pub use crate::fat::{FatVolume, VolumeName};
@@ -282,6 +283,7 @@ impl RawVolume {
     where
         D: crate::BlockDevice,
         T: crate::TimeSource,
+        D::Error: Debug,
     {
         Volume::new(self, volume_mgr)
     }
@@ -299,6 +301,7 @@ pub struct Volume<'a, D, T, const MAX_DIRS: usize, const MAX_FILES: usize, const
 where
     D: crate::BlockDevice,
     T: crate::TimeSource,
+    D::Error: Debug,
 {
     raw_volume: RawVolume,
     volume_mgr: &'a VolumeManager<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>,
@@ -309,6 +312,7 @@ impl<'a, D, T, const MAX_DIRS: usize, const MAX_FILES: usize, const MAX_VOLUMES:
 where
     D: crate::BlockDevice,
     T: crate::TimeSource,
+    D::Error: Debug,
 {
     /// Create a new `Volume` from a `RawVolume`
     pub fn new(
@@ -355,6 +359,7 @@ impl<'a, D, T, const MAX_DIRS: usize, const MAX_FILES: usize, const MAX_VOLUMES:
 where
     D: crate::BlockDevice,
     T: crate::TimeSource,
+    D::Error: Debug,
 {
     fn drop(&mut self) {
         _ = self.volume_mgr.close_volume(self.raw_volume)
@@ -366,6 +371,7 @@ impl<'a, D, T, const MAX_DIRS: usize, const MAX_FILES: usize, const MAX_VOLUMES:
 where
     D: crate::BlockDevice,
     T: crate::TimeSource,
+    D::Error: Debug,
 {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "Volume({})", self.raw_volume.0 .0)
@@ -377,6 +383,7 @@ impl<'a, D, T, const MAX_DIRS: usize, const MAX_FILES: usize, const MAX_VOLUMES:
     defmt::Format for Volume<'a, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>
 where
     D: crate::BlockDevice,
+    D::Error: Debug,
     T: crate::TimeSource,
 {
     fn format(&self, fmt: defmt::Formatter) {

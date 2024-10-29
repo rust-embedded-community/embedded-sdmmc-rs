@@ -1,7 +1,8 @@
-use crate::blockdevice::BlockIdx;
 use crate::fat::{FatType, OnDiskDirEntry};
 use crate::filesystem::{Attributes, ClusterId, Handle, LfnBuffer, ShortFileName, Timestamp};
 use crate::{Error, RawVolume, VolumeManager};
+use core::fmt::Debug;
+use embedded_storage::block::BlockIdx;
 
 use super::ToShortFileName;
 
@@ -61,6 +62,7 @@ impl RawDirectory {
     ) -> Directory<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>
     where
         D: crate::BlockDevice,
+        D::Error: Debug,
         T: crate::TimeSource,
     {
         Directory::new(self, volume_mgr)
@@ -84,6 +86,7 @@ pub struct Directory<
     const MAX_VOLUMES: usize,
 > where
     D: crate::BlockDevice,
+    D::Error: Debug,
     T: crate::TimeSource,
 {
     raw_directory: RawDirectory,
@@ -94,6 +97,7 @@ impl<'a, D, T, const MAX_DIRS: usize, const MAX_FILES: usize, const MAX_VOLUMES:
     Directory<'a, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>
 where
     D: crate::BlockDevice,
+    D::Error: Debug,
     T: crate::TimeSource,
 {
     /// Create a new `Directory` from a `RawDirectory`
@@ -241,6 +245,7 @@ impl<'a, D, T, const MAX_DIRS: usize, const MAX_FILES: usize, const MAX_VOLUMES:
     for Directory<'a, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>
 where
     D: crate::BlockDevice,
+    D::Error: Debug,
     T: crate::TimeSource,
 {
     fn drop(&mut self) {
@@ -252,6 +257,7 @@ impl<'a, D, T, const MAX_DIRS: usize, const MAX_FILES: usize, const MAX_VOLUMES:
     core::fmt::Debug for Directory<'a, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>
 where
     D: crate::BlockDevice,
+    D::Error: Debug,
     T: crate::TimeSource,
 {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
@@ -264,6 +270,7 @@ impl<'a, D, T, const MAX_DIRS: usize, const MAX_FILES: usize, const MAX_VOLUMES:
     defmt::Format for Directory<'a, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>
 where
     D: crate::BlockDevice,
+    D::Error: Debug,
     T: crate::TimeSource,
 {
     fn format(&self, fmt: defmt::Formatter) {
