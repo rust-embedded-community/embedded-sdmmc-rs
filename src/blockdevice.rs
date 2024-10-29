@@ -140,9 +140,7 @@ where
     /// Access a blank sector
     pub fn blank_mut(&mut self, block_idx: BlockIdx) -> &mut Block {
         self.block_idx = Some(block_idx);
-        for b in self.block[0].iter_mut() {
-            *b = 0;
-        }
+        self.block[0].fill(0);
         &mut self.block[0]
     }
 
