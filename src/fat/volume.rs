@@ -1242,6 +1242,92 @@ impl FatVolume {
         block_cache.write_back().map_err(Error::DeviceError)?;
         Ok(())
     }
+
+    /// Create a new directory.
+    ///
+    /// 1) Creates the directory entry in the parent
+    /// 2) Allocates a new cluster to hold the new directory
+    /// 3) Writes out the `.` and `..` entries in the new directory
+    pub(crate) fn make_dir<D, T>(
+        &mut self,
+        block_cache: &mut BlockCache<D>,
+        time_source: &T,
+        parent: ClusterId,
+        sfn: ShortFileName,
+        att: Attributes,
+    ) -> Result<(), Error<D::Error>>
+    where
+        D: BlockDevice,
+        T: TimeSource,
+    {
+        let mut new_dir_entry_in_parent =
+            self.write_new_directory_entry(block_cache, time_source, parent, sfn, att)?;
+        if new_dir_entry_in_parent.cluster == ClusterId::EMPTY {
+            new_dir_entry_in_parent.cluster = self.alloc_cluster(block_cache, None, false)?;
+            // update the parent dir with the cluster of the new dir
+            self.write_entry_to_disk(block_cache, &new_dir_entry_in_parent)?;
+        }
+        let new_dir_start_block = self.cluster_to_block(new_dir_entry_in_parent.cluster);
+        debug!("Made new dir entry {:?}", new_dir_entry_in_parent);
+        let now = time_source.get_timestamp();
+        let fat_type = self.get_fat_type();
+        // A blank block
+        let block = block_cache.blank_mut(new_dir_start_block);
+        // make the "." entry
+        let dot_entry_in_child = DirEntry {
+            name: crate::ShortFileName::this_dir(),
+            mtime: now,
+            ctime: now,
+            attributes: att,
+            // point at ourselves
+            cluster: new_dir_entry_in_parent.cluster,
+            size: 0,
+            entry_block: new_dir_start_block,
+            entry_offset: 0,
+        };
+        debug!("New dir has {:?}", dot_entry_in_child);
+        let mut offset = 0;
+        block[offset..offset + OnDiskDirEntry::LEN]
+            .copy_from_slice(&dot_entry_in_child.serialize(fat_type)[..]);
+        offset += OnDiskDirEntry::LEN;
+        // make the ".." entry
+        let dot_dot_entry_in_child = DirEntry {
+            name: crate::ShortFileName::parent_dir(),
+            mtime: now,
+            ctime: now,
+            attributes: att,
+            // point at our parent
+            cluster: match fat_type {
+                FatType::Fat16 => {
+                    // On FAT16, indicate parent is root using Cluster(0)
+                    if parent == ClusterId::ROOT_DIR {
+                        ClusterId::EMPTY
+                    } else {
+                        parent
+                    }
+                }
+                FatType::Fat32 => parent,
+            },
+            size: 0,
+            entry_block: new_dir_start_block,
+            entry_offset: OnDiskDirEntry::LEN_U32,
+        };
+        debug!("New dir has {:?}", dot_dot_entry_in_child);
+        block[offset..offset + OnDiskDirEntry::LEN]
+            .copy_from_slice(&dot_dot_entry_in_child.serialize(fat_type)[..]);
+
+        block_cache.write_back()?;
+
+        for block_idx in new_dir_start_block
+            .range(BlockCount(u32::from(self.blocks_per_cluster)))
+            .skip(1)
+        {
+            let _block = block_cache.blank_mut(block_idx);
+            block_cache.write_back()?;
+        }
+
+        Ok(())
+    }
 }
 
 /// Load the boot parameter block from the start of the given partition and

@@ -1072,77 +1072,13 @@ where
             VolumeType::Fat(fat) => {
                 // TODO: Move this into the FAT volume code
                 debug!("Making dir entry");
-                let mut new_dir_entry_in_parent = fat.write_new_directory_entry(
+                fat.make_dir(
                     &mut data.block_cache,
                     &self.time_source,
                     parent_directory_info.cluster,
                     sfn,
                     att,
                 )?;
-                if new_dir_entry_in_parent.cluster == ClusterId::EMPTY {
-                    new_dir_entry_in_parent.cluster =
-                        fat.alloc_cluster(&mut data.block_cache, None, false)?;
-                    // update the parent dir with the cluster of the new dir
-                    fat.write_entry_to_disk(&mut data.block_cache, &new_dir_entry_in_parent)?;
-                }
-                let new_dir_start_block = fat.cluster_to_block(new_dir_entry_in_parent.cluster);
-                debug!("Made new dir entry {:?}", new_dir_entry_in_parent);
-                let now = self.time_source.get_timestamp();
-                let fat_type = fat.get_fat_type();
-                // A blank block
-                let block = data.block_cache.blank_mut(new_dir_start_block);
-                // make the "." entry
-                let dot_entry_in_child = DirEntry {
-                    name: crate::ShortFileName::this_dir(),
-                    mtime: now,
-                    ctime: now,
-                    attributes: att,
-                    // point at ourselves
-                    cluster: new_dir_entry_in_parent.cluster,
-                    size: 0,
-                    entry_block: new_dir_start_block,
-                    entry_offset: 0,
-                };
-                debug!("New dir has {:?}", dot_entry_in_child);
-                let mut offset = 0;
-                block[offset..offset + fat::OnDiskDirEntry::LEN]
-                    .copy_from_slice(&dot_entry_in_child.serialize(fat_type)[..]);
-                offset += fat::OnDiskDirEntry::LEN;
-                // make the ".." entry
-                let dot_dot_entry_in_child = DirEntry {
-                    name: crate::ShortFileName::parent_dir(),
-                    mtime: now,
-                    ctime: now,
-                    attributes: att,
-                    // point at our parent
-                    cluster: match fat_type {
-                        fat::FatType::Fat16 => {
-                            // On FAT16, indicate parent is root using Cluster(0)
-                            if parent_directory_info.cluster == ClusterId::ROOT_DIR {
-                                ClusterId::EMPTY
-                            } else {
-                                parent_directory_info.cluster
-                            }
-                        }
-                        fat::FatType::Fat32 => parent_directory_info.cluster,
-                    },
-                    size: 0,
-                    entry_block: new_dir_start_block,
-                    entry_offset: fat::OnDiskDirEntry::LEN_U32,
-                };
-                debug!("New dir has {:?}", dot_dot_entry_in_child);
-                block[offset..offset + fat::OnDiskDirEntry::LEN]
-                    .copy_from_slice(&dot_dot_entry_in_child.serialize(fat_type)[..]);
-
-                data.block_cache.write_back()?;
-
-                for block_idx in new_dir_start_block
-                    .range(BlockCount(u32::from(fat.blocks_per_cluster)))
-                    .skip(1)
-                {
-                    let _block = data.block_cache.blank_mut(block_idx);
-                    data.block_cache.write_back()?;
-                }
             }
         };
 
