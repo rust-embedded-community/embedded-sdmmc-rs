@@ -1493,6 +1493,7 @@ mod tests {
                     blocks_per_cluster: 8,
                     first_data_block: BlockCount(15136),
                     fat_start: BlockCount(32),
+                    second_fat_start: Some(BlockCount(32 + 0x0000_1D80)),
                     name: fat::VolumeName::create_from_str("Pictures").unwrap(),
                     free_clusters_count: None,
                     next_free_cluster: None,
