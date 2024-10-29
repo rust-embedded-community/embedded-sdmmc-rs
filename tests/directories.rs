@@ -98,6 +98,16 @@ fn fat16_root_directory_listing() {
             },
             Some(String::from(".fseventsd")),
         ),
+        (
+            ExpectedDirEntry {
+                name: String::from("P-FAT16"),
+                mtime: String::from("2024-10-30 18:43:12"),
+                ctime: String::from("2024-10-30 18:43:12"),
+                size: 0,
+                is_dir: false,
+            },
+            None,
+        ),
     ];
 
     let mut listing = Vec::new();
@@ -265,6 +275,16 @@ fn fat32_root_directory_listing() {
                 is_dir: true,
             },
             Some(String::from(".fseventsd")),
+        ),
+        (
+            ExpectedDirEntry {
+                name: String::from("P-FAT32"),
+                mtime: String::from("2024-10-30 18:43:16"),
+                ctime: String::from("2024-10-30 18:43:16"),
+                size: 0,
+                is_dir: false,
+            },
+            None,
         ),
         (
             ExpectedDirEntry {
