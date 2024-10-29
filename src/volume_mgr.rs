@@ -334,6 +334,7 @@ where
     /// You can't close it if there are any files or directories open on it.
     pub fn close_volume(&self, volume: RawVolume) -> Result<(), Error<D::Error>> {
         let mut data = self.data.try_borrow_mut().map_err(|_| Error::LockError)?;
+        let data = data.deref_mut();
 
         for f in data.open_files.iter() {
             if f.raw_volume == volume {
@@ -348,6 +349,12 @@ where
         }
 
         let volume_idx = data.get_volume_by_id(volume)?;
+
+        match &mut data.open_volumes[volume_idx].volume_type {
+            VolumeType::Fat(fat) => {
+                fat.update_info_sector(&mut data.block_cache)?;
+            }
+        }
 
         data.open_volumes.swap_remove(volume_idx);
 
@@ -1552,6 +1559,7 @@ mod tests {
                     blocks_per_cluster: 8,
                     first_data_block: BlockCount(15136),
                     fat_start: BlockCount(32),
+                    second_fat_start: Some(BlockCount(32 + 0x0000_1D80)),
                     name: fat::VolumeName::create_from_str("Pictures").unwrap(),
                     free_clusters_count: None,
                     next_free_cluster: None,
