@@ -1297,16 +1297,11 @@ impl FatVolume {
             ctime: now,
             attributes: att,
             // point at our parent
-            cluster: match fat_type {
-                FatType::Fat16 => {
-                    // On FAT16, indicate parent is root using Cluster(0)
-                    if parent == ClusterId::ROOT_DIR {
-                        ClusterId::EMPTY
-                    } else {
-                        parent
-                    }
-                }
-                FatType::Fat32 => parent,
+            cluster: if parent == ClusterId::ROOT_DIR {
+                // indicate parent is root using Cluster(0)
+                ClusterId::EMPTY
+            } else {
+                parent
             },
             size: 0,
             entry_block: new_dir_start_block,
