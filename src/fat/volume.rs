@@ -1042,6 +1042,7 @@ impl FatVolume {
                 Err(e) => return Err(e),
             };
         debug!("Next free cluster is {:?}", self.next_free_cluster);
+        // Record that we've allocated a cluster
         if let Some(ref mut number_free_cluster) = self.free_clusters_count {
             *number_free_cluster -= 1;
         };
