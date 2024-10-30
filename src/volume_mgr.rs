@@ -5,7 +5,7 @@
 use byteorder::{ByteOrder, LittleEndian};
 use core::convert::TryFrom;
 
-use crate::fat::{self, BlockCache, FatType, OnDiskDirEntry, RESERVED_ENTRIES};
+use crate::fat::{self, BlockCache, OnDiskDirEntry, RESERVED_ENTRIES};
 
 use crate::filesystem::{
     Attributes, ClusterId, DirEntry, DirectoryInfo, FileInfo, Mode, RawDirectory, RawFile,
@@ -978,16 +978,13 @@ where
                     ctime: now,
                     attributes: att,
                     // point at our parent
-                    cluster: match fat_type {
-                        FatType::Fat16 => {
-                            // On FAT16, indicate parent is root using Cluster(0)
-                            if parent_directory_info.cluster == ClusterId::ROOT_DIR {
-                                ClusterId::EMPTY
-                            } else {
-                                parent_directory_info.cluster
-                            }
+                    cluster: {
+                        // On FAT16, indicate parent is root using Cluster(0)
+                        if parent_directory_info.cluster == ClusterId::ROOT_DIR {
+                            ClusterId::EMPTY
+                        } else {
+                            parent_directory_info.cluster
                         }
-                        FatType::Fat32 => parent_directory_info.cluster,
                     },
                     size: 0,
                     entry_block: new_dir_start_block,
