@@ -324,6 +324,13 @@ where
         }
 
         let volume_idx = self.get_volume_by_id(volume)?;
+
+        match &mut self.open_volumes[volume_idx].volume_type {
+            VolumeType::Fat(fat_volume) => {
+                fat_volume.update_info_sector(&self.block_device)?;
+            }
+        }
+
         self.open_volumes.swap_remove(volume_idx);
 
         Ok(())
