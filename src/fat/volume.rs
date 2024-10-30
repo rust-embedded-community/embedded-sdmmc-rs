@@ -55,6 +55,9 @@ pub struct FatVolume {
     /// The block the FAT starts in. Relative to start of partition (so add
     /// `self.lba_offset` before passing to volume manager)
     pub(crate) fat_start: BlockCount,
+    /// The block the second FAT starts in (if present). Relative to start of
+    /// partition (so add `self.lba_offset` before passing to volume manager)
+    pub(crate) second_fat_start: Option<BlockCount>,
     /// Expected number of free clusters
     pub(crate) free_clusters_count: Option<u32>,
     /// Number of the next expected free cluster
@@ -118,10 +121,15 @@ impl FatVolume {
     {
         let mut blocks = [Block::new()];
         let this_fat_block_num;
+        let mut second_fat_block_num = None;
         match &self.fat_specific_info {
             FatSpecificInfo::Fat16(_fat16_info) => {
                 let fat_offset = cluster.0 * 2;
                 this_fat_block_num = self.lba_start + self.fat_start.offset_bytes(fat_offset);
+                if let Some(fat_start) = self.second_fat_start {
+                    second_fat_block_num =
+                        Some(self.lba_start + fat_start.offset_bytes(fat_offset));
+                }
                 let this_fat_ent_offset = (fat_offset % Block::LEN_U32) as usize;
                 block_device
                     .read(&mut blocks, this_fat_block_num, "read_fat")
@@ -143,6 +151,10 @@ impl FatVolume {
                 // FAT32 => 4 bytes per entry
                 let fat_offset = cluster.0 * 4;
                 this_fat_block_num = self.lba_start + self.fat_start.offset_bytes(fat_offset);
+                if let Some(fat_start) = self.second_fat_start {
+                    second_fat_block_num =
+                        Some(self.lba_start + fat_start.offset_bytes(fat_offset));
+                }
                 let this_fat_ent_offset = (fat_offset % Block::LEN_U32) as usize;
                 block_device
                     .read(&mut blocks, this_fat_block_num, "read_fat")
@@ -166,6 +178,11 @@ impl FatVolume {
         block_device
             .write(&blocks, this_fat_block_num)
             .map_err(Error::DeviceError)?;
+        if let Some(second_fat_block_num) = second_fat_block_num {
+            block_device
+                .write(&blocks, second_fat_block_num)
+                .map_err(Error::DeviceError)?;
+        }
         Ok(())
     }
 
@@ -1098,6 +1115,13 @@ where
                 blocks_per_cluster: bpb.blocks_per_cluster(),
                 first_data_block: (first_data_block),
                 fat_start: BlockCount(u32::from(bpb.reserved_block_count())),
+                second_fat_start: if bpb.num_fats() == 2 {
+                    Some(BlockCount(
+                        u32::from(bpb.reserved_block_count()) + bpb.fat_size(),
+                    ))
+                } else {
+                    None
+                },
                 free_clusters_count: None,
                 next_free_cluster: None,
                 cluster_count: bpb.total_clusters(),
@@ -1135,6 +1159,13 @@ where
                 blocks_per_cluster: bpb.blocks_per_cluster(),
                 first_data_block: BlockCount(first_data_block),
                 fat_start: BlockCount(u32::from(bpb.reserved_block_count())),
+                second_fat_start: if bpb.num_fats() == 2 {
+                    Some(BlockCount(
+                        u32::from(bpb.reserved_block_count()) + bpb.fat_size(),
+                    ))
+                } else {
+                    None
+                },
                 free_clusters_count: info_sector.free_clusters_count(),
                 next_free_cluster: info_sector.next_free_cluster(),
                 cluster_count: bpb.total_clusters(),
