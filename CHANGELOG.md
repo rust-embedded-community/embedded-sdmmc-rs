@@ -18,6 +18,14 @@ The format is based on [Keep a Changelog] and this project adheres to [Semantic 
 
 - None
 
+## [Version 0.8.1] - 2024-11-03
+
+### Changed
+
+* Second FAT is now updated, if it is present
+* When creating a directory `..` now points at the root directory correctly
+* The info block containing the free cluster count is now updated when unmounting a FAT32 volume. 
+
 ## [Version 0.8.0] - 2024-07-12
 
 ### Changed
