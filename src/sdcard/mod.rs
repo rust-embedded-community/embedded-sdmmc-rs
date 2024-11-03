@@ -341,9 +341,7 @@ where
             return Err(Error::ReadError);
         }
 
-        for b in buffer.iter_mut() {
-            *b = 0xFF;
-        }
+        buffer.fill(0xFF);
         self.transfer_bytes(buffer)?;
 
         // These two bytes are always sent. They are either a valid CRC, or
