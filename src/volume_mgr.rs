@@ -1070,7 +1070,6 @@ where
         // Need mutable access for this
         match &mut data.open_volumes[volume_idx].volume_type {
             VolumeType::Fat(fat) => {
-                // TODO: Move this into the FAT volume code
                 debug!("Making dir entry");
                 fat.make_dir(
                     &mut data.block_cache,
