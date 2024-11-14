@@ -17,7 +17,7 @@ use crate::{
     },
     trace, Block, BlockCache, BlockCount, BlockDevice, BlockIdx, Error, RawVolume, ShortFileName,
     Volume, VolumeIdx, VolumeInfo, VolumeType, PARTITION_ID_FAT16, PARTITION_ID_FAT16_LBA,
-    PARTITION_ID_FAT32_CHS_LBA, PARTITION_ID_FAT32_LBA,
+    PARTITION_ID_FAT16_SMALL, PARTITION_ID_FAT32_CHS_LBA, PARTITION_ID_FAT32_LBA,
 };
 
 /// Wraps a block device and gives access to the FAT-formatted volumes within
@@ -195,7 +195,8 @@ where
             PARTITION_ID_FAT32_CHS_LBA
             | PARTITION_ID_FAT32_LBA
             | PARTITION_ID_FAT16_LBA
-            | PARTITION_ID_FAT16 => {
+            | PARTITION_ID_FAT16
+            | PARTITION_ID_FAT16_SMALL => {
                 let volume = fat::parse_volume(&mut data.block_cache, lba_start, num_blocks)?;
                 let id = RawVolume(data.id_generator.generate());
                 let info = VolumeInfo {
