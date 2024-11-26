@@ -6,7 +6,10 @@ jobs:
   formatting:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v1
+    - uses: actions/checkout@v4
+    - uses: dtolnay/rust-toolchain@stable
+      with:
+        components: rustfmt
     - name: Check formatting
       run: cargo fmt -- --check
 
@@ -14,9 +17,14 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
+        # Always run MSRV too!
+        rust: ["stable", "1.76"]
         features: ['log', 'defmt-log', '""']
     steps:
-    - uses: actions/checkout@v1
+    - uses: actions/checkout@v4
+    - uses: dtolnay/rust-toolchain@master
+      with:
+        toolchain: ${{ matrix.rust }}
     - name: Build
       run: cargo build --no-default-features --features ${{matrix.features}} --verbose
     - name: Run Tests

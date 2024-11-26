@@ -36,7 +36,15 @@ impl VolumeName {
 
     /// Get name
     pub fn name(&self) -> &[u8] {
-        self.contents.trim_ascii_end()
+        let mut bytes = &self.contents[..];
+        while let [rest @ .., last] = bytes {
+            if last.is_ascii_whitespace() {
+                bytes = rest;
+            } else {
+                break;
+            }
+        }
+        bytes
     }
 
     /// Create a new MS-DOS volume label.
@@ -595,7 +603,7 @@ impl FatVolume {
                         lfn_buffer.push(&buffer);
                         SeqState::Complete { csum }
                     }
-                    (true, 0x02..0x14, _) => {
+                    (true, sequence, _) if sequence >= 0x02 && sequence < 0x14 => {
                         lfn_buffer.clear();
                         lfn_buffer.push(&buffer);
                         SeqState::Remaining {
@@ -607,7 +615,9 @@ impl FatVolume {
                         lfn_buffer.push(&buffer);
                         SeqState::Complete { csum }
                     }
-                    (false, 0x01..0x13, SeqState::Remaining { csum, next }) if next == sequence => {
+                    (false, sequence, SeqState::Remaining { csum, next })
+                        if sequence >= 0x01 && sequence < 0x13 && next == sequence =>
+                    {
                         lfn_buffer.push(&buffer);
                         SeqState::Remaining {
                             csum,
