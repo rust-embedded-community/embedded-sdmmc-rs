@@ -7,7 +7,7 @@ use super::{proto::*, AcquireOpts, CardType, Delay, Error};
 use crate::blockdevice::{Block, BlockCount, BlockIdx};
 use crate::{debug, trace, warn};
 
-/// Inner details for the SD Card driver.
+/// SPI transportation for the SD Card driver.
 ///
 /// All the APIs required `&mut self`.
 pub struct SpiTransport<SPI, DELAYER>

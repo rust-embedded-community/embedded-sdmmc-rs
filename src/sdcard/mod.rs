@@ -40,6 +40,15 @@ pub struct SdCard<T: Transport> {
     inner: RefCell<T>,
 }
 
+impl<T: Transport> SdCard<T> {
+    /// Create a new SD/MMC Card driver using an abstract transport interface.
+    pub fn new(transport: T) -> Self {
+        Self {
+            inner: RefCell::new(transport),
+        }
+    }
+}
+
 impl<SPI, DELAYER> SdCard<SpiTransport<SPI, DELAYER>>
 where
     SPI: embedded_hal::spi::SpiDevice<u8>,
