@@ -51,8 +51,8 @@ where
     /// deferred until a method is called on the object.
     ///
     /// Uses the default options.
-    pub fn new(spi: SPI, delayer: DELAYER) -> Self {
-        Self::new_with_options(spi, delayer, AcquireOpts::default())
+    pub fn new_spi(spi: SPI, delayer: DELAYER) -> Self {
+        Self::new_spi_with_options(spi, delayer, AcquireOpts::default())
     }
 
     /// Construct a new SD/MMC Card driver, using a raw SPI interface and the given options.
@@ -62,7 +62,7 @@ where
     ///
     /// The card will not be initialised at this time. Initialisation is
     /// deferred until a method is called on the object.
-    pub fn new_with_options(spi: SPI, delayer: DELAYER, options: AcquireOpts) -> Self {
+    pub fn new_spi_with_options(spi: SPI, delayer: DELAYER, options: AcquireOpts) -> Self {
         SdCard {
             inner: RefCell::new(spi::SpiTransport::new(spi, delayer, options)),
         }

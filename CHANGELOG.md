@@ -14,6 +14,7 @@ The format is based on [Keep a Changelog] and this project adheres to [Semantic 
 - __Breaking Change__: The `VolumeManager::device` method now takes a callback rather than giving you a reference to the underlying `BlockDevice`
 - __Breaking Change__: `Error:LockError` variant added.
 - __Breaking Change__: `SearchId` was renamed to `Handle`
+- __Breaking Change__: sdcard!: add `Transport` trait, make `SdCard` an abstract of `Transport` other than `SpiDevice<u8>`, refactor internal implementation, add `new_spi` and `new_spi_with_options` functions.
 
 ### Added
 
