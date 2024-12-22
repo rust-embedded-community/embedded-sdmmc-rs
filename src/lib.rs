@@ -92,10 +92,7 @@ pub use crate::filesystem::{
 use filesystem::DirectoryInfo;
 
 #[doc(inline)]
-pub use crate::sdcard::Error as SdCardError;
-
-#[doc(inline)]
-pub use crate::sdcard::SdCard;
+pub use crate::sdcard::{Error as SdCardError, SdCard, SpiTransport, Transport};
 
 mod volume_mgr;
 #[doc(inline)]

@@ -1,4 +1,4 @@
-//! Implements the BlockDevice trait for an SD/MMC Protocol over SPI.
+//! Implements the [`Transport`] trait for speaking SD/MMC Protocol over SPI.
 //!
 //! This is currently optimised for readability and debugability, not
 //! performance.
@@ -7,9 +7,9 @@ use super::{proto::*, AcquireOpts, CardType, Delay, Error};
 use crate::blockdevice::{Block, BlockCount, BlockIdx};
 use crate::{debug, trace, warn};
 
-/// SPI transportation for the SD Card driver.
+/// An SPI-based implementation of [`Transport`](crate::Transport).
 ///
-/// All the APIs required `&mut self`.
+/// All the APIs require `&mut self`.
 pub struct SpiTransport<SPI, DELAYER>
 where
     SPI: embedded_hal::spi::SpiDevice<u8>,
@@ -27,6 +27,15 @@ where
     DELAYER: embedded_hal::delay::DelayNs,
 {
     /// Construct a new raw SPI transport interface for SD/MMC Card.
+    ///
+    /// Before talking to the SD Card, the caller needs to send 74 clocks cycles
+    /// on the SPI Clock line, at 400 kHz, with no chip-select asserted (or at
+    /// least, not the chip-select of the SD Card).
+    ///
+    /// This kind of breaks the embedded-hal model, so how to do this is left to
+    /// the caller. You could drive the SpiBus directly, or use an SpiDevice
+    /// with a dummy chip-select pin. Or you could try just not doing the 74
+    /// clocks and see if your card works anyway - some do, some don't.
     pub fn new(spi: SPI, delayer: DELAYER, options: AcquireOpts) -> Self {
         SpiTransport {
             spi,

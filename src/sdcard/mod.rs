@@ -5,6 +5,8 @@
 
 pub mod proto;
 mod spi;
+
+#[doc(inline)]
 pub use spi::SpiTransport;
 
 use crate::{Block, BlockCount, BlockDevice, BlockIdx};
@@ -20,18 +22,7 @@ use crate::debug;
 // Types and Implementations
 // ****************************************************************************
 
-/// Driver for an SD Card on an SPI bus.
-///
-/// Built from an [`SpiDevice`] implementation and a Chip Select pin.
-///
-/// Before talking to the SD Card, the caller needs to send 74 clocks cycles on
-/// the SPI Clock line, at 400 kHz, with no chip-select asserted (or at least,
-/// not the chip-select of the SD Card).
-///
-/// This kind of breaks the embedded-hal model, so how to do this is left to
-/// the caller. You could drive the SpiBus directly, or use an SpiDevice with
-/// a dummy chip-select pin. Or you could try just not doing the 74 clocks and
-/// see if your card works anyway - some do, some don't.
+/// Driver for an SD Card using some generic SD Card [`Transport`].
 ///
 /// All the APIs take `&self` - mutability is handled using an inner `RefCell`.
 ///
@@ -56,6 +47,12 @@ where
 {
     /// Create a new SD/MMC Card driver using a raw SPI interface.
     ///
+    /// This is just a short-cut method to provide backwards compatibility with
+    /// our old API.
+    ///
+    /// It creates an [`SpiTransport`] for you, so refer to the documentation
+    /// there for important details.
+    ///
     /// The card will not be initialised at this time. Initialisation is
     /// deferred until a method is called on the object.
     ///
@@ -64,10 +61,14 @@ where
         Self::new_spi_with_options(spi, delayer, AcquireOpts::default())
     }
 
-    /// Construct a new SD/MMC Card driver, using a raw SPI interface and the given options.
+    /// Construct a new SD/MMC Card driver, using a raw SPI interface and the
+    /// given options.
     ///
-    /// See the docs of the [`SdCard`] struct for more information about
-    /// how to construct the needed `SPI` and `CS` types.
+    /// This is just a short-cut method to provide backwards compatibility with
+    /// our old API.
+    ///
+    /// It creates an [`SpiTransport`] for you, so refer to the documentation
+    /// there for important details.
     ///
     /// The card will not be initialised at this time. Initialisation is
     /// deferred until a method is called on the object.
@@ -184,7 +185,11 @@ impl<T: Transport> BlockDevice for SdCard<T> {
     }
 }
 
-/// Abstract SD card transportation interface.
+/// Abstract SD Card Transport interface.
+///
+/// We implement this trait to produce an SPI based transport over in
+/// [`SpiTransport`]. You can implement it yourself to support your favourite SD
+/// Host Controller if you prefer.
 pub trait Transport {
     /// Read one or more blocks, starting at the given block index.
     fn read(&mut self, blocks: &mut [Block], start_block_idx: BlockIdx) -> Result<(), Error>;

@@ -46,17 +46,25 @@ By default the `VolumeManager` will initialize with a maximum number of `4` open
 let cont: VolumeManager<_, _, 6, 12, 4> = VolumeManager::new_with_limits(block, time_source);
 ```
 
+### Accessing SD Cards using an SD Host Controller
+
+The `SdCard` type requires something that implements `Transport` in order to speak to the SD Card. We supply a generic `SpiTransport` that implements `Transport` using some underlying user-supplied implementation of `embedded_hal::spi::SpiDevice<u8>`. That will work for most applications.
+
+However, if your MCU has a full SD Host Controller peripheral, and if you need high-performance access to your SD Card, you may wish to instead implement `Transport` in a way that uses that peripheral. SD Host Controllers, for example, often support a 4-bit wide interface instead of the 1-bit wide SPI interface, and run at higher clock rates.
+
 ## Supported features
 
-* Open files in all supported methods from an open directory
-* Open an arbitrary number of directories and files
-* Read data from open files
-* Write data to open files
-* Close files
-* Delete files
-* Iterate root directory
-* Iterate sub-directories
-* Log over defmt or the common log interface (feature flags).
+* Talking to SD Cards over SPI (using the `embedded-hal::spi::SpiDevice` trait)
+* Talking to SD Cards over a custom transport (using our `Transport` trait)
+* Opening files in all supported modes from an open directory
+* Opening an arbitrary number of directories and files
+* Reading data from open files
+* Writing data to open files
+* Closing files
+* Deleting files
+* Iterating the root directory
+* Iterating sub-directories
+* Logging over defmt or the common log interface (see feature flags).
 
 ## No-std usage
 
