@@ -10,7 +10,7 @@ use crate::{debug, trace, warn};
 /// Inner details for the SD Card driver.
 ///
 /// All the APIs required `&mut self`.
-pub struct SpiSdCardInner<SPI, DELAYER>
+pub struct SpiTransport<SPI, DELAYER>
 where
     SPI: embedded_hal::spi::SpiDevice<u8>,
     DELAYER: embedded_hal::delay::DelayNs,
@@ -21,14 +21,14 @@ where
     options: AcquireOpts,
 }
 
-impl<SPI, DELAYER> SpiSdCardInner<SPI, DELAYER>
+impl<SPI, DELAYER> SpiTransport<SPI, DELAYER>
 where
     SPI: embedded_hal::spi::SpiDevice<u8>,
     DELAYER: embedded_hal::delay::DelayNs,
 {
     /// Construct a new raw SPI transport interface for SD/MMC Card.
     pub fn new(spi: SPI, delayer: DELAYER, options: AcquireOpts) -> Self {
-        SpiSdCardInner {
+        SpiTransport {
             spi,
             delayer,
             card_type: None,
@@ -41,98 +41,6 @@ where
         F: FnOnce(&mut SPI) -> T,
     {
         func(&mut self.spi)
-    }
-    /// Read one or more blocks, starting at the given block index.
-    pub fn read(&mut self, blocks: &mut [Block], start_block_idx: BlockIdx) -> Result<(), Error> {
-        let start_idx = match self.card_type {
-            Some(CardType::SD1 | CardType::SD2) => start_block_idx.0 * 512,
-            Some(CardType::SDHC) => start_block_idx.0,
-            None => return Err(Error::CardNotFound),
-        };
-
-        if blocks.len() == 1 {
-            // Start a single-block read
-            self.card_command(CMD17, start_idx)?;
-            self.read_data(&mut blocks[0].contents)?;
-        } else {
-            // Start a multi-block read
-            self.card_command(CMD18, start_idx)?;
-            for block in blocks.iter_mut() {
-                self.read_data(&mut block.contents)?;
-            }
-            // Stop the read
-            self.card_command(CMD12, 0)?;
-        }
-        Ok(())
-    }
-
-    /// Write one or more blocks, starting at the given block index.
-    pub fn write(&mut self, blocks: &[Block], start_block_idx: BlockIdx) -> Result<(), Error> {
-        let start_idx = match self.card_type {
-            Some(CardType::SD1 | CardType::SD2) => start_block_idx.0 * 512,
-            Some(CardType::SDHC) => start_block_idx.0,
-            None => return Err(Error::CardNotFound),
-        };
-        if blocks.len() == 1 {
-            // Start a single-block write
-            self.card_command(CMD24, start_idx)?;
-            self.write_data(DATA_START_BLOCK, &blocks[0].contents)?;
-            self.wait_not_busy(Delay::new_write())?;
-            if self.card_command(CMD13, 0)? != 0x00 {
-                return Err(Error::WriteError);
-            }
-            if self.read_byte()? != 0x00 {
-                return Err(Error::WriteError);
-            }
-        } else {
-            // > It is recommended using this command preceding CMD25, some of the cards will be faster for Multiple
-            // > Write Blocks operation. Note that the host should send ACMD23 just before WRITE command if the host
-            // > wants to use the pre-erased feature
-            self.card_acmd(ACMD23, blocks.len() as u32)?;
-            // wait for card to be ready before sending the next command
-            self.wait_not_busy(Delay::new_write())?;
-
-            // Start a multi-block write
-            self.card_command(CMD25, start_idx)?;
-            for block in blocks.iter() {
-                self.wait_not_busy(Delay::new_write())?;
-                self.write_data(WRITE_MULTIPLE_TOKEN, &block.contents)?;
-            }
-            // Stop the write
-            self.wait_not_busy(Delay::new_write())?;
-            self.write_byte(STOP_TRAN_TOKEN)?;
-        }
-        Ok(())
-    }
-
-    /// Determine how many blocks this device can hold.
-    pub fn num_blocks(&mut self) -> Result<BlockCount, Error> {
-        let csd = self.read_csd()?;
-        debug!("CSD: {:?}", csd);
-        let num_blocks = match csd {
-            Csd::V1(ref contents) => contents.card_capacity_blocks(),
-            Csd::V2(ref contents) => contents.card_capacity_blocks(),
-        };
-        Ok(BlockCount(num_blocks))
-    }
-
-    /// Return the usable size of this SD card in bytes.
-    pub fn num_bytes(&mut self) -> Result<u64, Error> {
-        let csd = self.read_csd()?;
-        debug!("CSD: {:?}", csd);
-        match csd {
-            Csd::V1(ref contents) => Ok(contents.card_capacity_bytes()),
-            Csd::V2(ref contents) => Ok(contents.card_capacity_bytes()),
-        }
-    }
-
-    /// Can this card erase single blocks?
-    pub fn erase_single_block_enabled(&mut self) -> Result<bool, Error> {
-        let csd = self.read_csd()?;
-        match csd {
-            Csd::V1(ref contents) => Ok(contents.erase_single_block_enabled()),
-            Csd::V2(ref contents) => Ok(contents.erase_single_block_enabled()),
-        }
     }
 
     /// Read the 'card specific data' block.
@@ -215,19 +123,8 @@ where
         }
     }
 
-    /// Check the card is initialised.
-    pub fn check_init(&mut self) -> Result<(), Error> {
-        if self.card_type.is_none() {
-            // If we don't know what the card type is, try and initialise the
-            // card. This will tell us what type of card it is.
-            self.acquire()
-        } else {
-            Ok(())
-        }
-    }
-
     /// Initializes the card into a known state (or at least tries to).
-    pub fn acquire(&mut self) -> Result<(), Error> {
+    fn acquire(&mut self) -> Result<(), Error> {
         debug!("acquiring card with opts: {:?}", self.options);
         let f = |s: &mut Self| {
             // Assume it hasn't worked
@@ -308,23 +205,6 @@ where
         let result = f(self);
         let _ = self.read_byte();
         result
-    }
-
-    /// Mark the card as requiring a reset.
-    ///
-    /// The next operation will assume the card has been freshly inserted.
-    pub fn mark_card_uninit(&mut self) {
-        self.card_type = None;
-    }
-
-    /// Get the card type.
-    pub fn get_card_type(&self) -> Option<CardType> {
-        self.card_type
-    }
-
-    /// Tell the driver the card has been initialised.
-    pub unsafe fn mark_card_as_init(&mut self, card_type: CardType) {
-        self.card_type = Some(card_type);
     }
 
     /// Perform an application-specific command.
@@ -411,5 +291,121 @@ where
             delay.delay(&mut self.delayer, Error::TimeoutWaitNotBusy)?;
         }
         Ok(())
+    }
+}
+
+impl<SPI, DELAYER> super::Transport for SpiTransport<SPI, DELAYER>
+where
+    SPI: embedded_hal::spi::SpiDevice<u8>,
+    DELAYER: embedded_hal::delay::DelayNs,
+{
+    fn read(&mut self, blocks: &mut [Block], start_block_idx: BlockIdx) -> Result<(), Error> {
+        let start_idx = match self.card_type {
+            Some(CardType::SD1 | CardType::SD2) => start_block_idx.0 * 512,
+            Some(CardType::SDHC) => start_block_idx.0,
+            None => return Err(Error::CardNotFound),
+        };
+
+        if blocks.len() == 1 {
+            // Start a single-block read
+            self.card_command(CMD17, start_idx)?;
+            self.read_data(&mut blocks[0].contents)?;
+        } else {
+            // Start a multi-block read
+            self.card_command(CMD18, start_idx)?;
+            for block in blocks.iter_mut() {
+                self.read_data(&mut block.contents)?;
+            }
+            // Stop the read
+            self.card_command(CMD12, 0)?;
+        }
+        Ok(())
+    }
+
+    fn write(&mut self, blocks: &[Block], start_block_idx: BlockIdx) -> Result<(), Error> {
+        let start_idx = match self.card_type {
+            Some(CardType::SD1 | CardType::SD2) => start_block_idx.0 * 512,
+            Some(CardType::SDHC) => start_block_idx.0,
+            None => return Err(Error::CardNotFound),
+        };
+        if blocks.len() == 1 {
+            // Start a single-block write
+            self.card_command(CMD24, start_idx)?;
+            self.write_data(DATA_START_BLOCK, &blocks[0].contents)?;
+            self.wait_not_busy(Delay::new_write())?;
+            if self.card_command(CMD13, 0)? != 0x00 {
+                return Err(Error::WriteError);
+            }
+            if self.read_byte()? != 0x00 {
+                return Err(Error::WriteError);
+            }
+        } else {
+            // > It is recommended using this command preceding CMD25, some of the cards will be faster for Multiple
+            // > Write Blocks operation. Note that the host should send ACMD23 just before WRITE command if the host
+            // > wants to use the pre-erased feature
+            self.card_acmd(ACMD23, blocks.len() as u32)?;
+            // wait for card to be ready before sending the next command
+            self.wait_not_busy(Delay::new_write())?;
+
+            // Start a multi-block write
+            self.card_command(CMD25, start_idx)?;
+            for block in blocks.iter() {
+                self.wait_not_busy(Delay::new_write())?;
+                self.write_data(WRITE_MULTIPLE_TOKEN, &block.contents)?;
+            }
+            // Stop the write
+            self.wait_not_busy(Delay::new_write())?;
+            self.write_byte(STOP_TRAN_TOKEN)?;
+        }
+        Ok(())
+    }
+
+    fn num_blocks(&mut self) -> Result<BlockCount, Error> {
+        let csd = self.read_csd()?;
+        debug!("CSD: {:?}", csd);
+        let num_blocks = match csd {
+            Csd::V1(ref contents) => contents.card_capacity_blocks(),
+            Csd::V2(ref contents) => contents.card_capacity_blocks(),
+        };
+        Ok(BlockCount(num_blocks))
+    }
+
+    fn num_bytes(&mut self) -> Result<u64, Error> {
+        let csd = self.read_csd()?;
+        debug!("CSD: {:?}", csd);
+        match csd {
+            Csd::V1(ref contents) => Ok(contents.card_capacity_bytes()),
+            Csd::V2(ref contents) => Ok(contents.card_capacity_bytes()),
+        }
+    }
+
+    fn erase_single_block_enabled(&mut self) -> Result<bool, Error> {
+        let csd = self.read_csd()?;
+        match csd {
+            Csd::V1(ref contents) => Ok(contents.erase_single_block_enabled()),
+            Csd::V2(ref contents) => Ok(contents.erase_single_block_enabled()),
+        }
+    }
+
+    fn check_init(&mut self) -> Result<(), Error> {
+        if self.card_type.is_none() {
+            // If we don't know what the card type is, try and initialise the
+            // card. This will tell us what type of card it is.
+            self.acquire()
+        } else {
+            Ok(())
+        }
+    }
+
+    fn mark_card_uninit(&mut self) {
+        self.card_type = None;
+    }
+
+    fn get_card_type(&self) -> Option<CardType> {
+        self.card_type
+    }
+
+    unsafe fn mark_card_as_init(&mut self, card_type: CardType) {
+        self.card_type = Some(card_type);
     }
 }

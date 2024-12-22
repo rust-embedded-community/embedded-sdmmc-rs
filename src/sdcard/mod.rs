@@ -5,6 +5,7 @@
 
 pub mod proto;
 mod spi;
+pub use spi::SpiTransport;
 
 use crate::{Block, BlockCount, BlockDevice, BlockIdx};
 use core::cell::RefCell;
@@ -35,15 +36,11 @@ use crate::debug;
 /// All the APIs take `&self` - mutability is handled using an inner `RefCell`.
 ///
 /// [`SpiDevice`]: embedded_hal::spi::SpiDevice
-pub struct SdCard<SPI, DELAYER>
-where
-    SPI: embedded_hal::spi::SpiDevice<u8>,
-    DELAYER: embedded_hal::delay::DelayNs,
-{
-    inner: RefCell<spi::SpiSdCardInner<SPI, DELAYER>>,
+pub struct SdCard<T: Transport> {
+    inner: RefCell<T>,
 }
 
-impl<SPI, DELAYER> SdCard<SPI, DELAYER>
+impl<SPI, DELAYER> SdCard<SpiTransport<SPI, DELAYER>>
 where
     SPI: embedded_hal::spi::SpiDevice<u8>,
     DELAYER: embedded_hal::delay::DelayNs,
@@ -54,7 +51,7 @@ where
     /// deferred until a method is called on the object.
     ///
     /// Uses the default options.
-    pub fn new(spi: SPI, delayer: DELAYER) -> SdCard<SPI, DELAYER> {
+    pub fn new(spi: SPI, delayer: DELAYER) -> Self {
         Self::new_with_options(spi, delayer, AcquireOpts::default())
     }
 
@@ -65,13 +62,9 @@ where
     ///
     /// The card will not be initialised at this time. Initialisation is
     /// deferred until a method is called on the object.
-    pub fn new_with_options(
-        spi: SPI,
-        delayer: DELAYER,
-        options: AcquireOpts,
-    ) -> SdCard<SPI, DELAYER> {
+    pub fn new_with_options(spi: SPI, delayer: DELAYER, options: AcquireOpts) -> Self {
         SdCard {
-            inner: RefCell::new(spi::SpiSdCardInner::new(spi, delayer, options)),
+            inner: RefCell::new(spi::SpiTransport::new(spi, delayer, options)),
         }
     }
 
@@ -89,7 +82,9 @@ where
         let mut inner = self.inner.borrow_mut();
         inner.spi(func)
     }
+}
 
+impl<T: Transport> SdCard<T> {
     /// Return the usable size of this SD card in bytes.
     ///
     /// This will trigger card (re-)initialisation.
@@ -147,11 +142,7 @@ where
     }
 }
 
-impl<SPI, DELAYER> BlockDevice for SdCard<SPI, DELAYER>
-where
-    SPI: embedded_hal::spi::SpiDevice<u8>,
-    DELAYER: embedded_hal::delay::DelayNs,
-{
+impl<T: Transport> BlockDevice for SdCard<T> {
     type Error = Error;
 
     /// Read one or more blocks, starting at the given block index.
@@ -182,6 +173,30 @@ where
         inner.check_init()?;
         inner.num_blocks()
     }
+}
+
+/// Abstract SD card transportation interface.
+pub trait Transport {
+    /// Read one or more blocks, starting at the given block index.
+    fn read(&mut self, blocks: &mut [Block], start_block_idx: BlockIdx) -> Result<(), Error>;
+    /// Write one or more blocks, starting at the given block index.
+    fn write(&mut self, blocks: &[Block], start_block_idx: BlockIdx) -> Result<(), Error>;
+    /// Determine how many blocks this device can hold.
+    fn num_blocks(&mut self) -> Result<BlockCount, Error>;
+    /// Return the usable size of this SD card in bytes.
+    fn num_bytes(&mut self) -> Result<u64, Error>;
+    /// Can this card erase single blocks?
+    fn erase_single_block_enabled(&mut self) -> Result<bool, Error>;
+    /// Check the card is initialised.
+    fn check_init(&mut self) -> Result<(), Error>;
+    /// Mark the card as requiring a reset.
+    ///
+    /// The next operation will assume the card has been freshly inserted.
+    fn mark_card_uninit(&mut self);
+    /// Get the card type.
+    fn get_card_type(&self) -> Option<CardType>;
+    /// Tell the driver the card has been initialised.
+    unsafe fn mark_card_as_init(&mut self, card_type: CardType);
 }
 
 /// Options for acquiring the card.
