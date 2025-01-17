@@ -56,6 +56,71 @@ fn append_file() {
 }
 
 #[test]
+fn create_file_then_append() {
+    let time_source = utils::make_time_source();
+    let disk = utils::make_block_device(utils::DISK_SOURCE).unwrap();
+    let volume_mgr: VolumeManager<utils::RamDisk<Vec<u8>>, utils::TestTimeSource, 4, 2, 1> =
+        VolumeManager::new_with_limits(disk, time_source, 0xAA00_0000);
+    let volume = volume_mgr.open_volume(VolumeIdx(0)).expect("open volume");
+    let root_dir = volume.open_root_dir().expect("open root dir");
+
+    // Check that the file doesn't exist yet
+    let files = {
+        let mut files = Vec::new();
+        root_dir.iterate_dir(|entry| {
+            files.push(entry.name.clone());
+        })
+        .expect("iterate dir");
+        files
+    };
+    assert_eq!(None, files.iter().find(|&x| core::str::from_utf8(x.base_name()).unwrap() == "README_2"));
+    
+    
+    // Create it:
+    {
+        let file = root_dir
+            .open_file_in_dir("README_2.TXT", Mode::ReadWriteCreateOrAppend)
+            .expect("open file");
+
+        let test_data = vec![0xCC; 1024 * 1024];
+        file.write(&test_data).expect("file write");
+
+        let length = file.length();
+        assert_eq!(length, 1024 * 1024);
+
+        let offset = file.offset();
+        assert_eq!(offset, 1024 * 1024);
+    }
+
+    // Check that it now exists
+    let files = {
+        let mut files = Vec::new();
+        root_dir.iterate_dir(|entry| {
+            files.push(entry.name.clone());
+        })
+        .expect("iterate dir");
+        files
+    };
+    assert_ne!(None, files.iter().find(|&x| core::str::from_utf8(x.base_name()).unwrap() == "README_2"));
+
+    // Append to it:
+    for i in 0..10 {
+        let file = root_dir
+            .open_file_in_dir("README_2.TXT", Mode::ReadWriteCreateOrAppend)
+            .expect("open file");
+
+        let test_data = vec![0xCC; 1024 * 1024];
+        file.write(&test_data).expect("file write");
+
+        let length = file.length();
+        assert_eq!(length, 1024 * 1024 * (i + 2));
+
+        let offset = file.offset();
+        assert_eq!(offset, 1024 * 1024 * (i + 2));
+    }
+}
+
+#[test]
 fn flush_file() {
     let time_source = utils::make_time_source();
     let disk = utils::make_block_device(utils::DISK_SOURCE).unwrap();
