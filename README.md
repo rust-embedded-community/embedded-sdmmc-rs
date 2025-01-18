@@ -38,6 +38,7 @@ while !my_file.is_eof() {
 ```
 
 For writing files:
+
 ```rust
 let my_other_file = root_dir.open_file_in_dir("MY_DATA.CSV", embedded_sdmmc::Mode::ReadWriteCreateOrAppend)?;
 my_other_file.write(b"Timestamp,Signal,Value\n")?;
