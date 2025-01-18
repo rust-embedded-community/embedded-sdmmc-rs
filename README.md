@@ -39,7 +39,7 @@ while !my_file.is_eof() {
 
 For writing files:
 ```rust
-let my_other_file = root_dir.open_file_in_dir("MY_OTHER_FILE.CSV", embedded_sdmmc::Mode::ReadWriteCreateOrAppend)?;
+let my_other_file = root_dir.open_file_in_dir("FILE2.CSV", embedded_sdmmc::Mode::ReadWriteCreateOrAppend)?;
 my_other_file.write(b"Timestamp,Signal,Value\n")?;
 my_other_file.write(b"2025-01-01T00:00:00Z,TEMP,25.0\n")?;
 my_other_file.write(b"2025-01-01T00:00:01Z,TEMP,25.1\n")?;
