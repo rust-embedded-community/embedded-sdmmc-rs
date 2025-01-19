@@ -45,15 +45,21 @@
 //!
 //! For writing files:
 //!
-//! ```rust,ignore
-//! let my_other_file = root_dir.open_file_in_dir("MY_DATA.CSV", embedded_sdmmc::Mode::ReadWriteCreateOrAppend)?;
-//! my_other_file.write(b"Timestamp,Signal,Value\n")?;
-//! my_other_file.write(b"2025-01-01T00:00:00Z,TEMP,25.0\n")?;
-//! my_other_file.write(b"2025-01-01T00:00:01Z,TEMP,25.1\n")?;
-//! my_other_file.write(b"2025-01-01T00:00:02Z,TEMP,25.2\n")?;
-//!
-//! // Don't forget to flush the file so that the directory entry is updated
-//! my_other_file.flush()?;
+//! ```rust
+//! use embedded_sdmmc::{BlockDevice, Directory, Error, Mode, TimeSource};
+//! fn write_file<D: BlockDevice, T: TimeSource, const DIRS: usize, const FILES: usize, const VOLUMES: usize>(
+//!     root_dir: &mut Directory<D, T, DIRS, FILES, VOLUMES>,
+//! ) -> Result<(), Error<D::Error>>
+//! {
+//!     let my_other_file = root_dir.open_file_in_dir("MY_DATA.CSV", Mode::ReadWriteCreateOrAppend)?;
+//!     my_other_file.write(b"Timestamp,Signal,Value\n")?;
+//!     my_other_file.write(b"2025-01-01T00:00:00Z,TEMP,25.0\n")?;
+//!     my_other_file.write(b"2025-01-01T00:00:01Z,TEMP,25.1\n")?;
+//!     my_other_file.write(b"2025-01-01T00:00:02Z,TEMP,25.2\n")?;
+//!     // Don't forget to flush the file so that the directory entry is updated
+//!     my_other_file.flush()?;
+//!     Ok(())
+//! }
 //! ```
 //!
 //! ## Features
