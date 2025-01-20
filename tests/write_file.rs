@@ -67,15 +67,20 @@ fn create_file_then_append() {
     // Check that the file doesn't exist yet
     let files = {
         let mut files = Vec::new();
-        root_dir.iterate_dir(|entry| {
-            files.push(entry.name.clone());
-        })
-        .expect("iterate dir");
+        root_dir
+            .iterate_dir(|entry| {
+                files.push(entry.name.clone());
+            })
+            .expect("iterate dir");
         files
     };
-    assert_eq!(None, files.iter().find(|&x| core::str::from_utf8(x.base_name()).unwrap() == "README_2"));
-    
-    
+    assert_eq!(
+        None,
+        files
+            .iter()
+            .find(|&x| core::str::from_utf8(x.base_name()).unwrap() == "README_2")
+    );
+
     // Create it:
     {
         let file = root_dir
@@ -95,13 +100,19 @@ fn create_file_then_append() {
     // Check that it now exists
     let files = {
         let mut files = Vec::new();
-        root_dir.iterate_dir(|entry| {
-            files.push(entry.name.clone());
-        })
-        .expect("iterate dir");
+        root_dir
+            .iterate_dir(|entry| {
+                files.push(entry.name.clone());
+            })
+            .expect("iterate dir");
         files
     };
-    assert_ne!(None, files.iter().find(|&x| core::str::from_utf8(x.base_name()).unwrap() == "README_2"));
+    assert_ne!(
+        None,
+        files
+            .iter()
+            .find(|&x| core::str::from_utf8(x.base_name()).unwrap() == "README_2")
+    );
 
     // Append to it:
     for i in 0..10 {
