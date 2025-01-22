@@ -25,7 +25,7 @@
 //!     D: embedded_hal::delay::DelayNs,
 //!     T: TimeSource,
 //! {
-//!     let sdcard = SdCard::new(spi, delay);
+//!     let sdcard = SdCard::new_spi(spi, delay);
 //!     println!("Card size is {} bytes", sdcard.num_bytes()?);
 //!     let volume_mgr = VolumeManager::new(sdcard, ts);
 //!     let volume0 = volume_mgr.open_volume(VolumeIdx(0))?;
@@ -111,10 +111,7 @@ pub use crate::filesystem::{
 use filesystem::DirectoryInfo;
 
 #[doc(inline)]
-pub use crate::sdcard::Error as SdCardError;
-
-#[doc(inline)]
-pub use crate::sdcard::SdCard;
+pub use crate::sdcard::{Error as SdCardError, SdCard, SpiTransport, Transport};
 
 mod volume_mgr;
 #[doc(inline)]
