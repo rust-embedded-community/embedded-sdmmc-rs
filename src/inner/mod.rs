@@ -5,6 +5,9 @@
 // ****************************************************************************
 
 #![deny(missing_docs)]
+// The compiler warning for `async fn` in public traits isn't relevant for embedded,
+// so silence it.
+// https://github.com/rust-embedded/embedded-hal/pull/515#issuecomment-1763525962
 #![allow(async_fn_in_trait)]
 
 pub mod blockdevice;
