@@ -86,6 +86,8 @@ extern crate hex_literal;
 #[macro_use]
 mod structure;
 
+mod common;
+
 /// Blocking implementation of this crate. Uses traits from embedded_hal & embedded_io crates.
 #[path = "."]
 pub mod blocking {

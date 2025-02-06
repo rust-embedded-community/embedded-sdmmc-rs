@@ -3,7 +3,7 @@
 //! This is currently optimised for readability and debugability, not
 //! performance.
 
-pub mod proto;
+pub use crate::common::sdcard::proto;
 
 use super::super::{bisync, DelayNs, SpiDevice};
 
