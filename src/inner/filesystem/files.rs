@@ -1,9 +1,10 @@
-use super::TimeSource;
-use crate::{
+use super::super::super::{bisync, only_sync};
+use super::super::super::{ErrorType, Read, Seek, SeekFrom, Write};
+use super::super::{
     filesystem::{ClusterId, DirEntry, Handle},
     BlockDevice, Error, RawVolume, VolumeManager,
 };
-use embedded_io::{ErrorType, Read, Seek, SeekFrom, Write};
+use super::TimeSource;
 
 /// A handle for an open file on disk.
 ///
@@ -12,7 +13,7 @@ use embedded_io::{ErrorType, Read, Seek, SeekFrom, Write};
 /// Additionally, the VolumeManager will think you still have the file open if
 /// you just drop it, and it won't let you open the file again.
 ///
-/// Instead you must pass it to [`crate::VolumeManager::close_file`] to close it
+/// Instead you must pass it to [`VolumeManager::close_file`] to close it
 /// cleanly.
 ///
 /// If you want your files to close themselves on drop, create your own File
@@ -32,8 +33,8 @@ impl RawFile {
         volume_mgr: &VolumeManager<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>,
     ) -> File<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>
     where
-        D: crate::BlockDevice,
-        T: crate::TimeSource,
+        D: BlockDevice,
+        T: TimeSource,
     {
         File::new(self, volume_mgr)
     }
@@ -49,18 +50,19 @@ impl RawFile {
 /// the [`File::close`] method.
 pub struct File<'a, D, T, const MAX_DIRS: usize, const MAX_FILES: usize, const MAX_VOLUMES: usize>
 where
-    D: crate::BlockDevice,
-    T: crate::TimeSource,
+    D: BlockDevice,
+    T: TimeSource,
 {
     raw_file: RawFile,
     volume_mgr: &'a VolumeManager<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>,
 }
 
+#[bisync]
 impl<'a, D, T, const MAX_DIRS: usize, const MAX_FILES: usize, const MAX_VOLUMES: usize>
     File<'a, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>
 where
-    D: crate::BlockDevice,
-    T: crate::TimeSource,
+    D: BlockDevice,
+    T: TimeSource,
 {
     /// Create a new `File` from a `RawFile`
     pub fn new(
@@ -76,13 +78,13 @@ where
     /// Read from the file
     ///
     /// Returns how many bytes were read, or an error.
-    pub fn read(&self, buffer: &mut [u8]) -> Result<usize, crate::Error<D::Error>> {
-        self.volume_mgr.read(self.raw_file, buffer)
+    pub async fn read(&self, buffer: &mut [u8]) -> Result<usize, Error<D::Error>> {
+        self.volume_mgr.read(self.raw_file, buffer).await
     }
 
     /// Write to the file
-    pub fn write(&self, buffer: &[u8]) -> Result<(), crate::Error<D::Error>> {
-        self.volume_mgr.write(self.raw_file, buffer)
+    pub async fn write(&self, buffer: &[u8]) -> Result<(), Error<D::Error>> {
+        self.volume_mgr.write(self.raw_file, buffer).await
     }
 
     /// Check if a file is at End Of File.
@@ -93,18 +95,18 @@ where
     }
 
     /// Seek a file with an offset from the current position.
-    pub fn seek_from_current(&self, offset: i32) -> Result<(), crate::Error<D::Error>> {
+    pub fn seek_from_current(&self, offset: i32) -> Result<(), Error<D::Error>> {
         self.volume_mgr
             .file_seek_from_current(self.raw_file, offset)
     }
 
     /// Seek a file with an offset from the start of the file.
-    pub fn seek_from_start(&self, offset: u32) -> Result<(), crate::Error<D::Error>> {
+    pub fn seek_from_start(&self, offset: u32) -> Result<(), Error<D::Error>> {
         self.volume_mgr.file_seek_from_start(self.raw_file, offset)
     }
 
     /// Seek a file with an offset back from the end of the file.
-    pub fn seek_from_end(&self, offset: u32) -> Result<(), crate::Error<D::Error>> {
+    pub fn seek_from_end(&self, offset: u32) -> Result<(), Error<D::Error>> {
         self.volume_mgr.file_seek_from_end(self.raw_file, offset)
     }
 
@@ -130,26 +132,28 @@ where
     }
 
     /// Flush any written data by updating the directory entry.
-    pub fn flush(&self) -> Result<(), Error<D::Error>> {
-        self.volume_mgr.flush_file(self.raw_file)
+    pub async fn flush(&self) -> Result<(), Error<D::Error>> {
+        self.volume_mgr.flush_file(self.raw_file).await
     }
 
     /// Consume the `File` handle and close it. The behavior of this is similar
     /// to using [`core::mem::drop`] or letting the `File` go out of scope,
     /// except this lets the user handle any errors that may occur in the process,
     /// whereas when using drop, any errors will be discarded silently.
-    pub fn close(self) -> Result<(), Error<D::Error>> {
-        let result = self.volume_mgr.close_file(self.raw_file);
+    pub async fn close(self) -> Result<(), Error<D::Error>> {
+        let result = self.volume_mgr.close_file(self.raw_file).await;
         core::mem::forget(self);
         result
     }
 }
 
+// async drop does not yet exist :(
+#[only_sync]
 impl<'a, D, T, const MAX_DIRS: usize, const MAX_FILES: usize, const MAX_VOLUMES: usize> Drop
     for File<'a, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>
 where
-    D: crate::BlockDevice,
-    T: crate::TimeSource,
+    D: BlockDevice,
+    T: TimeSource,
 {
     fn drop(&mut self) {
         _ = self.volume_mgr.close_file(self.raw_file);
@@ -159,8 +163,8 @@ where
 impl<'a, D, T, const MAX_DIRS: usize, const MAX_FILES: usize, const MAX_VOLUMES: usize>
     core::fmt::Debug for File<'a, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>
 where
-    D: crate::BlockDevice,
-    T: crate::TimeSource,
+    D: BlockDevice,
+    T: TimeSource,
 {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "File({})", self.raw_file.0 .0)
@@ -175,9 +179,10 @@ impl<
         const MAX_VOLUMES: usize,
     > ErrorType for File<'_, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>
 {
-    type Error = crate::Error<D::Error>;
+    type Error = Error<D::Error>;
 }
 
+#[bisync]
 impl<
         D: BlockDevice,
         T: TimeSource,
@@ -186,15 +191,16 @@ impl<
         const MAX_VOLUMES: usize,
     > Read for File<'_, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>
 {
-    fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         if buf.is_empty() {
             Ok(0)
         } else {
-            self.read(buf)
+            Self::read(self, buf).await
         }
     }
 }
 
+#[bisync]
 impl<
         D: BlockDevice,
         T: TimeSource,
@@ -203,20 +209,21 @@ impl<
         const MAX_VOLUMES: usize,
     > Write for File<'_, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>
 {
-    fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+    async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         if buf.is_empty() {
             Ok(0)
         } else {
-            self.write(buf)?;
+            Self::write(self, buf).await?;
             Ok(buf.len())
         }
     }
 
-    fn flush(&mut self) -> Result<(), Self::Error> {
-        Self::flush(self)
+    async fn flush(&mut self) -> Result<(), Self::Error> {
+        Self::flush(self).await
     }
 }
 
+#[bisync]
 impl<
         D: BlockDevice,
         T: TimeSource,
@@ -225,7 +232,7 @@ impl<
         const MAX_VOLUMES: usize,
     > Seek for File<'_, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>
 {
-    fn seek(&mut self, pos: SeekFrom) -> Result<u64, Self::Error> {
+    async fn seek(&mut self, pos: SeekFrom) -> Result<u64, Self::Error> {
         match pos {
             SeekFrom::Start(offset) => {
                 self.seek_from_start(offset.try_into().map_err(|_| Error::InvalidOffset)?)?
@@ -245,8 +252,8 @@ impl<
 impl<'a, D, T, const MAX_DIRS: usize, const MAX_FILES: usize, const MAX_VOLUMES: usize>
     defmt::Format for File<'a, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>
 where
-    D: crate::BlockDevice,
-    T: crate::TimeSource,
+    D: BlockDevice,
+    T: TimeSource,
 {
     fn format(&self, fmt: defmt::Formatter) {
         defmt::write!(fmt, "File({})", self.raw_file.0 .0)

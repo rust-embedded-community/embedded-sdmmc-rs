@@ -36,9 +36,9 @@ use linux::*;
 
 const FILE_TO_READ: &str = "README.TXT";
 
-use embedded_sdmmc::{Error, Mode, VolumeIdx};
+use embedded_sdmmc::blocking::{Error, Mode, VolumeIdx};
 
-type VolumeManager = embedded_sdmmc::VolumeManager<LinuxBlockDevice, Clock, 8, 4, 4>;
+type VolumeManager = embedded_sdmmc::blocking::VolumeManager<LinuxBlockDevice, Clock, 8, 4, 4>;
 
 fn main() -> Result<(), Error<std::io::Error>> {
     env_logger::init();

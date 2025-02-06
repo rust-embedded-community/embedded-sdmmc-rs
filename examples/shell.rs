@@ -85,12 +85,12 @@
 
 use std::{cell::RefCell, io::prelude::*};
 
-use embedded_sdmmc::{
+use embedded_sdmmc::blocking::{
     Error as EsError, LfnBuffer, Mode, RawDirectory, RawVolume, ShortFileName, VolumeIdx,
 };
 
-type VolumeManager = embedded_sdmmc::VolumeManager<LinuxBlockDevice, Clock, 8, 8, 4>;
-type Directory<'a> = embedded_sdmmc::Directory<'a, LinuxBlockDevice, Clock, 8, 8, 4>;
+type VolumeManager = embedded_sdmmc::blocking::VolumeManager<LinuxBlockDevice, Clock, 8, 8, 4>;
+type Directory<'a> = embedded_sdmmc::blocking::Directory<'a, LinuxBlockDevice, Clock, 8, 8, 4>;
 
 use crate::linux::{Clock, LinuxBlockDevice};
 

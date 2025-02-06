@@ -1,6 +1,6 @@
 //! File opening related tests
 
-use embedded_sdmmc::{Mode, VolumeIdx, VolumeManager};
+use embedded_sdmmc::blocking::{Mode, VolumeIdx, VolumeManager};
 
 mod utils;
 

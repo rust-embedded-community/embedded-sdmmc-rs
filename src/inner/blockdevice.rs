@@ -3,6 +3,8 @@
 //! Generic code for handling block devices, such as types for identifying
 //! a particular block on a block device by its index.
 
+use super::super::bisync;
+
 /// A standard 512 byte block (also known as a sector).
 ///
 /// IBM PC formatted 5.25" and 3.5" floppy disks, IDE/SATA Hard Drives up to
@@ -75,15 +77,16 @@ impl Default for Block {
 
 /// A block device - a device which can read and write blocks (or
 /// sectors). Only supports devices which are <= 2 TiB in size.
+#[bisync]
 pub trait BlockDevice {
     /// The errors that the `BlockDevice` can return. Must be debug formattable.
     type Error: core::fmt::Debug;
     /// Read one or more blocks, starting at the given block index.
-    fn read(&self, blocks: &mut [Block], start_block_idx: BlockIdx) -> Result<(), Self::Error>;
+    async fn read(&self, blocks: &mut [Block], start_block_idx: BlockIdx) -> Result<(), Self::Error>;
     /// Write one or more blocks, starting at the given block index.
-    fn write(&self, blocks: &[Block], start_block_idx: BlockIdx) -> Result<(), Self::Error>;
+    async fn write(&self, blocks: &[Block], start_block_idx: BlockIdx) -> Result<(), Self::Error>;
     /// Determine how many blocks this device can hold.
-    fn num_blocks(&self) -> Result<BlockCount, Self::Error>;
+    async fn num_blocks(&self) -> Result<BlockCount, Self::Error>;
 }
 
 /// A caching layer for block devices
@@ -96,6 +99,7 @@ pub struct BlockCache<D> {
     block_idx: Option<BlockIdx>,
 }
 
+#[bisync]
 impl<D> BlockCache<D>
 where
     D: BlockDevice,
@@ -110,42 +114,42 @@ where
     }
 
     /// Read a block, and return a reference to it.
-    pub fn read(&mut self, block_idx: BlockIdx) -> Result<&Block, D::Error> {
+    pub async fn read(&mut self, block_idx: BlockIdx) -> Result<&Block, D::Error> {
         if self.block_idx != Some(block_idx) {
             self.block_idx = None;
-            self.block_device.read(&mut self.block, block_idx)?;
+            self.block_device.read(&mut self.block, block_idx).await?;
             self.block_idx = Some(block_idx);
         }
         Ok(&self.block[0])
     }
 
     /// Read a block, and return a reference to it.
-    pub fn read_mut(&mut self, block_idx: BlockIdx) -> Result<&mut Block, D::Error> {
+    pub async fn read_mut(&mut self, block_idx: BlockIdx) -> Result<&mut Block, D::Error> {
         if self.block_idx != Some(block_idx) {
             self.block_idx = None;
-            self.block_device.read(&mut self.block, block_idx)?;
+            self.block_device.read(&mut self.block, block_idx).await?;
             self.block_idx = Some(block_idx);
         }
         Ok(&mut self.block[0])
     }
 
     /// Write back a block you read with [`Self::read_mut`] and then modified.
-    pub fn write_back(&mut self) -> Result<(), D::Error> {
+    pub async fn write_back(&mut self) -> Result<(), D::Error> {
         self.block_device.write(
             &self.block,
             self.block_idx.expect("write_back with no read"),
-        )
+        ).await
     }
 
     /// Write back a block you read with [`Self::read_mut`] and then modified, but to two locations.
     ///
     /// This is useful for updating two File Allocation Tables.
-    pub fn write_back_with_duplicate(&mut self, duplicate: BlockIdx) -> Result<(), D::Error> {
+    pub async fn write_back_with_duplicate(&mut self, duplicate: BlockIdx) -> Result<(), D::Error> {
         self.block_device.write(
             &self.block,
             self.block_idx.expect("write_back with no read"),
-        )?;
-        self.block_device.write(&self.block, duplicate)?;
+        ).await?;
+        self.block_device.write(&self.block, duplicate).await?;
         Ok(())
     }
 
@@ -256,7 +260,7 @@ impl BlockCount {
     /// How many blocks are required to hold this many bytes.
     ///
     /// ```
-    /// # use embedded_sdmmc::BlockCount;
+    /// # use embedded_sdmmc::blocking::BlockCount;
     /// assert_eq!(BlockCount::from_bytes(511), BlockCount(1));
     /// assert_eq!(BlockCount::from_bytes(512), BlockCount(1));
     /// assert_eq!(BlockCount::from_bytes(513), BlockCount(2));
