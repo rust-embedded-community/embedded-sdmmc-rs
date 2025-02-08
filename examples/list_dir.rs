@@ -22,10 +22,9 @@
 //! $
 //! ```
 //!
-//! If you pass a block device it should be unmounted. No testing has been
-//! performed with Windows raw block devices - please report back if you try
-//! this! There is a gzipped example disk image which you can gunzip and test
-//! with if you don't have a suitable block device.
+//! If you pass a block device it should be unmounted. There is a gzipped
+//! example disk image which you can gunzip and test with if you don't have a
+//! suitable block device.
 //!
 //! ```bash
 //! zcat ./tests/disk.img.gz > ./disk.img

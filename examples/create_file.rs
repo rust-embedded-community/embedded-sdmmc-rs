@@ -5,17 +5,14 @@
 //! $ cargo run --example create_file -- /dev/mmcblk0
 //! ```
 //!
-//! If you pass a block device it should be unmounted. No testing has been
-//! performed with Windows raw block devices - please report back if you try
-//! this! There is a gzipped example disk image which you can gunzip and test
-//! with if you don't have a suitable block device.
+//! If you pass a block device it should be unmounted. There is a gzipped
+//! example disk image which you can gunzip and test with if you don't have a
+//! suitable block device.
 //!
 //! ```bash
 //! zcat ./tests/disk.img.gz > ./disk.img
 //! $ cargo run --example create_file -- ./disk.img
 //! ```
-
-extern crate embedded_sdmmc;
 
 mod linux;
 use linux::*;
@@ -26,7 +23,7 @@ use embedded_sdmmc::{Error, Mode, VolumeIdx};
 
 type VolumeManager = embedded_sdmmc::VolumeManager<LinuxBlockDevice, Clock, 8, 4, 4>;
 
-fn main() -> Result<(), embedded_sdmmc::Error<std::io::Error>> {
+fn main() -> Result<(), Error<std::io::Error>> {
     env_logger::init();
     let mut args = std::env::args().skip(1);
     let filename = args.next().unwrap_or_else(|| "/dev/mmcblk0".into());

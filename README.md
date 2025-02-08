@@ -11,22 +11,23 @@ designed for readability and simplicity over performance.
 You will need something that implements the `BlockDevice` trait, which can read and write the 512-byte blocks (or sectors) from your card. If you were to implement this over USB Mass Storage, there's no reason this crate couldn't work with a USB Thumb Drive, but we only supply a `BlockDevice` suitable for reading SD and SDHC cards over SPI.
 
 ```rust
+use embedded_sdmmc::{SdCard, VolumeManager, Mode, VolumeIdx};
 // Build an SD Card interface out of an SPI device, a chip-select pin and the delay object
-let sdcard = embedded_sdmmc::SdCard::new(sdmmc_spi, delay);
+let sdcard = SdCard::new(sdmmc_spi, delay);
 // Get the card size (this also triggers card initialisation because it's not been done yet)
 println!("Card size is {} bytes", sdcard.num_bytes()?);
 // Now let's look for volumes (also known as partitions) on our block device.
 // To do this we need a Volume Manager. It will take ownership of the block device.
-let volume_mgr = embedded_sdmmc::VolumeManager::new(sdcard, time_source);
+let volume_mgr = VolumeManager::new(sdcard, time_source);
 // Try and access Volume 0 (i.e. the first partition).
 // The volume object holds information about the filesystem on that volume.
-let volume0 = volume_mgr.open_volume(embedded_sdmmc::VolumeIdx(0))?;
+let volume0 = volume_mgr.open_volume(VolumeIdx(0))?;
 println!("Volume 0: {:?}", volume0);
 // Open the root directory (mutably borrows from the volume).
 let root_dir = volume0.open_root_dir()?;
 // Open a file called "MY_FILE.TXT" in the root directory
 // This mutably borrows the directory.
-let my_file = root_dir.open_file_in_dir("MY_FILE.TXT", embedded_sdmmc::Mode::ReadOnly)?;
+let my_file = root_dir.open_file_in_dir("MY_FILE.TXT", Mode::ReadOnly)?;
 // Print the contents of the file, assuming it's in ISO-8859-1 encoding
 while !my_file.is_eof() {
     let mut buffer = [0u8; 32];
