@@ -48,6 +48,9 @@ impl RawFile {
 /// If you drop a value of this type, it closes the file automatically, and but
 /// error that may occur will be ignored. To handle potential errors, use
 /// the [`File::close`] method.
+///
+/// For async Files, async drop does not exist in Rust, so you *must* call
+/// [`File::close`] when you are done with a File.
 pub struct File<'a, D, T, const MAX_DIRS: usize, const MAX_FILES: usize, const MAX_VOLUMES: usize>
 where
     D: BlockDevice,

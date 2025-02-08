@@ -209,6 +209,9 @@ impl RawVolume {
 /// If you drop a value of this type, it closes the volume automatically, but
 /// any error that may occur will be ignored. To handle potential errors, use
 /// the [`Volume::close`] method.
+///
+/// For async Volumes, async drop does not exist in Rust, so you *must* call
+/// [`Volume::close`] when you are done with a Volume.
 pub struct Volume<'a, D, T, const MAX_DIRS: usize, const MAX_FILES: usize, const MAX_VOLUMES: usize>
 where
     D: BlockDevice,
