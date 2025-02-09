@@ -3,6 +3,20 @@
 //! Presents a basic command prompt which implements some basic MS-DOS style
 //! shell commands.
 //!
+//! ```bash
+//! $ cargo run --example shell -- ./disk.img
+//! $ cargo run --example shell -- /dev/mmcblk0
+//! ```
+//!
+//! If you pass a block device it should be unmounted. There is a gzipped
+//! example disk image which you can gunzip and test with if you don't have a
+//! suitable block device.
+//!
+//! ```bash
+//! zcat ./tests/disk.img.gz > ./disk.img
+//! $ cargo run --example shell -- ./disk.img
+//! ```
+//!
 //! Note that `embedded_sdmmc` itself does not care about 'paths' - only
 //! accessing files and directories on on disk, relative to some previously
 //! opened directory. A 'path' is an operating-system level construct, and can
@@ -72,7 +86,7 @@
 use std::{cell::RefCell, io::prelude::*};
 
 use embedded_sdmmc::{
-    Error as EsError, LfnBuffer, RawDirectory, RawVolume, ShortFileName, VolumeIdx,
+    Error as EsError, LfnBuffer, Mode, RawDirectory, RawVolume, ShortFileName, VolumeIdx,
 };
 
 type VolumeManager = embedded_sdmmc::VolumeManager<LinuxBlockDevice, Clock, 8, 8, 4>;
@@ -324,7 +338,7 @@ impl Context {
     /// print a text file
     fn cat(&self, filename: &Path) -> Result<(), Error> {
         let (dir, filename) = self.resolve_filename(filename)?;
-        let f = dir.open_file_in_dir(filename, embedded_sdmmc::Mode::ReadOnly)?;
+        let f = dir.open_file_in_dir(filename, Mode::ReadOnly)?;
         let mut data = Vec::new();
         while !f.is_eof() {
             let mut buffer = vec![0u8; 65536];
@@ -344,7 +358,7 @@ impl Context {
     /// print a binary file
     fn hexdump(&self, filename: &Path) -> Result<(), Error> {
         let (dir, filename) = self.resolve_filename(filename)?;
-        let f = dir.open_file_in_dir(filename, embedded_sdmmc::Mode::ReadOnly)?;
+        let f = dir.open_file_in_dir(filename, Mode::ReadOnly)?;
         let mut data = Vec::new();
         while !f.is_eof() {
             let mut buffer = vec![0u8; 65536];
