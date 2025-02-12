@@ -1,4 +1,4 @@
-use super::super::super::{bisync, only_sync};
+use super::super::super::{bisync, only_sync, only_async};
 use super::super::super::{ErrorType, Read, Seek, SeekFrom, Write};
 use super::super::{
     filesystem::{ClusterId, DirEntry, Handle},
@@ -49,8 +49,10 @@ impl RawFile {
 /// error that may occur will be ignored. To handle potential errors, use
 /// the [`File::close`] method.
 ///
-/// For async Files, async drop does not exist in Rust, so you *must* call
-/// [`File::close`] when you are done with a File.
+/// For async `Files`, the implementation of [`Drop`] blocks with [`embassy_futures::block_on`]
+/// because there is no way to `.await` inside [`Drop::drop`]. If you would prefer
+/// to rely on the async executor you are already using, call [`File::close`]
+/// manually instead of letting the `File` drop.
 pub struct File<'a, D, T, const MAX_DIRS: usize, const MAX_FILES: usize, const MAX_VOLUMES: usize>
 where
     D: BlockDevice,
@@ -150,7 +152,6 @@ where
     }
 }
 
-// async drop does not yet exist :(
 #[only_sync]
 impl<'a, D, T, const MAX_DIRS: usize, const MAX_FILES: usize, const MAX_VOLUMES: usize> Drop
     for File<'a, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>
@@ -160,6 +161,18 @@ where
 {
     fn drop(&mut self) {
         _ = self.volume_mgr.close_file(self.raw_file);
+    }
+}
+
+#[only_async]
+impl<'a, D, T, const MAX_DIRS: usize, const MAX_FILES: usize, const MAX_VOLUMES: usize> Drop
+    for File<'a, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>
+where
+    D: BlockDevice,
+    T: TimeSource,
+{
+    fn drop(&mut self) {
+        _ = embassy_futures::block_on(self.volume_mgr.close_file(self.raw_file));
     }
 }
 

@@ -19,7 +19,7 @@ use core::fmt::Debug;
 use embedded_io::ErrorKind;
 use filesystem::Handle;
 
-use super::{bisync, only_sync};
+use super::{bisync, only_sync, only_async};
 
 #[doc(inline)]
 pub use blockdevice::{Block, BlockCache, BlockCount, BlockDevice, BlockIdx};
@@ -210,8 +210,10 @@ impl RawVolume {
 /// any error that may occur will be ignored. To handle potential errors, use
 /// the [`Volume::close`] method.
 ///
-/// For async Volumes, async drop does not exist in Rust, so you *must* call
-/// [`Volume::close`] when you are done with a Volume.
+/// For async `Volumes`, the implementation of [`Drop`] blocks with [`embassy_futures::block_on`]
+/// because there is no way to `.await` inside [`Drop::drop`]. If you would prefer
+/// to rely on the async executor you are already using, call [`Volume::close`]
+/// manually instead of letting the `Volume` drop.
 pub struct Volume<'a, D, T, const MAX_DIRS: usize, const MAX_FILES: usize, const MAX_VOLUMES: usize>
 where
     D: BlockDevice,
@@ -268,7 +270,6 @@ where
     }
 }
 
-// async drop does not yet exist :(
 #[only_sync]
 impl<'a, D, T, const MAX_DIRS: usize, const MAX_FILES: usize, const MAX_VOLUMES: usize> Drop
     for Volume<'a, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>
@@ -278,6 +279,18 @@ where
 {
     fn drop(&mut self) {
         _ = self.volume_mgr.close_volume(self.raw_volume)
+    }
+}
+
+#[only_async]
+impl<'a, D, T, const MAX_DIRS: usize, const MAX_FILES: usize, const MAX_VOLUMES: usize> Drop
+    for Volume<'a, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>
+where
+    D: BlockDevice,
+    T: TimeSource,
+{
+    fn drop(&mut self) {
+        _ = embassy_futures::block_on(self.volume_mgr.close_volume(self.raw_volume));
     }
 }
 
