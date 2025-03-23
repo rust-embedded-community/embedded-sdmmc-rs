@@ -92,7 +92,7 @@ mod common;
 #[path = "."]
 pub mod blocking {
     use bisync::synchronous::*;
-    use embedded_hal::{spi::SpiDevice, delay::DelayNs};
+    use embedded_hal::{delay::DelayNs, spi::SpiDevice};
     use embedded_io::{ErrorType, Read, Seek, SeekFrom, Write};
     mod inner;
     pub use inner::*;
@@ -102,7 +102,7 @@ pub mod blocking {
 #[path = "."]
 pub mod asynchronous {
     use bisync::asynchronous::*;
-    use embedded_hal_async::{spi::SpiDevice, delay::DelayNs};
+    use embedded_hal_async::{delay::DelayNs, spi::SpiDevice};
     use embedded_io_async::{ErrorType, Read, Seek, SeekFrom, Write};
     mod inner;
     pub use inner::*;

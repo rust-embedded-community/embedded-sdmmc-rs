@@ -166,7 +166,11 @@ where
     /// Read one or more blocks, starting at the given block index.
     ///
     /// This will trigger card (re-)initialisation.
-    async fn read(&self, blocks: &mut [Block], start_block_idx: BlockIdx) -> Result<(), Self::Error> {
+    async fn read(
+        &self,
+        blocks: &mut [Block],
+        start_block_idx: BlockIdx,
+    ) -> Result<(), Self::Error> {
         let mut inner = self.inner.borrow_mut();
         debug!("Read {} blocks @ {}", blocks.len(), start_block_idx.0,);
         inner.check_init().await?;
@@ -247,7 +251,8 @@ where
         if blocks.len() == 1 {
             // Start a single-block write
             self.card_command(CMD24, start_idx).await?;
-            self.write_data(DATA_START_BLOCK, &blocks[0].contents).await?;
+            self.write_data(DATA_START_BLOCK, &blocks[0].contents)
+                .await?;
             self.wait_not_busy(Delay::new_write()).await?;
             if self.card_command(CMD13, 0).await? != 0x00 {
                 return Err(Error::WriteError);
@@ -267,7 +272,8 @@ where
             self.card_command(CMD25, start_idx).await?;
             for block in blocks.iter() {
                 self.wait_not_busy(Delay::new_write()).await?;
-                self.write_data(WRITE_MULTIPLE_TOKEN, &block.contents).await?;
+                self.write_data(WRITE_MULTIPLE_TOKEN, &block.contents)
+                    .await?;
             }
             // Stop the write
             self.wait_not_busy(Delay::new_write()).await?;
@@ -340,7 +346,9 @@ where
             if s != 0xFF {
                 break s;
             }
-            delay.delay(&mut self.delayer, Error::TimeoutReadBuffer).await?;
+            delay
+                .delay(&mut self.delayer, Error::TimeoutReadBuffer)
+                .await?;
         };
         if status != DATA_START_BLOCK {
             return Err(Error::ReadError);
@@ -453,12 +461,16 @@ where
                     card_type = CardType::SD2;
                     break 0x4000_0000;
                 }
-                delay.delay(&mut self.delayer, Error::TimeoutCommand(CMD8)).await?;
+                delay
+                    .delay(&mut self.delayer, Error::TimeoutCommand(CMD8))
+                    .await?;
             };
 
             let mut delay = Delay::new_command();
             while self.card_acmd(ACMD41, arg).await? != R1_READY_STATE {
-                delay.delay(&mut self.delayer, Error::TimeoutACommand(ACMD41)).await?;
+                delay
+                    .delay(&mut self.delayer, Error::TimeoutACommand(ACMD41))
+                    .await?;
             }
 
             if card_type == CardType::SD2 {
@@ -516,7 +528,9 @@ where
             if (result & 0x80) == ERROR_OK {
                 return Ok(result);
             }
-            delay.delay(&mut self.delayer, Error::TimeoutCommand(command)).await?;
+            delay
+                .delay(&mut self.delayer, Error::TimeoutCommand(command))
+                .await?;
         }
     }
 
@@ -535,7 +549,8 @@ where
     async fn transfer_byte(&mut self, out: u8) -> Result<u8, Error> {
         let mut read_buf = [0u8; 1];
         self.spi
-            .transfer(&mut read_buf, &[out]).await
+            .transfer(&mut read_buf, &[out])
+            .await
             .map_err(|_| Error::Transport)?;
         Ok(read_buf[0])
     }
@@ -563,7 +578,9 @@ where
             if s == 0xFF {
                 break;
             }
-            delay.delay(&mut self.delayer, Error::TimeoutWaitNotBusy).await?;
+            delay
+                .delay(&mut self.delayer, Error::TimeoutWaitNotBusy)
+                .await?;
         }
         Ok(())
     }

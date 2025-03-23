@@ -82,7 +82,11 @@ pub trait BlockDevice {
     /// The errors that the `BlockDevice` can return. Must be debug formattable.
     type Error: core::fmt::Debug;
     /// Read one or more blocks, starting at the given block index.
-    async fn read(&self, blocks: &mut [Block], start_block_idx: BlockIdx) -> Result<(), Self::Error>;
+    async fn read(
+        &self,
+        blocks: &mut [Block],
+        start_block_idx: BlockIdx,
+    ) -> Result<(), Self::Error>;
     /// Write one or more blocks, starting at the given block index.
     async fn write(&self, blocks: &[Block], start_block_idx: BlockIdx) -> Result<(), Self::Error>;
     /// Determine how many blocks this device can hold.
@@ -135,20 +139,24 @@ where
 
     /// Write back a block you read with [`Self::read_mut`] and then modified.
     pub async fn write_back(&mut self) -> Result<(), D::Error> {
-        self.block_device.write(
-            &self.block,
-            self.block_idx.expect("write_back with no read"),
-        ).await
+        self.block_device
+            .write(
+                &self.block,
+                self.block_idx.expect("write_back with no read"),
+            )
+            .await
     }
 
     /// Write back a block you read with [`Self::read_mut`] and then modified, but to two locations.
     ///
     /// This is useful for updating two File Allocation Tables.
     pub async fn write_back_with_duplicate(&mut self, duplicate: BlockIdx) -> Result<(), D::Error> {
-        self.block_device.write(
-            &self.block,
-            self.block_idx.expect("write_back with no read"),
-        ).await?;
+        self.block_device
+            .write(
+                &self.block,
+                self.block_idx.expect("write_back with no read"),
+            )
+            .await?;
         self.block_device.write(&self.block, duplicate).await?;
         Ok(())
     }

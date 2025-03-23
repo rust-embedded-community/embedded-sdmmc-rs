@@ -385,13 +385,8 @@ fn open_dir_twice() {
 fn open_too_many_dirs() {
     let time_source = utils::make_time_source();
     let disk = utils::make_block_device(utils::DISK_SOURCE).unwrap();
-    let volume_mgr: VolumeManager<
-        utils::RamDisk<Vec<u8>>,
-        utils::TestTimeSource,
-        1,
-        4,
-        2,
-    > = VolumeManager::new_with_limits(disk, time_source, 0x1000_0000);
+    let volume_mgr: VolumeManager<utils::RamDisk<Vec<u8>>, utils::TestTimeSource, 1, 4, 2> =
+        VolumeManager::new_with_limits(disk, time_source, 0x1000_0000);
 
     let fat32_volume = volume_mgr
         .open_raw_volume(VolumeIdx(1))
@@ -529,11 +524,7 @@ fn make_directory() {
     assert!(has_parent);
 
     let new_file = volume_mgr
-        .open_file_in_dir(
-            new_dir,
-            &test_file_name,
-            Mode::ReadWriteCreate,
-        )
+        .open_file_in_dir(new_dir, &test_file_name, Mode::ReadWriteCreate)
         .expect("open new file");
     volume_mgr
         .write(new_file, b"Hello")

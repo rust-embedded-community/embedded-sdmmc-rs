@@ -8,13 +8,8 @@ mod utils;
 fn open_all_volumes() {
     let time_source = utils::make_time_source();
     let disk = utils::make_block_device(utils::DISK_SOURCE).unwrap();
-    let volume_mgr: VolumeManager<
-        utils::RamDisk<Vec<u8>>,
-        utils::TestTimeSource,
-        4,
-        4,
-        2,
-    > = VolumeManager::new_with_limits(disk, time_source, 0x1000_0000);
+    let volume_mgr: VolumeManager<utils::RamDisk<Vec<u8>>, utils::TestTimeSource, 4, 4, 2> =
+        VolumeManager::new_with_limits(disk, time_source, 0x1000_0000);
 
     // Open Volume 0
     let fat16_volume = volume_mgr

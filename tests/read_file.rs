@@ -192,9 +192,7 @@ fn read_file_with_odd_seek() {
     let disk = utils::make_block_device(utils::DISK_SOURCE).unwrap();
     let volume_mgr = VolumeManager::new(disk, time_source);
 
-    let volume = volume_mgr
-        .open_volume(VolumeIdx(0))
-        .unwrap();
+    let volume = volume_mgr.open_volume(VolumeIdx(0)).unwrap();
     let root_dir = volume.open_root_dir().unwrap();
     let f = root_dir
         .open_file_in_dir("64MB.DAT", Mode::ReadOnly)

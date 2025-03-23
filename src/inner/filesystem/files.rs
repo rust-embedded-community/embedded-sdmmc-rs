@@ -1,4 +1,4 @@
-use super::super::super::{bisync, only_sync, only_async};
+use super::super::super::{bisync, only_async, only_sync};
 use super::super::super::{ErrorType, Read, Seek, SeekFrom, Write};
 use super::super::{
     filesystem::{ClusterId, DirEntry, Handle},

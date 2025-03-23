@@ -19,7 +19,7 @@ use core::fmt::Debug;
 use embedded_io::ErrorKind;
 use filesystem::Handle;
 
-use super::{bisync, only_sync, only_async};
+use super::{bisync, only_async, only_sync};
 
 #[doc(inline)]
 pub use blockdevice::{Block, BlockCache, BlockCount, BlockDevice, BlockIdx};
