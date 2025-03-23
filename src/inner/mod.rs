@@ -211,9 +211,13 @@ impl RawVolume {
 /// the [`Volume::close`] method.
 ///
 /// For async `Volumes`, the implementation of [`Drop`] blocks with [`embassy_futures::block_on`]
-/// because there is no way to `.await` inside [`Drop::drop`]. If you would prefer
-/// to rely on the async executor you are already using, call [`Volume::close`]
-/// manually instead of letting the `Volume` drop.
+/// because there is no way to `.await` inside [`Drop::drop`]. Note that if you are using the
+/// [Embassy](https://embassy.dev) async executor, you must enable a
+/// [`generic-queue-x`](https://docs.rs/embassy-time/latest/embassy_time/#generic-queue)
+/// feature of the embassy-time crate or dropping a `Volume` will panic. If you would prefer
+/// to rely on the async executor you are already using, or avoid the requirement to
+/// use embassy-time's `generic-queue-x` feature, call [`Volume::close`] manually instead
+/// of letting the `Volume` drop.
 pub struct Volume<'a, D, T, const MAX_DIRS: usize, const MAX_FILES: usize, const MAX_VOLUMES: usize>
 where
     D: BlockDevice,
