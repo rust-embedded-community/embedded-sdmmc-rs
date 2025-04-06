@@ -21,6 +21,9 @@ use crate::{debug, trace, warn};
 // Types and Implementations
 // ****************************************************************************
 
+/// The max number of bytes in a command response.
+const COMMAND_RESPONSE_BYTES: usize = 5;
+
 /// Driver for an SD Card on an SPI bus.
 ///
 /// Built from an [`SpiDevice`] implementation and a Chip Select pin.
@@ -254,10 +257,8 @@ where
             self.write_data(DATA_START_BLOCK, &blocks[0].contents)
                 .await?;
             self.wait_not_busy(Delay::new_write()).await?;
-            if self.card_command(CMD13, 0).await? != 0x00 {
-                return Err(Error::WriteError);
-            }
-            if self.read_byte().await? != 0x00 {
+            let response = self.card_command(CMD13, 0).await?;
+            if response[0] != 0x00 || response[1] != 0x00 {
                 return Err(Error::WriteError);
             }
         } else {
@@ -317,7 +318,8 @@ where
         match self.card_type {
             Some(CardType::SD1) => {
                 let mut csd = CsdV1::new();
-                if self.card_command(CMD9, 0).await? != 0 {
+                let cmd_response = self.card_command(CMD9, 0).await?;
+                if cmd_response[0] != 0 {
                     return Err(Error::RegisterReadError);
                 }
                 self.read_data(&mut csd.data).await?;
@@ -325,7 +327,8 @@ where
             }
             Some(CardType::SD2 | CardType::SDHC) => {
                 let mut csd = CsdV2::new();
-                if self.card_command(CMD9, 0).await? != 0 {
+                let cmd_response = self.card_command(CMD9, 0).await?;
+                if cmd_response[0] != 0 {
                     return Err(Error::RegisterReadError);
                 }
                 self.read_data(&mut csd.data).await?;
@@ -429,12 +432,12 @@ where
                     Err(e) => {
                         return Err(e);
                     }
-                    Ok(R1_IDLE_STATE) => {
+                    Ok([R1_IDLE_STATE, ..]) => {
                         break;
                     }
                     Ok(_r) => {
                         // Try again
-                        warn!("Got response: {:x}, trying again..", _r);
+                        warn!("Got response: {:x}, trying again..", _r[0]);
                     }
                 }
 
@@ -444,19 +447,18 @@ where
             debug!("Enable CRC: {}", self.options.use_crc);
             // "The SPI interface is initialized in the CRC OFF mode in default"
             // -- SD Part 1 Physical Layer Specification v9.00, Section 7.2.2 Bus Transfer Protection
-            if self.options.use_crc && self.card_command(CMD59, 1).await? != R1_IDLE_STATE {
+            if self.options.use_crc && self.card_command(CMD59, 1).await?[0] != R1_IDLE_STATE {
                 return Err(Error::CantEnableCRC);
             }
             // Check card version
             let mut delay = Delay::new_command();
             let arg = loop {
-                if self.card_command(CMD8, 0x1AA).await? == (R1_ILLEGAL_COMMAND | R1_IDLE_STATE) {
+                let cmd_response = self.card_command(CMD8, 0x1AA).await?;
+                if cmd_response[0] == (R1_ILLEGAL_COMMAND | R1_IDLE_STATE) {
                     card_type = CardType::SD1;
                     break 0;
                 }
-                let mut buffer = [0xFF; 4];
-                self.transfer_bytes(&mut buffer).await?;
-                let status = buffer[3];
+                let status = cmd_response[4];
                 if status == 0xAA {
                     card_type = CardType::SD2;
                     break 0x4000_0000;
@@ -474,12 +476,11 @@ where
             }
 
             if card_type == CardType::SD2 {
-                if self.card_command(CMD58, 0).await? != 0 {
+                let cmd_response = self.card_command(CMD58, 0).await?;
+                if cmd_response[0] != 0 {
                     return Err(Error::Cmd58Error);
                 }
-                let mut buffer = [0xFF; 4];
-                self.transfer_bytes(&mut buffer).await?;
-                if (buffer[0] & 0xC0) == 0xC0 {
+                if (cmd_response[1] & 0xC0) == 0xC0 {
                     card_type = CardType::SDHC;
                 }
                 // Ignore the other three bytes
@@ -496,42 +497,50 @@ where
     /// Perform an application-specific command.
     async fn card_acmd(&mut self, command: u8, arg: u32) -> Result<u8, Error> {
         self.card_command(CMD55, 0).await?;
-        self.card_command(command, arg).await
+        self.card_command(command, arg).await.map(|r| r[0])
     }
 
     /// Perform a command.
-    async fn card_command(&mut self, command: u8, arg: u32) -> Result<u8, Error> {
+    async fn card_command(
+        &mut self,
+        command: u8,
+        arg: u32,
+    ) -> Result<[u8; COMMAND_RESPONSE_BYTES], Error> {
         if command != CMD0 && command != CMD12 {
             self.wait_not_busy(Delay::new_command()).await?;
         }
 
-        let mut buf = [
-            0x40 | command,
-            (arg >> 24) as u8,
-            (arg >> 16) as u8,
-            (arg >> 8) as u8,
-            arg as u8,
-            0,
-        ];
+        const COMMAND_BYTES: usize = 6;
+        // The maximum number of bytes before the card should start sending the response. Based on
+        // http://elm-chan.org/docs/mmc/mmc_e.html
+        const MAX_WAIT_BYTES: usize = 8;
+        const TRANSFER_BYTES: usize = COMMAND_BYTES + MAX_WAIT_BYTES + COMMAND_RESPONSE_BYTES;
+
+        let mut buf = [0xFF; TRANSFER_BYTES];
+        buf[0] = 0x40 | command;
+        buf[1] = (arg >> 24) as u8;
+        buf[2] = (arg >> 16) as u8;
+        buf[3] = (arg >> 8) as u8;
+        buf[4] = arg as u8;
         buf[5] = crc7(&buf[0..5]);
 
-        self.write_bytes(&buf).await?;
+        // Write the command and read the response in a single SPI transfer. In the async case
+        // this allows performing the command without CPU attention and it removes the risk of
+        // timeouts on the SD card caused by scheduling delays between sending the command and
+        // reading the response.
+        self.transfer_bytes(&mut buf).await?;
 
-        // skip stuff byte for stop read
-        if command == CMD12 {
-            let _result = self.read_byte().await?;
-        }
-
-        let mut delay = Delay::new_command();
-        loop {
-            let result = self.read_byte().await?;
-            if (result & 0x80) == ERROR_OK {
-                return Ok(result);
-            }
-            delay
-                .delay(&mut self.delayer, Error::TimeoutCommand(command))
-                .await?;
-        }
+        // Find the response in the buffer
+        buf.iter()
+            .skip(COMMAND_BYTES)
+            .position(|&b| (b & 0x80) == ERROR_OK)
+            .and_then(|pos| {
+                let start = pos + COMMAND_BYTES;
+                let end = start + COMMAND_RESPONSE_BYTES;
+                buf.get(start..end)
+            })
+            .and_then(|bytes| bytes.try_into().ok())
+            .ok_or(Error::UnexpectedResponse(command))
     }
 
     /// Receive a byte from the SPI bus by clocking out an 0xFF byte.
@@ -627,6 +636,8 @@ pub enum Error {
     TimeoutWaitNotBusy,
     /// We didn't get a response when executing this command
     TimeoutCommand(u8),
+    /// We didn't get the expected response when executing this command
+    UnexpectedResponse(u8),
     /// We didn't get a response when executing this application-specific command
     TimeoutACommand(u8),
     /// We got a bad response from Command 58
