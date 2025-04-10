@@ -10,6 +10,11 @@ designed for readability and simplicity over performance.
 
 You will need something that implements the `BlockDevice` trait, which can read and write the 512-byte blocks (or sectors) from your card. If you were to implement this over USB Mass Storage, there's no reason this crate couldn't work with a USB Thumb Drive, but we only supply a `BlockDevice` suitable for reading SD and SDHC cards over SPI.
 
+To accommodate specific requirements when using SD cards on a shared SPI bus, this crate uses a bespoke `SdCardDevice` trait instead of the more commmon `embedded_hal::spi::SpiDevice` trait. Implementations for several types that wrap a `embedded-hal::spi::SpiBus` implementation are provided in the `sd_card` module. Some are guarded behind cargo features:
+
+- `embedded-hal-bus-03`: adds support for `embedded-hal-bus::spi::ExclusiveDevice`. This is probably the easiest way to use this crate when the SD card is the only device on the bus.
+- `embassy-sync-06`: adds support for using a blocking mutex from the `embassy-sync` crate. This allows sharing the bus between multiple tasks.
+
 ```rust
 use embedded_sdmmc::{SdCard, VolumeManager, Mode, VolumeIdx};
 // Build an SD Card interface out of an SPI device, a chip-select pin and the delay object
