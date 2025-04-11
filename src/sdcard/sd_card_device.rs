@@ -106,7 +106,7 @@ where
 }
 
 // `ExclusiveDevice` represents exclusive access to the bus so there's no need to send the dummy
-// byte after deasserting the CS pin. We can defer the implementation to the `embedded_hal` trait.
+// byte after deasserting the CS pin. We can delegate the implementation to the `embedded_hal` trait.
 #[cfg(feature = "embedded-hal-bus-03")]
 impl<CS, BUS, D> SdCardDevice for embedded_hal_bus_03::spi::ExclusiveDevice<BUS, CS, D>
 where
