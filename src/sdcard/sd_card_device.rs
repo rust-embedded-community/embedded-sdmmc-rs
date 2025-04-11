@@ -142,7 +142,7 @@ where
     fn send_clock_pulses(&mut self) -> Result<(), SdCardDeviceError> {
         let bus = self.bus_mut();
 
-        // There's no way to access the CS pin here so we can't set it high. Most like it already high so this is probbaly fine(?)
+        // There's no way to access the CS pin here so we can't set it high. Most likely it is already high so this is probably fine(?)
 
         let send_res = bus.write(&[0xFF; 10]);
 
