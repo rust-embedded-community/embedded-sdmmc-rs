@@ -19,6 +19,9 @@ pub trait SdCardDevice {
         operations: &mut [Operation<'_, u8>],
     ) -> Result<(), SdCardDeviceError>;
 
+    /// Send 80 clock pulses to the device with CS deasserted.
+    fn send_clock_pulses(&mut self) -> Result<(), SdCardDeviceError>;
+
     /// Do a read within a transaction.
     ///
     /// This is a convenience method equivalent to `device.transaction(&mut [Operation::Read(buf)])`.
@@ -84,6 +87,12 @@ where
         let mut bus = bus.borrow_mut();
         bus_transaction(&mut *bus, cs, operations)
     }
+
+    fn send_clock_pulses(&mut self) -> Result<(), SdCardDeviceError> {
+        let (bus, cs) = self;
+        let mut bus = bus.borrow_mut();
+        send_clock_pulses(&mut *bus, cs)
+    }
 }
 
 #[cfg(feature = "embassy-sync-06")]
@@ -103,6 +112,14 @@ where
             bus_transaction(&mut *bus, cs, operations)
         })
     }
+
+    fn send_clock_pulses(&mut self) -> Result<(), SdCardDeviceError> {
+        let (bus, cs) = self;
+        bus.lock(|bus| {
+            let mut bus = bus.borrow_mut();
+            send_clock_pulses(&mut *bus, cs)
+        })
+    }
 }
 
 // `ExclusiveDevice` represents exclusive access to the bus so there's no need to send the dummy
@@ -120,6 +137,21 @@ where
     ) -> Result<(), SdCardDeviceError> {
         <Self as embedded_hal::spi::SpiDevice>::transaction(self, operations)
             .map_err(|_| SdCardDeviceError::Spi)
+    }
+
+    fn send_clock_pulses(&mut self) -> Result<(), SdCardDeviceError> {
+        let bus = self.bus_mut();
+
+        // There's no way to access the CS pin here so we can't set it high. Most like it already high so this is probbaly fine(?)
+
+        let send_res = bus.write(&[0xFF; 10]);
+
+        // On failure, it's important to still flush.
+        let flush_res = bus.flush().map_err(|_| SdCardDeviceError::Spi);
+
+        send_res.map_err(|_| SdCardDeviceError::Spi)?;
+        flush_res.map_err(|_| SdCardDeviceError::Spi)?;
+        Ok(())
     }
 }
 
@@ -158,6 +190,23 @@ where
     let flush_res = bus.flush();
 
     dummy_res.map_err(|_| SdCardDeviceError::Spi)?;
+    flush_res.map_err(|_| SdCardDeviceError::Spi)?;
+
+    Ok(())
+}
+
+fn send_clock_pulses<BUS, CS>(bus: &mut BUS, cs: &mut CS) -> Result<(), SdCardDeviceError>
+where
+    BUS: SpiBus,
+    CS: OutputPin,
+{
+    cs.set_high().map_err(|_| SdCardDeviceError::Cs)?;
+    let send_res = bus.write(&[0xFF; 10]);
+
+    // On failure, it's important to still flush.
+    let flush_res = bus.flush().map_err(|_| SdCardDeviceError::Spi);
+
+    send_res.map_err(|_| SdCardDeviceError::Spi)?;
     flush_res.map_err(|_| SdCardDeviceError::Spi)?;
 
     Ok(())

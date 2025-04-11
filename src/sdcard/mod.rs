@@ -132,6 +132,18 @@ where
         inner.card_type
     }
 
+    /// Initialize the SD card.
+    ///
+    /// This must be called before performing any operations on the card, with
+    /// SPI frequency of 100 to 400 KHz. After this method returns
+    /// successfully, the SPI frequency can be increased to the maximum
+    /// supported by the card.
+    pub fn init_card(&self) -> Result<(), Error> {
+        let mut inner = self.inner.borrow_mut();
+        inner.init()?;
+        Ok(())
+    }
+
     /// Tell the driver the card has been initialised.
     ///
     /// This is here in case you were previously using the SD Card, and then a
@@ -561,6 +573,13 @@ where
             }
             delay.delay(&mut self.delayer, Error::TimeoutWaitNotBusy)?;
         }
+        Ok(())
+    }
+
+    fn init(&mut self) -> Result<(), Error> {
+        self.spi
+            .send_clock_pulses()
+            .map_err(|_e| Error::Transport)?;
         Ok(())
     }
 }
