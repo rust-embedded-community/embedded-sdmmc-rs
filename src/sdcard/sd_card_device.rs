@@ -74,7 +74,22 @@ pub enum SdCardDeviceError {
     Cs,
 }
 
-impl<BUS, CS> SdCardDevice for (&RefCell<BUS>, CS)
+/// A wrapper around a SPI bus and a CS pin, using a `RefCell`.
+///
+/// This allows sharing the bus within the same thread.
+pub struct RefCellSdCardDevice<'a, BUS, CS> {
+    bus: &'a RefCell<BUS>,
+    cs: CS,
+}
+
+impl<'a, BUS, CS> RefCellSdCardDevice<'a, BUS, CS> {
+    /// Create a new `RefCellSdCardDevice`.
+    pub fn new(bus: &'a RefCell<BUS>, cs: CS) -> Self {
+        Self { bus, cs }
+    }
+}
+
+impl<BUS, CS> SdCardDevice for RefCellSdCardDevice<'_, BUS, CS>
 where
     BUS: SpiBus,
     CS: OutputPin,
@@ -83,75 +98,106 @@ where
         &mut self,
         operations: &mut [Operation<'_, u8>],
     ) -> Result<(), SdCardDeviceError> {
-        let (bus, cs) = self;
-        let mut bus = bus.borrow_mut();
-        bus_transaction(&mut *bus, cs, operations)
+        let mut bus = self.bus.borrow_mut();
+        bus_transaction(&mut *bus, &mut self.cs, operations)
     }
 
     fn send_clock_pulses(&mut self) -> Result<(), SdCardDeviceError> {
-        let (bus, cs) = self;
-        let mut bus = bus.borrow_mut();
-        send_clock_pulses(&mut *bus, cs)
+        let mut bus = self.bus.borrow_mut();
+        send_clock_pulses(&mut *bus, &mut self.cs)
     }
 }
 
 #[cfg(feature = "embassy-sync-06")]
-impl<CS, BUS, M> SdCardDevice for (&embassy_sync_06::blocking_mutex::Mutex<M, RefCell<BUS>>, CS)
-where
-    CS: OutputPin,
-    BUS: SpiBus,
-    M: embassy_sync_06::blocking_mutex::raw::RawMutex,
-{
-    fn transaction(
-        &mut self,
-        operations: &mut [Operation<'_, u8>],
-    ) -> Result<(), SdCardDeviceError> {
-        let (bus, cs) = self;
-        bus.lock(|bus| {
-            let mut bus = bus.borrow_mut();
-            bus_transaction(&mut *bus, cs, operations)
-        })
+mod embassy_sync_06 {
+    use core::cell::RefCell;
+
+    use ::embassy_sync_06::blocking_mutex;
+
+    use super::*;
+
+    /// A wrapper around a SPI bus and a CS pin, using an `embassy-sync` blocking mutex.
+    ///
+    /// This allows sharing the bus with according to the `embassy-sync` mutex model.
+    /// See [`blocking_mutex::Mutex`] for more details.
+
+    pub struct EmbassyMutexSdCardDevice<'a, BUS, CS, M> {
+        bus: &'a blocking_mutex::Mutex<M, RefCell<BUS>>,
+        cs: CS,
     }
 
-    fn send_clock_pulses(&mut self) -> Result<(), SdCardDeviceError> {
-        let (bus, cs) = self;
-        bus.lock(|bus| {
-            let mut bus = bus.borrow_mut();
-            send_clock_pulses(&mut *bus, cs)
-        })
+    impl<'a, BUS, CS, M> EmbassyMutexSdCardDevice<'a, BUS, CS, M> {
+        /// Create a new `EmbassyMutexSdCardDevice`.
+        pub fn new(bus: &'a blocking_mutex::Mutex<M, RefCell<BUS>>, cs: CS) -> Self {
+            Self { bus, cs }
+        }
+    }
+
+    impl<CS, BUS, M> SdCardDevice for EmbassyMutexSdCardDevice<'_, BUS, CS, M>
+    where
+        CS: OutputPin,
+        BUS: SpiBus,
+        M: blocking_mutex::raw::RawMutex,
+    {
+        fn transaction(
+            &mut self,
+            operations: &mut [Operation<'_, u8>],
+        ) -> Result<(), SdCardDeviceError> {
+            self.bus.lock(|bus| {
+                let mut bus = bus.borrow_mut();
+                bus_transaction(&mut *bus, &mut self.cs, operations)
+            })
+        }
+
+        fn send_clock_pulses(&mut self) -> Result<(), SdCardDeviceError> {
+            self.bus.lock(|bus| {
+                let mut bus = bus.borrow_mut();
+                send_clock_pulses(&mut *bus, &mut self.cs)
+            })
+        }
     }
 }
 
-// `ExclusiveDevice` represents exclusive access to the bus so there's no need to send the dummy
-// byte after deasserting the CS pin. We can delegate the implementation to the `embedded_hal` trait.
+#[cfg(feature = "embassy-sync-06")]
+pub use embassy_sync_06::*;
+
 #[cfg(feature = "embedded-hal-bus-03")]
-impl<CS, BUS, D> SdCardDevice for embedded_hal_bus_03::spi::ExclusiveDevice<BUS, CS, D>
-where
-    BUS: SpiBus,
-    CS: OutputPin,
-    D: embedded_hal::delay::DelayNs,
-{
-    fn transaction(
-        &mut self,
-        operations: &mut [Operation<'_, u8>],
-    ) -> Result<(), SdCardDeviceError> {
-        <Self as embedded_hal::spi::SpiDevice>::transaction(self, operations)
-            .map_err(|_| SdCardDeviceError::Spi)
-    }
+mod embedded_hal_bus_03 {
+    use ::embedded_hal_bus_03::spi::ExclusiveDevice;
+    use embedded_hal::spi::SpiDevice;
 
-    fn send_clock_pulses(&mut self) -> Result<(), SdCardDeviceError> {
-        let bus = self.bus_mut();
+    use super::*;
 
-        // There's no way to access the CS pin here so we can't set it high. Most likely it is already high so this is probably fine(?)
+    // `ExclusiveDevice` represents exclusive access to the bus so there's no need to send the dummy
+    // byte after deasserting the CS pin. We can delegate the implementation to the `embedded_hal` trait.
 
-        let send_res = bus.write(&[0xFF; 10]);
+    impl<CS, BUS, D> SdCardDevice for ExclusiveDevice<BUS, CS, D>
+    where
+        BUS: SpiBus,
+        CS: OutputPin,
+        D: embedded_hal::delay::DelayNs,
+    {
+        fn transaction(
+            &mut self,
+            operations: &mut [Operation<'_, u8>],
+        ) -> Result<(), SdCardDeviceError> {
+            <Self as SpiDevice>::transaction(self, operations).map_err(|_| SdCardDeviceError::Spi)
+        }
 
-        // On failure, it's important to still flush.
-        let flush_res = bus.flush().map_err(|_| SdCardDeviceError::Spi);
+        fn send_clock_pulses(&mut self) -> Result<(), SdCardDeviceError> {
+            let bus = self.bus_mut();
 
-        send_res.map_err(|_| SdCardDeviceError::Spi)?;
-        flush_res.map_err(|_| SdCardDeviceError::Spi)?;
-        Ok(())
+            // There's no way to access the CS pin here so we can't set it high. Most likely it is already high so this is probably fine(?)
+
+            let send_res = bus.write(&[0xFF; 10]);
+
+            // On failure, it's important to still flush.
+            let flush_res = bus.flush().map_err(|_| SdCardDeviceError::Spi);
+
+            send_res.map_err(|_| SdCardDeviceError::Spi)?;
+            flush_res.map_err(|_| SdCardDeviceError::Spi)?;
+            Ok(())
+        }
     }
 }
 

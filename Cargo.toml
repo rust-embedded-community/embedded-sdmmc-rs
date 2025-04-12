@@ -32,7 +32,7 @@ hex-literal = "0.4.1"
 sha2 = "0.10"
 
 [features]
-default = ["log"]
+default = ["log", "embassy-sync-06", "embedded-hal-bus-03"]
 defmt-log = ["dep:defmt"]
 embassy-sync-06 = ["dep:embassy-sync-06"]
 embedded-hal-bus-03 = ["dep:embedded-hal-bus-03"]

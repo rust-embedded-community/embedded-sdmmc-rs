@@ -7,7 +7,7 @@
 
 use core::cell::RefCell;
 
-use embedded_sdmmc::{Error, SdCardError, TimeSource, Timestamp};
+use embedded_sdmmc::{sdcard::RefCellSdCardDevice, Error, SdCardError, TimeSource, Timestamp};
 
 pub struct DummyCsPin;
 
@@ -122,7 +122,8 @@ fn main() -> Result<(), MyError> {
 
     use embedded_sdmmc::{Mode, SdCard, VolumeIdx, VolumeManager};
     // Build an SD Card interface out of an SPI device, a chip-select pin and the delay object
-    let sdcard = SdCard::new((&spi_bus, DummyCsPin), delay);
+    let spi_device = RefCellSdCardDevice::new(&spi_bus, DummyCsPin);
+    let sdcard = SdCard::new(spi_device, delay);
     // Get the card size (this also triggers card initialisation because it's not been done yet)
     println!("Card size is {} bytes", sdcard.num_bytes()?);
     // Now let's look for volumes (also known as partitions) on our block device.
