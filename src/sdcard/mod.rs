@@ -3,8 +3,8 @@
 //! This is currently optimised for readability and debugability, not
 //! performance.
 
+mod device;
 pub mod proto;
-mod sd_card_device;
 
 use crate::{trace, Block, BlockCount, BlockDevice, BlockIdx};
 use core::cell::RefCell;
@@ -15,7 +15,7 @@ use proto::*;
 // ****************************************************************************
 
 use crate::{debug, warn};
-pub use sd_card_device::*;
+pub use device::*;
 
 // ****************************************************************************
 // Types and Implementations
@@ -39,7 +39,7 @@ pub use sd_card_device::*;
 /// [`SpiDevice`]: embedded_hal::spi::SpiDevice
 pub struct SdCard<SPI, DELAYER>
 where
-    SPI: SdCardDevice,
+    SPI: SdCardSpiDevice,
     DELAYER: embedded_hal::delay::DelayNs,
 {
     inner: RefCell<SdCardInner<SPI, DELAYER>>,
@@ -47,7 +47,7 @@ where
 
 impl<SPI, DELAYER> SdCard<SPI, DELAYER>
 where
-    SPI: SdCardDevice,
+    SPI: SdCardSpiDevice,
     DELAYER: embedded_hal::delay::DelayNs,
 {
     /// Create a new SD/MMC Card driver using a raw SPI interface.
@@ -168,7 +168,7 @@ where
 
 impl<SPI, DELAYER> BlockDevice for SdCard<SPI, DELAYER>
 where
-    SPI: SdCardDevice,
+    SPI: SdCardSpiDevice,
     DELAYER: embedded_hal::delay::DelayNs,
 {
     type Error = Error;
@@ -208,7 +208,7 @@ where
 /// All the APIs required `&mut self`.
 struct SdCardInner<SPI, DELAYER>
 where
-    SPI: SdCardDevice,
+    SPI: SdCardSpiDevice,
     DELAYER: embedded_hal::delay::DelayNs,
 {
     spi: SPI,
@@ -219,7 +219,7 @@ where
 
 impl<SPI, DELAYER> SdCardInner<SPI, DELAYER>
 where
-    SPI: SdCardDevice,
+    SPI: SdCardSpiDevice,
     DELAYER: embedded_hal::delay::DelayNs,
 {
     /// Read one or more blocks, starting at the given block index.

@@ -117,7 +117,7 @@ pub use crate::sdcard::Error as SdCardError;
 pub use crate::sdcard::SdCard;
 
 #[doc(inline)]
-pub use crate::sdcard::SdCardDevice;
+pub use crate::sdcard::SdCardSpiDevice;
 
 #[doc(inline)]
 pub use crate::sdcard::SdCardDeviceError;

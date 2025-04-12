@@ -1,4 +1,4 @@
-//! SD card device trait and provided implementations.
+//! SD card SPI device trait and provided implementations.
 
 use core::cell::RefCell;
 
@@ -8,7 +8,7 @@ use embedded_hal::{
 };
 
 /// Trait for SD cards connected via SPI.
-pub trait SdCardDevice {
+pub trait SdCardSpiDevice {
     /// Perform a transaction against the device.
     ///
     /// This is similar to [`embedded_hal::spi::SpiDevice::transaction`], except that this sends
@@ -89,7 +89,7 @@ impl<'a, BUS, CS> RefCellSdCardDevice<'a, BUS, CS> {
     }
 }
 
-impl<BUS, CS> SdCardDevice for RefCellSdCardDevice<'_, BUS, CS>
+impl<BUS, CS> SdCardSpiDevice for RefCellSdCardDevice<'_, BUS, CS>
 where
     BUS: SpiBus,
     CS: OutputPin,
@@ -133,7 +133,7 @@ mod embassy_sync_06 {
         }
     }
 
-    impl<CS, BUS, M> SdCardDevice for EmbassyMutexSdCardDevice<'_, BUS, CS, M>
+    impl<CS, BUS, M> SdCardSpiDevice for EmbassyMutexSdCardDevice<'_, BUS, CS, M>
     where
         CS: OutputPin,
         BUS: SpiBus,
@@ -171,7 +171,7 @@ mod embedded_hal_bus_03 {
     // `ExclusiveDevice` represents exclusive access to the bus so there's no need to send the dummy
     // byte after deasserting the CS pin. We can delegate the implementation to the `embedded_hal` trait.
 
-    impl<CS, BUS, D> SdCardDevice for ExclusiveDevice<BUS, CS, D>
+    impl<CS, BUS, D> SdCardSpiDevice for ExclusiveDevice<BUS, CS, D>
     where
         BUS: SpiBus,
         CS: OutputPin,
