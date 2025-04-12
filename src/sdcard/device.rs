@@ -253,7 +253,7 @@ where
     let send_res = bus.write(&[0xFF; 10]);
 
     // On failure, it's important to still flush.
-    let flush_res = bus.flush().map_err(|_| SdCardDeviceError::Spi);
+    let flush_res = bus.flush();
 
     send_res.map_err(|_| SdCardDeviceError::Spi)?;
     flush_res.map_err(|_| SdCardDeviceError::Spi)?;
