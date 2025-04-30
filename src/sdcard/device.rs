@@ -26,7 +26,7 @@ pub trait SdCardSpiDevice {
     ///
     /// This is a convenience method equivalent to `device.transaction(&mut [Operation::Read(buf)])`.
     ///
-    /// See also: [`SdCardDevice::transaction`], [`embedded_hal::spi::SpiBus::read`]
+    /// See also: [`SdCardSpiDevice::transaction`], [`embedded_hal::spi::SpiBus::read`]
     #[inline]
     fn read(&mut self, buf: &mut [u8]) -> Result<(), SdCardDeviceError> {
         self.transaction(&mut [Operation::Read(buf)])
@@ -36,7 +36,7 @@ pub trait SdCardSpiDevice {
     ///
     /// This is a convenience method equivalent to `device.transaction(&mut [Operation::Write(buf)])`.
     ///
-    /// See also: [`SdCardDevice::transaction`], [`embedded_hal::spi::SpiBus::write`]
+    /// See also: [`SdCardSpiDevice::transaction`], [`embedded_hal::spi::SpiBus::write`]
     #[inline]
     fn write(&mut self, buf: &[u8]) -> Result<(), SdCardDeviceError> {
         self.transaction(&mut [Operation::Write(buf)])
@@ -46,7 +46,7 @@ pub trait SdCardSpiDevice {
     ///
     /// This is a convenience method equivalent to `device.transaction(&mut [Operation::Transfer(read, write)]`.
     ///
-    /// See also: [`SdCardDevice::transaction`], [`embedded_hal::spi::SpiBus::transfer`]
+    /// See also: [`SdCardSpiDevice::transaction`], [`embedded_hal::spi::SpiBus::transfer`]
     #[inline]
     fn transfer(&mut self, read: &mut [u8], write: &[u8]) -> Result<(), SdCardDeviceError> {
         self.transaction(&mut [Operation::Transfer(read, write)])
@@ -56,7 +56,7 @@ pub trait SdCardSpiDevice {
     ///
     /// This is a convenience method equivalent to `device.transaction(&mut [Operation::TransferInPlace(buf)]`.
     ///
-    /// See also: [`SdCardDevice::transaction`], [`embedded_hal::spi::SpiBus::transfer_in_place`]
+    /// See also: [`SdCardSpiDevice::transaction`], [`embedded_hal::spi::SpiBus::transfer_in_place`]
     #[inline]
     fn transfer_in_place(&mut self, buf: &mut [u8]) -> Result<(), SdCardDeviceError> {
         self.transaction(&mut [Operation::TransferInPlace(buf)])

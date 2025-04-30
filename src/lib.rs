@@ -17,11 +17,11 @@
 //! suitable for reading SD and SDHC cards over SPI.
 //!
 //! ```rust
-//! use embedded_sdmmc::{Error, Mode, SdCard, SdCardError, TimeSource, VolumeIdx, VolumeManager, SdCardDevice};
+//! use embedded_sdmmc::{Error, Mode, SdCard, SdCardError, TimeSource, VolumeIdx, VolumeManager, SdCardSpiDevice};
 //!
 //! fn example<S, D, T>(spi: S, delay: D, ts: T) -> Result<(), Error<SdCardError>>
 //! where
-//!     S: SdCardDevice,
+//!     S: SdCardSpiDevice,
 //!     D: embedded_hal::delay::DelayNs,
 //!     T: TimeSource,
 //! {
