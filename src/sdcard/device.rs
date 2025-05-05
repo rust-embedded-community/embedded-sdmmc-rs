@@ -201,9 +201,11 @@ mod embedded_hal_bus_03 {
     }
 }
 
-/// Perform a transaction against the device. This sends a dummy `0xFF` byte to the device after
-/// deasserting the CS pin but before unlocking the bus.
-fn bus_transaction<BUS, CS>(
+/// Perform a transaction against the device.
+///
+/// This sends a dummy `0xFF` byte to the device after deasserting the CS pin but before unlocking
+/// the bus. This function can be used to implement [`SdCardSpiDevice`] for your own device types.
+pub fn bus_transaction<BUS, CS>(
     bus: &mut BUS,
     cs: &mut CS,
     operations: &mut [Operation<'_, u8>],
@@ -243,8 +245,9 @@ where
     Ok(())
 }
 
-/// Send 80 clock pulses to the device with CS deasserted. This is needed to initialize the SD card.
-fn send_clock_pulses<BUS, CS>(bus: &mut BUS, cs: &mut CS) -> Result<(), SdCardDeviceError>
+/// Send 80 clock pulses to the device with CS deasserted. This is needed to initialize the SD
+/// card.
+pub fn send_clock_pulses<BUS, CS>(bus: &mut BUS, cs: &mut CS) -> Result<(), SdCardDeviceError>
 where
     BUS: SpiBus,
     CS: OutputPin,
