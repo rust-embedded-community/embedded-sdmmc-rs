@@ -878,15 +878,15 @@ where
                 Err(e) => return Err(e),
             };
             let to_copy = core::cmp::min(block_avail, bytes_to_write - written);
-            let block = if block_offset != 0
-                || data.open_files[file_idx].current_offset < data.open_files[file_idx].entry.size
-            {
+            let block = if (block_offset == 0) && (to_copy == block_avail) {
+                // we're replacing the whole Block, so the previous contents
+                // are irrelevant
+                data.block_cache.blank_mut(block_idx)
+            } else {
                 debug!("Reading for partial block write");
                 data.block_cache
                     .read_mut(block_idx)
                     .map_err(Error::DeviceError)?
-            } else {
-                data.block_cache.blank_mut(block_idx)
             };
             block[block_offset..block_offset + to_copy]
                 .copy_from_slice(&buffer[written..written + to_copy]);
