@@ -14,6 +14,7 @@ The format is based on [Keep a Changelog] and this project adheres to [Semantic 
 - __Breaking Change__: The `VolumeManager::device` method now takes a callback rather than giving you a reference to the underlying `BlockDevice`
 - __Breaking Change__: `Error:LockError` variant added.
 - __Breaking Change__: `SearchId` was renamed to `Handle`
+- Fixed writing at block start mid-file (previously overwrote subsequent file data with zeros up to the end of the block)
 
 ### Added
 
