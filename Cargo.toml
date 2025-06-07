@@ -8,7 +8,7 @@ license = "MIT OR Apache-2.0"
 name = "embedded-sdmmc"
 readme = "README.md"
 repository = "https://github.com/rust-embedded-community/embedded-sdmmc-rs"
-version = "0.8.1"
+version = "0.8.2"
 
 [dependencies]
 byteorder = {version = "1", default-features = false}

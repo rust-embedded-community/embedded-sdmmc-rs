@@ -753,8 +753,8 @@ where
             };
             let mut blocks = [Block::new()];
             let to_copy = core::cmp::min(block_avail, bytes_to_write - written);
-            if block_offset != 0 {
-                debug!("Partial block write");
+            if block_offset != 0 || to_copy != block_avail {
+                debug!("Partial block read/modify/write");
                 self.block_device
                     .read(&mut blocks, block_idx, "read")
                     .map_err(Error::DeviceError)?;

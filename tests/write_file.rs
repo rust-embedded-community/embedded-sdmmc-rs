@@ -102,6 +102,65 @@ fn flush_file() {
     assert_eq!(entry.size, 64 * 3);
 }
 
+#[test]
+fn random_access_write_file() {
+    let time_source = utils::make_time_source();
+    let disk = utils::make_block_device(utils::DISK_SOURCE).unwrap();
+    let mut volume_mgr: VolumeManager<utils::RamDisk<Vec<u8>>, utils::TestTimeSource, 4, 2, 1> =
+        VolumeManager::new_with_limits(disk, time_source, 0xAA00_0000);
+    let volume = volume_mgr
+        .open_raw_volume(VolumeIdx(0))
+        .expect("open volume");
+    let root_dir = volume_mgr.open_root_dir(volume).expect("open root dir");
+
+    // Open with string
+    let f = volume_mgr
+        .open_file_in_dir(root_dir, "README.TXT", Mode::ReadWriteTruncate)
+        .expect("open file");
+
+    let test_data = vec![0xCC; 1024];
+    volume_mgr.write(f, &test_data).expect("file write");
+
+    let length = volume_mgr.file_length(f).expect("get length");
+    assert_eq!(length, 1024);
+
+    for seek_offset in [100, 0] {
+        let mut expected_buffer = [0u8; 4];
+
+        // fetch some data at offset seek_offset
+        volume_mgr
+            .file_seek_from_start(f, seek_offset)
+            .expect("Seeking");
+        volume_mgr.read(f, &mut expected_buffer).expect("read file");
+
+        // modify first byte
+        expected_buffer[0] ^= 0xff;
+
+        // write only first byte, expecting the rest to not change
+        volume_mgr
+            .file_seek_from_start(f, seek_offset)
+            .expect("Seeking");
+        volume_mgr
+            .write(f, &expected_buffer[0..1])
+            .expect("file write");
+        volume_mgr.flush_file(f).expect("file flush");
+
+        // read and verify
+        volume_mgr
+            .file_seek_from_start(f, seek_offset)
+            .expect("file seek");
+        let mut read_buffer = [0xffu8, 0xff, 0xff, 0xff];
+        volume_mgr.read(f, &mut read_buffer).expect("file read");
+        assert_eq!(
+            read_buffer, expected_buffer,
+            "mismatch seek+write at offset {seek_offset} from start"
+        );
+    }
+
+    volume_mgr.close_file(f).expect("close file");
+    volume_mgr.close_dir(root_dir).expect("close dir");
+    volume_mgr.close_volume(volume).expect("close volume");
+}
 // ****************************************************************************
 //
 // End Of File
