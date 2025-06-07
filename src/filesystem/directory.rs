@@ -1,8 +1,6 @@
-use core::convert::TryFrom;
-
 use crate::blockdevice::BlockIdx;
 use crate::fat::{FatType, OnDiskDirEntry};
-use crate::filesystem::{Attributes, ClusterId, SearchId, ShortFileName, Timestamp};
+use crate::filesystem::{Attributes, ClusterId, Handle, LfnBuffer, ShortFileName, Timestamp};
 use crate::{Error, RawVolume, VolumeManager};
 
 use super::ToShortFileName;
@@ -47,7 +45,7 @@ pub struct DirEntry {
 /// and there's a reason we did it this way.
 #[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub struct RawDirectory(pub(crate) SearchId);
+pub struct RawDirectory(pub(crate) Handle);
 
 impl RawDirectory {
     /// Convert a raw directory into a droppable [`Directory`]
@@ -59,7 +57,7 @@ impl RawDirectory {
         const MAX_VOLUMES: usize,
     >(
         self,
-        volume_mgr: &mut VolumeManager<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>,
+        volume_mgr: &VolumeManager<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>,
     ) -> Directory<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>
     where
         D: crate::BlockDevice,
@@ -89,7 +87,7 @@ pub struct Directory<
     T: crate::TimeSource,
 {
     raw_directory: RawDirectory,
-    volume_mgr: &'a mut VolumeManager<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>,
+    volume_mgr: &'a VolumeManager<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>,
 }
 
 impl<'a, D, T, const MAX_DIRS: usize, const MAX_FILES: usize, const MAX_VOLUMES: usize>
@@ -101,7 +99,7 @@ where
     /// Create a new `Directory` from a `RawDirectory`
     pub fn new(
         raw_directory: RawDirectory,
-        volume_mgr: &'a mut VolumeManager<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>,
+        volume_mgr: &'a VolumeManager<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>,
     ) -> Directory<'a, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES> {
         Directory {
             raw_directory,
@@ -113,7 +111,7 @@ where
     ///
     /// You can then read the directory entries with `iterate_dir` and `open_file_in_dir`.
     pub fn open_dir<N>(
-        &mut self,
+        &self,
         name: N,
     ) -> Result<Directory<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>, Error<D::Error>>
     where
@@ -137,7 +135,7 @@ where
     }
 
     /// Look in a directory for a named file.
-    pub fn find_directory_entry<N>(&mut self, name: N) -> Result<DirEntry, Error<D::Error>>
+    pub fn find_directory_entry<N>(&self, name: N) -> Result<DirEntry, Error<D::Error>>
     where
         N: ToShortFileName,
     {
@@ -146,16 +144,53 @@ where
     }
 
     /// Call a callback function for each directory entry in a directory.
-    pub fn iterate_dir<F>(&mut self, func: F) -> Result<(), Error<D::Error>>
+    ///
+    /// Long File Names will be ignored.
+    ///
+    /// <div class="warning">
+    ///
+    /// Do not attempt to call any methods on the VolumeManager or any of its
+    /// handles from inside the callback. You will get a lock error because the
+    /// object is already locked in order to do the iteration.
+    ///
+    /// </div>
+    pub fn iterate_dir<F>(&self, func: F) -> Result<(), Error<D::Error>>
     where
         F: FnMut(&DirEntry),
     {
         self.volume_mgr.iterate_dir(self.raw_directory, func)
     }
 
+    /// Call a callback function for each directory entry in a directory, and
+    /// process Long File Names.
+    ///
+    /// You must supply a [`LfnBuffer`] this API can use to temporarily hold the
+    /// Long File Name. If you pass one that isn't large enough, any Long File
+    /// Names that don't fit will be ignored and presented as if they only had a
+    /// Short File Name.
+    ///
+    /// <div class="warning">
+    ///
+    /// Do not attempt to call any methods on the VolumeManager or any of its
+    /// handles from inside the callback. You will get a lock error because the
+    /// object is already locked in order to do the iteration.
+    ///
+    /// </div>
+    pub fn iterate_dir_lfn<F>(
+        &self,
+        lfn_buffer: &mut LfnBuffer<'_>,
+        func: F,
+    ) -> Result<(), Error<D::Error>>
+    where
+        F: FnMut(&DirEntry, Option<&str>),
+    {
+        self.volume_mgr
+            .iterate_dir_lfn(self.raw_directory, lfn_buffer, func)
+    }
+
     /// Open a file with the given full path. A file can only be opened once.
     pub fn open_file_in_dir<N>(
-        &mut self,
+        &self,
         name: N,
         mode: crate::Mode,
     ) -> Result<crate::File<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>, crate::Error<D::Error>>
@@ -169,7 +204,7 @@ where
     }
 
     /// Delete a closed file with the given filename, if it exists.
-    pub fn delete_file_in_dir<N>(&mut self, name: N) -> Result<(), Error<D::Error>>
+    pub fn delete_file_in_dir<N>(&self, name: N) -> Result<(), Error<D::Error>>
     where
         N: ToShortFileName,
     {
@@ -177,7 +212,7 @@ where
     }
 
     /// Make a directory inside this directory
-    pub fn make_dir_in_dir<N>(&mut self, name: N) -> Result<(), Error<D::Error>>
+    pub fn make_dir_in_dir<N>(&self, name: N) -> Result<(), Error<D::Error>>
     where
         N: ToShortFileName,
     {
@@ -240,10 +275,10 @@ where
 #[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
 #[derive(Debug, Clone)]
 pub(crate) struct DirectoryInfo {
-    /// Unique ID for this directory.
-    pub(crate) directory_id: RawDirectory,
-    /// The unique ID for the volume this directory is on
-    pub(crate) volume_id: RawVolume,
+    /// The handle for this directory.
+    pub(crate) raw_directory: RawDirectory,
+    /// The handle for the volume this directory is on
+    pub(crate) raw_volume: RawVolume,
     /// The starting point of the directory listing.
     pub(crate) cluster: ClusterId,
 }
@@ -262,16 +297,12 @@ impl DirEntry {
             [0u8; 2]
         } else {
             // Safe due to the AND operation
-            u16::try_from((cluster_number >> 16) & 0x0000_FFFF)
-                .unwrap()
-                .to_le_bytes()
+            (((cluster_number >> 16) & 0x0000_FFFF) as u16).to_le_bytes()
         };
         data[20..22].copy_from_slice(&cluster_hi[..]);
         data[22..26].copy_from_slice(&self.mtime.serialize_to_fat()[..]);
         // Safe due to the AND operation
-        let cluster_lo = u16::try_from(cluster_number & 0x0000_FFFF)
-            .unwrap()
-            .to_le_bytes();
+        let cluster_lo = ((cluster_number & 0x0000_FFFF) as u16).to_le_bytes();
         data[26..28].copy_from_slice(&cluster_lo[..]);
         data[28..32].copy_from_slice(&self.size.to_le_bytes()[..]);
         data

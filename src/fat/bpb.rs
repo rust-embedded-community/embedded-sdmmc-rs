@@ -85,12 +85,13 @@ impl<'a> Bpb<'a> {
     // FAT16/FAT32 functions
 
     /// Get the Volume Label string for this volume
-    pub fn volume_label(&self) -> &[u8] {
-        if self.fat_type != FatType::Fat32 {
-            &self.data[43..=53]
-        } else {
-            &self.data[71..=81]
+    pub fn volume_label(&self) -> [u8; 11] {
+        let mut result = [0u8; 11];
+        match self.fat_type {
+            FatType::Fat16 => result.copy_from_slice(&self.data[43..=53]),
+            FatType::Fat32 => result.copy_from_slice(&self.data[71..=81]),
         }
+        result
     }
 
     // FAT32 only functions
@@ -98,10 +99,9 @@ impl<'a> Bpb<'a> {
     /// On a FAT32 volume, return the free block count from the Info Block. On
     /// a FAT16 volume, returns None.
     pub fn fs_info_block(&self) -> Option<BlockCount> {
-        if self.fat_type != FatType::Fat32 {
-            None
-        } else {
-            Some(BlockCount(u32::from(self.fs_info())))
+        match self.fat_type {
+            FatType::Fat16 => None,
+            FatType::Fat32 => Some(BlockCount(u32::from(self.fs_info()))),
         }
     }
 

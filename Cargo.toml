@@ -8,12 +8,16 @@ license = "MIT OR Apache-2.0"
 name = "embedded-sdmmc"
 readme = "README.md"
 repository = "https://github.com/rust-embedded-community/embedded-sdmmc-rs"
-version = "0.8.2"
+version = "0.9.0"
+
+# Make sure to update the CI too!
+rust-version = "1.76"
 
 [dependencies]
 byteorder = {version = "1", default-features = false}
 defmt = {version = "0.3", optional = true}
 embedded-hal = "1.0.0"
+embedded-io = "0.6.1"
 heapless = "^0.8"
 log = {version = "0.4", default-features = false, optional = true}
 

@@ -2,21 +2,23 @@
 //!
 //! The volume manager handles partitions and open files on a block device.
 
-use byteorder::{ByteOrder, LittleEndian};
+use core::cell::RefCell;
 use core::convert::TryFrom;
+use core::ops::DerefMut;
 
-use crate::fat::{self, BlockCache, OnDiskDirEntry, RESERVED_ENTRIES};
-
-use crate::filesystem::{
-    Attributes, ClusterId, DirEntry, DirectoryInfo, FileInfo, Mode, RawDirectory, RawFile,
-    SearchIdGenerator, TimeSource, ToShortFileName, MAX_FILE_SIZE,
-};
-use crate::{
-    debug, Block, BlockCount, BlockDevice, BlockIdx, Error, RawVolume, ShortFileName, Volume,
-    VolumeIdx, VolumeInfo, VolumeType, PARTITION_ID_FAT16, PARTITION_ID_FAT16_LBA,
-    PARTITION_ID_FAT32_CHS_LBA, PARTITION_ID_FAT32_LBA,
-};
+use byteorder::{ByteOrder, LittleEndian};
 use heapless::Vec;
+
+use crate::{
+    debug, fat,
+    filesystem::{
+        Attributes, ClusterId, DirEntry, DirectoryInfo, FileInfo, HandleGenerator, LfnBuffer, Mode,
+        RawDirectory, RawFile, TimeSource, ToShortFileName, MAX_FILE_SIZE,
+    },
+    trace, Block, BlockCache, BlockCount, BlockDevice, BlockIdx, Error, RawVolume, ShortFileName,
+    Volume, VolumeIdx, VolumeInfo, VolumeType, PARTITION_ID_FAT16, PARTITION_ID_FAT16_LBA,
+    PARTITION_ID_FAT16_SMALL, PARTITION_ID_FAT32_CHS_LBA, PARTITION_ID_FAT32_LBA,
+};
 
 /// Wraps a block device and gives access to the FAT-formatted volumes within
 /// it.
@@ -35,12 +37,8 @@ pub struct VolumeManager<
     T: TimeSource,
     <D as BlockDevice>::Error: core::fmt::Debug,
 {
-    pub(crate) block_device: D,
-    pub(crate) time_source: T,
-    id_generator: SearchIdGenerator,
-    open_volumes: Vec<VolumeInfo, MAX_VOLUMES>,
-    open_dirs: Vec<DirectoryInfo, MAX_DIRS>,
-    open_files: Vec<FileInfo, MAX_FILES>,
+    time_source: T,
+    data: RefCell<VolumeManagerData<D, MAX_DIRS, MAX_FILES, MAX_VOLUMES>>,
 }
 
 impl<D, T> VolumeManager<D, T, 4, 4>
@@ -84,18 +82,25 @@ where
     ) -> VolumeManager<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES> {
         debug!("Creating new embedded-sdmmc::VolumeManager");
         VolumeManager {
-            block_device,
             time_source,
-            id_generator: SearchIdGenerator::new(id_offset),
-            open_volumes: Vec::new(),
-            open_dirs: Vec::new(),
-            open_files: Vec::new(),
+            data: RefCell::new(VolumeManagerData {
+                block_cache: BlockCache::new(block_device),
+                id_generator: HandleGenerator::new(id_offset),
+                open_volumes: Vec::new(),
+                open_dirs: Vec::new(),
+                open_files: Vec::new(),
+            }),
         }
     }
 
     /// Temporarily get access to the underlying block device.
-    pub fn device(&mut self) -> &mut D {
-        &mut self.block_device
+    pub fn device<F>(&self, f: F) -> T
+    where
+        F: FnOnce(&mut D) -> T,
+    {
+        let mut data = self.data.borrow_mut();
+        let result = f(data.block_cache.block_device());
+        result
     }
 
     /// Get a volume (or partition) based on entries in the Master Boot Record.
@@ -103,7 +108,7 @@ where
     /// We do not support GUID Partition Table disks. Nor do we support any
     /// concept of drive letters - that is for a higher layer to handle.
     pub fn open_volume(
-        &mut self,
+        &self,
         volume_idx: VolumeIdx,
     ) -> Result<Volume<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>, Error<D::Error>> {
         let v = self.open_raw_volume(volume_idx)?;
@@ -117,7 +122,7 @@ where
     ///
     /// This function gives you a `RawVolume` and you must close the volume by
     /// calling `VolumeManager::close_volume`.
-    pub fn open_raw_volume(&mut self, volume_idx: VolumeIdx) -> Result<RawVolume, Error<D::Error>> {
+    pub fn open_raw_volume(&self, volume_idx: VolumeIdx) -> Result<RawVolume, Error<D::Error>> {
         const PARTITION1_START: usize = 446;
         const PARTITION2_START: usize = PARTITION1_START + PARTITION_INFO_LENGTH;
         const PARTITION3_START: usize = PARTITION2_START + PARTITION_INFO_LENGTH;
@@ -130,22 +135,24 @@ where
         const PARTITION_INFO_LBA_START_INDEX: usize = 8;
         const PARTITION_INFO_NUM_BLOCKS_INDEX: usize = 12;
 
-        if self.open_volumes.is_full() {
+        let mut data = self.data.try_borrow_mut().map_err(|_| Error::LockError)?;
+
+        if data.open_volumes.is_full() {
             return Err(Error::TooManyOpenVolumes);
         }
 
-        for v in self.open_volumes.iter() {
+        for v in data.open_volumes.iter() {
             if v.idx == volume_idx {
                 return Err(Error::VolumeAlreadyOpen);
             }
         }
 
         let (part_type, lba_start, num_blocks) = {
-            let mut blocks = [Block::new()];
-            self.block_device
-                .read(&mut blocks, BlockIdx(0), "read_mbr")
+            trace!("Reading partition table");
+            let block = data
+                .block_cache
+                .read(BlockIdx(0))
                 .map_err(Error::DeviceError)?;
-            let block = &blocks[0];
             // We only support Master Boot Record (MBR) partitioned cards, not
             // GUID Partition Table (GPT)
             if LittleEndian::read_u16(&block[FOOTER_START..FOOTER_START + 2]) != FOOTER_VALUE {
@@ -188,16 +195,17 @@ where
             PARTITION_ID_FAT32_CHS_LBA
             | PARTITION_ID_FAT32_LBA
             | PARTITION_ID_FAT16_LBA
-            | PARTITION_ID_FAT16 => {
-                let volume = fat::parse_volume(&self.block_device, lba_start, num_blocks)?;
-                let id = RawVolume(self.id_generator.get());
+            | PARTITION_ID_FAT16
+            | PARTITION_ID_FAT16_SMALL => {
+                let volume = fat::parse_volume(&mut data.block_cache, lba_start, num_blocks)?;
+                let id = RawVolume(data.id_generator.generate());
                 let info = VolumeInfo {
-                    volume_id: id,
+                    raw_volume: id,
                     idx: volume_idx,
                     volume_type: volume,
                 };
                 // We already checked for space
-                self.open_volumes.push(info).unwrap();
+                data.open_volumes.push(info).unwrap();
                 Ok(id)
             }
             _ => Err(Error::FormatError("Partition type not supported")),
@@ -208,19 +216,24 @@ where
     ///
     /// You can then read the directory entries with `iterate_dir`, or you can
     /// use `open_file_in_dir`.
-    pub fn open_root_dir(&mut self, volume: RawVolume) -> Result<RawDirectory, Error<D::Error>> {
-        // Opening a root directory twice is OK
+    pub fn open_root_dir(&self, volume: RawVolume) -> Result<RawDirectory, Error<D::Error>> {
+        debug!("Opening root on {:?}", volume);
 
-        let directory_id = RawDirectory(self.id_generator.get());
+        // Opening a root directory twice is OK
+        let mut data = self.data.try_borrow_mut().map_err(|_| Error::LockError)?;
+
+        let directory_id = RawDirectory(data.id_generator.generate());
         let dir_info = DirectoryInfo {
-            volume_id: volume,
+            raw_volume: volume,
             cluster: ClusterId::ROOT_DIR,
-            directory_id,
+            raw_directory: directory_id,
         };
 
-        self.open_dirs
+        data.open_dirs
             .push(dir_info)
             .map_err(|_| Error::TooManyOpenDirs)?;
+
+        debug!("Opened root on {:?}, got {:?}", volume, directory_id);
 
         Ok(directory_id)
     }
@@ -231,44 +244,51 @@ where
     ///
     /// Passing "." as the name results in opening the `parent_dir` a second time.
     pub fn open_dir<N>(
-        &mut self,
+        &self,
         parent_dir: RawDirectory,
         name: N,
     ) -> Result<RawDirectory, Error<D::Error>>
     where
         N: ToShortFileName,
     {
-        if self.open_dirs.is_full() {
+        let mut data = self.data.try_borrow_mut().map_err(|_| Error::LockError)?;
+        let data = data.deref_mut();
+
+        if data.open_dirs.is_full() {
             return Err(Error::TooManyOpenDirs);
         }
 
         // Find dir by ID
-        let parent_dir_idx = self.get_dir_by_id(parent_dir)?;
-        let volume_idx = self.get_volume_by_id(self.open_dirs[parent_dir_idx].volume_id)?;
+        let parent_dir_idx = data.get_dir_by_id(parent_dir)?;
+        let volume_idx = data.get_volume_by_id(data.open_dirs[parent_dir_idx].raw_volume)?;
         let short_file_name = name.to_short_filename().map_err(Error::FilenameError)?;
-        let parent_dir_info = &self.open_dirs[parent_dir_idx];
 
         // Open the directory
+
+        // Should we short-cut? (root dir doesn't have ".")
         if short_file_name == ShortFileName::this_dir() {
-            // short-cut (root dir doesn't have ".")
-            let directory_id = RawDirectory(self.id_generator.get());
+            let directory_id = RawDirectory(data.id_generator.generate());
             let dir_info = DirectoryInfo {
-                directory_id,
-                volume_id: self.open_volumes[volume_idx].volume_id,
-                cluster: parent_dir_info.cluster,
+                raw_directory: directory_id,
+                raw_volume: data.open_volumes[volume_idx].raw_volume,
+                cluster: data.open_dirs[parent_dir_idx].cluster,
             };
 
-            self.open_dirs
+            data.open_dirs
                 .push(dir_info)
                 .map_err(|_| Error::TooManyOpenDirs)?;
 
             return Ok(directory_id);
         }
 
-        let dir_entry = match &self.open_volumes[volume_idx].volume_type {
-            VolumeType::Fat(fat) => {
-                fat.find_directory_entry(&self.block_device, parent_dir_info, &short_file_name)?
-            }
+        // ok we'll actually look for the directory then
+
+        let dir_entry = match &data.open_volumes[volume_idx].volume_type {
+            VolumeType::Fat(fat) => fat.find_directory_entry(
+                &mut data.block_cache,
+                &data.open_dirs[parent_dir_idx],
+                &short_file_name,
+            )?,
         };
 
         debug!("Found dir entry: {:?}", dir_entry);
@@ -281,14 +301,14 @@ where
         // no cached state and so opening a directory twice is allowable.
 
         // Remember this open directory.
-        let directory_id = RawDirectory(self.id_generator.get());
+        let directory_id = RawDirectory(data.id_generator.generate());
         let dir_info = DirectoryInfo {
-            directory_id,
-            volume_id: self.open_volumes[volume_idx].volume_id,
+            raw_directory: directory_id,
+            raw_volume: data.open_volumes[volume_idx].raw_volume,
             cluster: dir_entry.cluster,
         };
 
-        self.open_dirs
+        data.open_dirs
             .push(dir_info)
             .map_err(|_| Error::TooManyOpenDirs)?;
 
@@ -297,10 +317,13 @@ where
 
     /// Close a directory. You cannot perform operations on an open directory
     /// and so must close it if you want to do something with it.
-    pub fn close_dir(&mut self, directory: RawDirectory) -> Result<(), Error<D::Error>> {
-        for (idx, info) in self.open_dirs.iter().enumerate() {
-            if directory == info.directory_id {
-                self.open_dirs.swap_remove(idx);
+    pub fn close_dir(&self, directory: RawDirectory) -> Result<(), Error<D::Error>> {
+        debug!("Closing {:?}", directory);
+        let mut data = self.data.try_borrow_mut().map_err(|_| Error::LockError)?;
+
+        for (idx, info) in data.open_dirs.iter().enumerate() {
+            if directory == info.raw_directory {
+                data.open_dirs.swap_remove(idx);
                 return Ok(());
             }
         }
@@ -310,166 +333,147 @@ where
     /// Close a volume
     ///
     /// You can't close it if there are any files or directories open on it.
-    pub fn close_volume(&mut self, volume: RawVolume) -> Result<(), Error<D::Error>> {
-        for f in self.open_files.iter() {
-            if f.volume_id == volume {
+    pub fn close_volume(&self, volume: RawVolume) -> Result<(), Error<D::Error>> {
+        let mut data = self.data.try_borrow_mut().map_err(|_| Error::LockError)?;
+        let data = data.deref_mut();
+
+        for f in data.open_files.iter() {
+            if f.raw_volume == volume {
                 return Err(Error::VolumeStillInUse);
             }
         }
 
-        for d in self.open_dirs.iter() {
-            if d.volume_id == volume {
+        for d in data.open_dirs.iter() {
+            if d.raw_volume == volume {
                 return Err(Error::VolumeStillInUse);
             }
         }
 
-        let volume_idx = self.get_volume_by_id(volume)?;
+        let volume_idx = data.get_volume_by_id(volume)?;
 
-        match &mut self.open_volumes[volume_idx].volume_type {
-            VolumeType::Fat(fat_volume) => {
-                fat_volume.update_info_sector(&self.block_device)?;
+        match &mut data.open_volumes[volume_idx].volume_type {
+            VolumeType::Fat(fat) => {
+                fat.update_info_sector(&mut data.block_cache)?;
             }
         }
 
-        self.open_volumes.swap_remove(volume_idx);
+        data.open_volumes.swap_remove(volume_idx);
 
         Ok(())
     }
 
     /// Look in a directory for a named file.
     pub fn find_directory_entry<N>(
-        &mut self,
+        &self,
         directory: RawDirectory,
         name: N,
     ) -> Result<DirEntry, Error<D::Error>>
     where
         N: ToShortFileName,
     {
-        let directory_idx = self.get_dir_by_id(directory)?;
-        let volume_idx = self.get_volume_by_id(self.open_dirs[directory_idx].volume_id)?;
-        match &self.open_volumes[volume_idx].volume_type {
+        let mut data = self.data.try_borrow_mut().map_err(|_| Error::LockError)?;
+        let data = data.deref_mut();
+
+        let directory_idx = data.get_dir_by_id(directory)?;
+        let volume_idx = data.get_volume_by_id(data.open_dirs[directory_idx].raw_volume)?;
+        match &data.open_volumes[volume_idx].volume_type {
             VolumeType::Fat(fat) => {
                 let sfn = name.to_short_filename().map_err(Error::FilenameError)?;
-                fat.find_directory_entry(&self.block_device, &self.open_dirs[directory_idx], &sfn)
+                fat.find_directory_entry(
+                    &mut data.block_cache,
+                    &data.open_dirs[directory_idx],
+                    &sfn,
+                )
             }
         }
     }
 
     /// Call a callback function for each directory entry in a directory.
+    ///
+    /// Long File Names will be ignored.
+    ///
+    /// <div class="warning">
+    ///
+    /// Do not attempt to call any methods on the VolumeManager or any of its
+    /// handles from inside the callback. You will get a lock error because the
+    /// object is already locked in order to do the iteration.
+    ///
+    /// </div>
     pub fn iterate_dir<F>(
-        &mut self,
+        &self,
         directory: RawDirectory,
-        func: F,
+        mut func: F,
     ) -> Result<(), Error<D::Error>>
     where
         F: FnMut(&DirEntry),
     {
-        let directory_idx = self.get_dir_by_id(directory)?;
-        let volume_idx = self.get_volume_by_id(self.open_dirs[directory_idx].volume_id)?;
-        match &self.open_volumes[volume_idx].volume_type {
+        let mut data = self.data.try_borrow_mut().map_err(|_| Error::LockError)?;
+        let data = data.deref_mut();
+
+        let directory_idx = data.get_dir_by_id(directory)?;
+        let volume_idx = data.get_volume_by_id(data.open_dirs[directory_idx].raw_volume)?;
+        match &data.open_volumes[volume_idx].volume_type {
             VolumeType::Fat(fat) => {
-                fat.iterate_dir(&self.block_device, &self.open_dirs[directory_idx], func)
+                fat.iterate_dir(
+                    &mut data.block_cache,
+                    &data.open_dirs[directory_idx],
+                    |de| {
+                        // Hide all the LFN directory entries
+                        if !de.attributes.is_lfn() {
+                            func(de);
+                        }
+                    },
+                )
             }
         }
     }
 
-    /// Open a file from a DirEntry. This is obtained by calling iterate_dir.
+    /// Call a callback function for each directory entry in a directory, and
+    /// process Long File Names.
     ///
-    /// # Safety
+    /// You must supply a [`LfnBuffer`] this API can use to temporarily hold the
+    /// Long File Name. If you pass one that isn't large enough, any Long File
+    /// Names that don't fit will be ignored and presented as if they only had a
+    /// Short File Name.
     ///
-    /// The DirEntry must be a valid DirEntry read from disk, and not just
-    /// random numbers.
-    unsafe fn open_dir_entry(
-        &mut self,
-        volume: RawVolume,
-        dir_entry: DirEntry,
-        mode: Mode,
-    ) -> Result<RawFile, Error<D::Error>> {
-        // This check is load-bearing - we do an unchecked push later.
-        if self.open_files.is_full() {
-            return Err(Error::TooManyOpenFiles);
-        }
+    /// <div class="warning">
+    ///
+    /// Do not attempt to call any methods on the VolumeManager or any of its
+    /// handles from inside the callback. You will get a lock error because the
+    /// object is already locked in order to do the iteration.
+    ///
+    /// </div>
+    pub fn iterate_dir_lfn<F>(
+        &self,
+        directory: RawDirectory,
+        lfn_buffer: &mut LfnBuffer<'_>,
+        func: F,
+    ) -> Result<(), Error<D::Error>>
+    where
+        F: FnMut(&DirEntry, Option<&str>),
+    {
+        let mut data = self.data.try_borrow_mut().map_err(|_| Error::LockError)?;
+        let data = data.deref_mut();
 
-        if dir_entry.attributes.is_read_only() && mode != Mode::ReadOnly {
-            return Err(Error::ReadOnly);
-        }
+        let directory_idx = data.get_dir_by_id(directory)?;
+        let volume_idx = data.get_volume_by_id(data.open_dirs[directory_idx].raw_volume)?;
 
-        if dir_entry.attributes.is_directory() {
-            return Err(Error::OpenedDirAsFile);
-        }
-
-        // Check it's not already open
-        if self.file_is_open(volume, &dir_entry) {
-            return Err(Error::FileAlreadyOpen);
-        }
-
-        let mode = solve_mode_variant(mode, true);
-        let file_id = RawFile(self.id_generator.get());
-
-        let file = match mode {
-            Mode::ReadOnly => FileInfo {
-                file_id,
-                volume_id: volume,
-                current_cluster: (0, dir_entry.cluster),
-                current_offset: 0,
-                mode,
-                entry: dir_entry,
-                dirty: false,
-            },
-            Mode::ReadWriteAppend => {
-                let mut file = FileInfo {
-                    file_id,
-                    volume_id: volume,
-                    current_cluster: (0, dir_entry.cluster),
-                    current_offset: 0,
-                    mode,
-                    entry: dir_entry,
-                    dirty: false,
-                };
-                // seek_from_end with 0 can't fail
-                file.seek_from_end(0).ok();
-                file
+        match &data.open_volumes[volume_idx].volume_type {
+            VolumeType::Fat(fat) => {
+                // This API doesn't care about the on-disk directory entry, so we discard it
+                fat.iterate_dir_lfn(
+                    &mut data.block_cache,
+                    lfn_buffer,
+                    &data.open_dirs[directory_idx],
+                    func,
+                )
             }
-            Mode::ReadWriteTruncate => {
-                let mut file = FileInfo {
-                    file_id,
-                    volume_id: volume,
-                    current_cluster: (0, dir_entry.cluster),
-                    current_offset: 0,
-                    mode,
-                    entry: dir_entry,
-                    dirty: false,
-                };
-                let volume_idx = self.get_volume_by_id(volume)?;
-                match &mut self.open_volumes[volume_idx].volume_type {
-                    VolumeType::Fat(fat) => {
-                        fat.truncate_cluster_chain(&self.block_device, file.entry.cluster)?
-                    }
-                };
-                file.update_length(0);
-                match &self.open_volumes[volume_idx].volume_type {
-                    VolumeType::Fat(fat) => {
-                        file.entry.mtime = self.time_source.get_timestamp();
-                        fat.write_entry_to_disk(&self.block_device, &file.entry)?;
-                    }
-                };
-
-                file
-            }
-            _ => return Err(Error::Unsupported),
-        };
-
-        // Remember this open file - can't be full as we checked already
-        unsafe {
-            self.open_files.push_unchecked(file);
         }
-
-        Ok(file_id)
     }
 
     /// Open a file with the given full path. A file can only be opened once.
     pub fn open_file_in_dir<N>(
-        &mut self,
+        &self,
         directory: RawDirectory,
         name: N,
         mode: Mode,
@@ -477,22 +481,26 @@ where
     where
         N: ToShortFileName,
     {
+        let mut data = self.data.try_borrow_mut().map_err(|_| Error::LockError)?;
+        let data = data.deref_mut();
+
         // This check is load-bearing - we do an unchecked push later.
-        if self.open_files.is_full() {
+        if data.open_files.is_full() {
             return Err(Error::TooManyOpenFiles);
         }
 
-        let directory_idx = self.get_dir_by_id(directory)?;
-        let directory_info = &self.open_dirs[directory_idx];
-        let volume_id = self.open_dirs[directory_idx].volume_id;
-        let volume_idx = self.get_volume_by_id(volume_id)?;
-        let volume_info = &self.open_volumes[volume_idx];
+        let directory_idx = data.get_dir_by_id(directory)?;
+        let volume_id = data.open_dirs[directory_idx].raw_volume;
+        let volume_idx = data.get_volume_by_id(volume_id)?;
+        let volume_info = &data.open_volumes[volume_idx];
         let sfn = name.to_short_filename().map_err(Error::FilenameError)?;
 
         let dir_entry = match &volume_info.volume_type {
-            VolumeType::Fat(fat) => {
-                fat.find_directory_entry(&self.block_device, directory_info, &sfn)
-            }
+            VolumeType::Fat(fat) => fat.find_directory_entry(
+                &mut data.block_cache,
+                &data.open_dirs[directory_idx],
+                &sfn,
+            ),
         };
 
         let dir_entry = match dir_entry {
@@ -517,7 +525,7 @@ where
 
         // Check if it's open already
         if let Some(dir_entry) = &dir_entry {
-            if self.file_is_open(volume_info.volume_id, dir_entry) {
+            if data.file_is_open(volume_info.raw_volume, dir_entry) {
                 return Err(Error::FileAlreadyOpen);
             }
         }
@@ -529,23 +537,24 @@ where
                 if dir_entry.is_some() {
                     return Err(Error::FileAlreadyExists);
                 }
+                let cluster = data.open_dirs[directory_idx].cluster;
                 let att = Attributes::create_from_fat(0);
-                let volume_idx = self.get_volume_by_id(volume_id)?;
-                let entry = match &mut self.open_volumes[volume_idx].volume_type {
+                let volume_idx = data.get_volume_by_id(volume_id)?;
+                let entry = match &mut data.open_volumes[volume_idx].volume_type {
                     VolumeType::Fat(fat) => fat.write_new_directory_entry(
-                        &self.block_device,
+                        &mut data.block_cache,
                         &self.time_source,
-                        directory_info.cluster,
+                        cluster,
                         sfn,
                         att,
                     )?,
                 };
 
-                let file_id = RawFile(self.id_generator.get());
+                let file_id = RawFile(data.id_generator.generate());
 
                 let file = FileInfo {
-                    file_id,
-                    volume_id,
+                    raw_file: file_id,
+                    raw_volume: volume_id,
                     current_cluster: (0, entry.cluster),
                     current_offset: 0,
                     mode,
@@ -555,7 +564,7 @@ where
 
                 // Remember this open file - can't be full as we checked already
                 unsafe {
-                    self.open_files.push_unchecked(file);
+                    data.open_files.push_unchecked(file);
                 }
 
                 Ok(file_id)
@@ -563,95 +572,205 @@ where
             _ => {
                 // Safe to unwrap, since we actually have an entry if we got here
                 let dir_entry = dir_entry.unwrap();
-                // Safety: We read this dir entry off disk and didn't change it
-                unsafe { self.open_dir_entry(volume_id, dir_entry, mode) }
+
+                if dir_entry.attributes.is_read_only() && mode != Mode::ReadOnly {
+                    return Err(Error::ReadOnly);
+                }
+
+                if dir_entry.attributes.is_directory() {
+                    return Err(Error::OpenedDirAsFile);
+                }
+
+                // Check it's not already open
+                if data.file_is_open(volume_id, &dir_entry) {
+                    return Err(Error::FileAlreadyOpen);
+                }
+
+                let mode = solve_mode_variant(mode, true);
+                let raw_file = RawFile(data.id_generator.generate());
+
+                let file = match mode {
+                    Mode::ReadOnly => FileInfo {
+                        raw_file,
+                        raw_volume: volume_id,
+                        current_cluster: (0, dir_entry.cluster),
+                        current_offset: 0,
+                        mode,
+                        entry: dir_entry,
+                        dirty: false,
+                    },
+                    Mode::ReadWriteAppend => {
+                        let mut file = FileInfo {
+                            raw_file,
+                            raw_volume: volume_id,
+                            current_cluster: (0, dir_entry.cluster),
+                            current_offset: 0,
+                            mode,
+                            entry: dir_entry,
+                            dirty: false,
+                        };
+                        // seek_from_end with 0 can't fail
+                        file.seek_from_end(0).ok();
+                        file
+                    }
+                    Mode::ReadWriteTruncate => {
+                        let mut file = FileInfo {
+                            raw_file,
+                            raw_volume: volume_id,
+                            current_cluster: (0, dir_entry.cluster),
+                            current_offset: 0,
+                            mode,
+                            entry: dir_entry,
+                            dirty: false,
+                        };
+                        match &mut data.open_volumes[volume_idx].volume_type {
+                            VolumeType::Fat(fat) => fat.truncate_cluster_chain(
+                                &mut data.block_cache,
+                                file.entry.cluster,
+                            )?,
+                        };
+                        file.update_length(0);
+                        match &data.open_volumes[volume_idx].volume_type {
+                            VolumeType::Fat(fat) => {
+                                file.entry.mtime = self.time_source.get_timestamp();
+                                fat.write_entry_to_disk(&mut data.block_cache, &file.entry)?;
+                            }
+                        };
+
+                        file
+                    }
+                    _ => return Err(Error::Unsupported),
+                };
+
+                // Remember this open file - can't be full as we checked already
+                unsafe {
+                    data.open_files.push_unchecked(file);
+                }
+
+                Ok(raw_file)
             }
         }
     }
 
     /// Delete a closed file with the given filename, if it exists.
     pub fn delete_file_in_dir<N>(
-        &mut self,
+        &self,
         directory: RawDirectory,
         name: N,
     ) -> Result<(), Error<D::Error>>
     where
         N: ToShortFileName,
     {
-        let dir_idx = self.get_dir_by_id(directory)?;
-        let dir_info = &self.open_dirs[dir_idx];
-        let volume_idx = self.get_volume_by_id(dir_info.volume_id)?;
+        let mut data = self.data.try_borrow_mut().map_err(|_| Error::LockError)?;
+        let data = data.deref_mut();
+
+        let dir_idx = data.get_dir_by_id(directory)?;
+        let dir_info = &data.open_dirs[dir_idx];
+        let volume_idx = data.get_volume_by_id(dir_info.raw_volume)?;
         let sfn = name.to_short_filename().map_err(Error::FilenameError)?;
 
-        let dir_entry = match &self.open_volumes[volume_idx].volume_type {
-            VolumeType::Fat(fat) => fat.find_directory_entry(&self.block_device, dir_info, &sfn),
+        let dir_entry = match &data.open_volumes[volume_idx].volume_type {
+            VolumeType::Fat(fat) => fat.find_directory_entry(&mut data.block_cache, dir_info, &sfn),
         }?;
 
         if dir_entry.attributes.is_directory() {
             return Err(Error::DeleteDirAsFile);
         }
 
-        if self.file_is_open(dir_info.volume_id, &dir_entry) {
+        if data.file_is_open(dir_info.raw_volume, &dir_entry) {
             return Err(Error::FileAlreadyOpen);
         }
 
-        let volume_idx = self.get_volume_by_id(dir_info.volume_id)?;
-        match &self.open_volumes[volume_idx].volume_type {
+        let volume_idx = data.get_volume_by_id(dir_info.raw_volume)?;
+        match &data.open_volumes[volume_idx].volume_type {
             VolumeType::Fat(fat) => {
-                fat.delete_directory_entry(&self.block_device, dir_info, &sfn)?
+                fat.delete_directory_entry(&mut data.block_cache, dir_info, &sfn)?
             }
         }
 
         Ok(())
     }
 
-    /// Check if a file is open
+    /// Get the volume label
     ///
-    /// Returns `true` if it's open, `false`, otherwise.
-    fn file_is_open(&self, volume: RawVolume, dir_entry: &DirEntry) -> bool {
-        for f in self.open_files.iter() {
-            if f.volume_id == volume
-                && f.entry.entry_block == dir_entry.entry_block
-                && f.entry.entry_offset == dir_entry.entry_offset
-            {
-                return true;
+    /// Will look in the BPB for a volume label, and if nothing is found, will
+    /// search the root directory for a volume label.
+    pub fn get_root_volume_label(
+        &self,
+        raw_volume: RawVolume,
+    ) -> Result<Option<crate::VolumeName>, Error<D::Error>> {
+        debug!("Reading volume label for {:?}", raw_volume);
+        // prefer the one in the BPB - it's easier to get
+        let data = self.data.try_borrow().map_err(|_| Error::LockError)?;
+        let volume_idx = data.get_volume_by_id(raw_volume)?;
+        match &data.open_volumes[volume_idx].volume_type {
+            VolumeType::Fat(fat) => {
+                if !fat.name.name().is_empty() {
+                    debug!(
+                        "Got volume label {:?} for {:?} from BPB",
+                        fat.name, raw_volume
+                    );
+                    return Ok(Some(fat.name.clone()));
+                }
             }
         }
-        false
+        drop(data);
+
+        // Nothing in the BPB, let's do it the slow way
+        let root_dir = self.open_root_dir(raw_volume)?.to_directory(self);
+        let mut maybe_volume_name = None;
+        root_dir.iterate_dir(|de| {
+            if maybe_volume_name.is_none()
+                && de.attributes == Attributes::create_from_fat(Attributes::VOLUME)
+            {
+                maybe_volume_name = Some(unsafe { de.name.clone().to_volume_label() })
+            }
+        })?;
+
+        debug!(
+            "Got volume label {:?} for {:?} from root",
+            maybe_volume_name, raw_volume
+        );
+
+        Ok(maybe_volume_name)
     }
 
     /// Read from an open file.
-    pub fn read(&mut self, file: RawFile, buffer: &mut [u8]) -> Result<usize, Error<D::Error>> {
-        let file_idx = self.get_file_by_id(file)?;
-        let volume_idx = self.get_volume_by_id(self.open_files[file_idx].volume_id)?;
+    pub fn read(&self, file: RawFile, buffer: &mut [u8]) -> Result<usize, Error<D::Error>> {
+        let mut data = self.data.try_borrow_mut().map_err(|_| Error::LockError)?;
+        let data = data.deref_mut();
+
+        let file_idx = data.get_file_by_id(file)?;
+        let volume_idx = data.get_volume_by_id(data.open_files[file_idx].raw_volume)?;
+
         // Calculate which file block the current offset lies within
         // While there is more to read, read the block and copy in to the buffer.
         // If we need to find the next cluster, walk the FAT.
         let mut space = buffer.len();
         let mut read = 0;
-        while space > 0 && !self.open_files[file_idx].eof() {
-            let mut current_cluster = self.open_files[file_idx].current_cluster;
-            let (block_idx, block_offset, block_avail) = self.find_data_on_disk(
+        while space > 0 && !data.open_files[file_idx].eof() {
+            let mut current_cluster = data.open_files[file_idx].current_cluster;
+            let (block_idx, block_offset, block_avail) = data.find_data_on_disk(
                 volume_idx,
                 &mut current_cluster,
-                self.open_files[file_idx].entry.cluster,
-                self.open_files[file_idx].current_offset,
+                data.open_files[file_idx].entry.cluster,
+                data.open_files[file_idx].current_offset,
             )?;
-            self.open_files[file_idx].current_cluster = current_cluster;
-            let mut blocks = [Block::new()];
-            self.block_device
-                .read(&mut blocks, block_idx, "read")
+            data.open_files[file_idx].current_cluster = current_cluster;
+            trace!("Reading file ID {:?}", file);
+            let block = data
+                .block_cache
+                .read(block_idx)
                 .map_err(Error::DeviceError)?;
-            let block = &blocks[0];
             let to_copy = block_avail
                 .min(space)
-                .min(self.open_files[file_idx].left() as usize);
+                .min(data.open_files[file_idx].left() as usize);
             assert!(to_copy != 0);
             buffer[read..read + to_copy]
                 .copy_from_slice(&block[block_offset..block_offset + to_copy]);
             read += to_copy;
             space -= to_copy;
-            self.open_files[file_idx]
+            data.open_files[file_idx]
                 .seek_from_current(to_copy as i32)
                 .unwrap();
         }
@@ -659,63 +778,66 @@ where
     }
 
     /// Write to a open file.
-    pub fn write(&mut self, file: RawFile, buffer: &[u8]) -> Result<(), Error<D::Error>> {
+    pub fn write(&self, file: RawFile, buffer: &[u8]) -> Result<(), Error<D::Error>> {
         #[cfg(feature = "defmt-log")]
         debug!("write(file={:?}, buffer={:x}", file, buffer);
 
         #[cfg(feature = "log")]
         debug!("write(file={:?}, buffer={:x?}", file, buffer);
 
+        let mut data = self.data.try_borrow_mut().map_err(|_| Error::LockError)?;
+        let data = data.deref_mut();
+
         // Clone this so we can touch our other structures. Need to ensure we
         // write it back at the end.
-        let file_idx = self.get_file_by_id(file)?;
-        let volume_idx = self.get_volume_by_id(self.open_files[file_idx].volume_id)?;
+        let file_idx = data.get_file_by_id(file)?;
+        let volume_idx = data.get_volume_by_id(data.open_files[file_idx].raw_volume)?;
 
-        if self.open_files[file_idx].mode == Mode::ReadOnly {
+        if data.open_files[file_idx].mode == Mode::ReadOnly {
             return Err(Error::ReadOnly);
         }
 
-        self.open_files[file_idx].dirty = true;
+        data.open_files[file_idx].dirty = true;
 
-        if self.open_files[file_idx].entry.cluster.0 < RESERVED_ENTRIES {
+        if data.open_files[file_idx].entry.cluster.0 < fat::RESERVED_ENTRIES {
             // file doesn't have a valid allocated cluster (possible zero-length file), allocate one
-            self.open_files[file_idx].entry.cluster =
-                match self.open_volumes[volume_idx].volume_type {
+            data.open_files[file_idx].entry.cluster =
+                match data.open_volumes[volume_idx].volume_type {
                     VolumeType::Fat(ref mut fat) => {
-                        fat.alloc_cluster(&self.block_device, None, false)?
+                        fat.alloc_cluster(&mut data.block_cache, None, false)?
                     }
                 };
             debug!(
                 "Alloc first cluster {:?}",
-                self.open_files[file_idx].entry.cluster
+                data.open_files[file_idx].entry.cluster
             );
         }
 
         // Clone this so we can touch our other structures.
-        let volume_idx = self.get_volume_by_id(self.open_files[file_idx].volume_id)?;
+        let volume_idx = data.get_volume_by_id(data.open_files[file_idx].raw_volume)?;
 
-        if (self.open_files[file_idx].current_cluster.1) < self.open_files[file_idx].entry.cluster {
+        if (data.open_files[file_idx].current_cluster.1) < data.open_files[file_idx].entry.cluster {
             debug!("Rewinding to start");
-            self.open_files[file_idx].current_cluster =
-                (0, self.open_files[file_idx].entry.cluster);
+            data.open_files[file_idx].current_cluster =
+                (0, data.open_files[file_idx].entry.cluster);
         }
         let bytes_until_max =
-            usize::try_from(MAX_FILE_SIZE - self.open_files[file_idx].current_offset)
+            usize::try_from(MAX_FILE_SIZE - data.open_files[file_idx].current_offset)
                 .map_err(|_| Error::ConversionError)?;
         let bytes_to_write = core::cmp::min(buffer.len(), bytes_until_max);
         let mut written = 0;
 
         while written < bytes_to_write {
-            let mut current_cluster = self.open_files[file_idx].current_cluster;
+            let mut current_cluster = data.open_files[file_idx].current_cluster;
             debug!(
                 "Have written bytes {}/{}, finding cluster {:?}",
                 written, bytes_to_write, current_cluster
             );
-            let current_offset = self.open_files[file_idx].current_offset;
-            let (block_idx, block_offset, block_avail) = match self.find_data_on_disk(
+            let current_offset = data.open_files[file_idx].current_offset;
+            let (block_idx, block_offset, block_avail) = match data.find_data_on_disk(
                 volume_idx,
                 &mut current_cluster,
-                self.open_files[file_idx].entry.cluster,
+                data.open_files[file_idx].entry.cluster,
                 current_offset,
             ) {
                 Ok(vars) => {
@@ -727,21 +849,25 @@ where
                 }
                 Err(Error::EndOfFile) => {
                     debug!("Extending file");
-                    match self.open_volumes[volume_idx].volume_type {
+                    match data.open_volumes[volume_idx].volume_type {
                         VolumeType::Fat(ref mut fat) => {
                             if fat
-                                .alloc_cluster(&self.block_device, Some(current_cluster.1), false)
+                                .alloc_cluster(
+                                    &mut data.block_cache,
+                                    Some(current_cluster.1),
+                                    false,
+                                )
                                 .is_err()
                             {
                                 return Err(Error::DiskFull);
                             }
                             debug!("Allocated new FAT cluster, finding offsets...");
-                            let new_offset = self
+                            let new_offset = data
                                 .find_data_on_disk(
                                     volume_idx,
                                     &mut current_cluster,
-                                    self.open_files[file_idx].entry.cluster,
-                                    self.open_files[file_idx].current_offset,
+                                    data.open_files[file_idx].entry.cluster,
+                                    data.open_files[file_idx].current_offset,
                                 )
                                 .map_err(|_| Error::AllocationError)?;
                             debug!("New offset {:?}", new_offset);
@@ -751,68 +877,71 @@ where
                 }
                 Err(e) => return Err(e),
             };
-            let mut blocks = [Block::new()];
             let to_copy = core::cmp::min(block_avail, bytes_to_write - written);
-            if block_offset != 0 || to_copy != block_avail {
-                debug!("Partial block read/modify/write");
-                self.block_device
-                    .read(&mut blocks, block_idx, "read")
-                    .map_err(Error::DeviceError)?;
-            }
-            let block = &mut blocks[0];
+            let block = if (block_offset == 0) && (to_copy == block_avail) {
+                // we're replacing the whole Block, so the previous contents
+                // are irrelevant
+                data.block_cache.blank_mut(block_idx)
+            } else {
+                debug!("Reading for partial block write");
+                data.block_cache
+                    .read_mut(block_idx)
+                    .map_err(Error::DeviceError)?
+            };
             block[block_offset..block_offset + to_copy]
                 .copy_from_slice(&buffer[written..written + to_copy]);
             debug!("Writing block {:?}", block_idx);
-            self.block_device
-                .write(&blocks, block_idx)
-                .map_err(Error::DeviceError)?;
+            data.block_cache.write_back()?;
             written += to_copy;
-            self.open_files[file_idx].current_cluster = current_cluster;
+            data.open_files[file_idx].current_cluster = current_cluster;
 
             let to_copy = to_copy as u32;
-            let new_offset = self.open_files[file_idx].current_offset + to_copy;
-            if new_offset > self.open_files[file_idx].entry.size {
+            let new_offset = data.open_files[file_idx].current_offset + to_copy;
+            if new_offset > data.open_files[file_idx].entry.size {
                 // We made it longer
-                self.open_files[file_idx].update_length(new_offset);
+                data.open_files[file_idx].update_length(new_offset);
             }
-            self.open_files[file_idx]
+            data.open_files[file_idx]
                 .seek_from_start(new_offset)
                 .unwrap();
             // Entry update deferred to file close, for performance.
         }
-        self.open_files[file_idx].entry.attributes.set_archive(true);
-        self.open_files[file_idx].entry.mtime = self.time_source.get_timestamp();
+        data.open_files[file_idx].entry.attributes.set_archive(true);
+        data.open_files[file_idx].entry.mtime = self.time_source.get_timestamp();
         Ok(())
     }
 
     /// Close a file with the given raw file handle.
-    pub fn close_file(&mut self, file: RawFile) -> Result<(), Error<D::Error>> {
+    pub fn close_file(&self, file: RawFile) -> Result<(), Error<D::Error>> {
         let flush_result = self.flush_file(file);
-        let file_idx = self.get_file_by_id(file)?;
-        self.open_files.swap_remove(file_idx);
+        let mut data = self.data.try_borrow_mut().map_err(|_| Error::LockError)?;
+        let file_idx = data.get_file_by_id(file)?;
+        data.open_files.swap_remove(file_idx);
         flush_result
     }
 
     /// Flush (update the entry) for a file with the given raw file handle.
-    pub fn flush_file(&mut self, file: RawFile) -> Result<(), Error<D::Error>> {
-        let file_info = self
-            .open_files
-            .iter()
-            .find(|info| info.file_id == file)
-            .ok_or(Error::BadHandle)?;
+    pub fn flush_file(&self, file: RawFile) -> Result<(), Error<D::Error>> {
+        let mut data = self.data.try_borrow_mut().map_err(|_| Error::LockError)?;
+        let data = data.deref_mut();
 
-        if file_info.dirty {
-            let volume_idx = self.get_volume_by_id(file_info.volume_id)?;
-            match self.open_volumes[volume_idx].volume_type {
-                VolumeType::Fat(ref mut fat) => {
+        let file_id = data.get_file_by_id(file)?;
+
+        if data.open_files[file_id].dirty {
+            let volume_idx = data.get_volume_by_id(data.open_files[file_id].raw_volume)?;
+            match &mut data.open_volumes[volume_idx].volume_type {
+                VolumeType::Fat(fat) => {
                     debug!("Updating FAT info sector");
-                    fat.update_info_sector(&self.block_device)?;
-                    debug!("Updating dir entry {:?}", file_info.entry);
-                    if file_info.entry.size != 0 {
+                    fat.update_info_sector(&mut data.block_cache)?;
+                    debug!("Updating dir entry {:?}", data.open_files[file_id].entry);
+                    if data.open_files[file_id].entry.size != 0 {
                         // If you have a length, you must have a cluster
-                        assert!(file_info.entry.cluster.0 != 0);
+                        assert!(data.open_files[file_id].entry.cluster.0 != 0);
                     }
-                    fat.write_entry_to_disk(&self.block_device, &file_info.entry)?;
+                    fat.write_entry_to_disk(
+                        &mut data.block_cache,
+                        &data.open_files[file_id].entry,
+                    )?;
                 }
             };
         }
@@ -821,28 +950,28 @@ where
 
     /// Check if any files or folders are open.
     pub fn has_open_handles(&self) -> bool {
-        !(self.open_dirs.is_empty() || self.open_files.is_empty())
+        let data = self.data.borrow();
+        !(data.open_dirs.is_empty() || data.open_files.is_empty())
     }
 
     /// Consume self and return BlockDevice and TimeSource
     pub fn free(self) -> (D, T) {
-        (self.block_device, self.time_source)
+        let data = self.data.into_inner();
+        (data.block_cache.free(), self.time_source)
     }
 
     /// Check if a file is at End Of File.
     pub fn file_eof(&self, file: RawFile) -> Result<bool, Error<D::Error>> {
-        let file_idx = self.get_file_by_id(file)?;
-        Ok(self.open_files[file_idx].eof())
+        let data = self.data.try_borrow().map_err(|_| Error::LockError)?;
+        let file_idx = data.get_file_by_id(file)?;
+        Ok(data.open_files[file_idx].eof())
     }
 
     /// Seek a file with an offset from the start of the file.
-    pub fn file_seek_from_start(
-        &mut self,
-        file: RawFile,
-        offset: u32,
-    ) -> Result<(), Error<D::Error>> {
-        let file_idx = self.get_file_by_id(file)?;
-        self.open_files[file_idx]
+    pub fn file_seek_from_start(&self, file: RawFile, offset: u32) -> Result<(), Error<D::Error>> {
+        let mut data = self.data.try_borrow_mut().map_err(|_| Error::LockError)?;
+        let file_idx = data.get_file_by_id(file)?;
+        data.open_files[file_idx]
             .seek_from_start(offset)
             .map_err(|_| Error::InvalidOffset)?;
         Ok(())
@@ -850,25 +979,23 @@ where
 
     /// Seek a file with an offset from the current position.
     pub fn file_seek_from_current(
-        &mut self,
+        &self,
         file: RawFile,
         offset: i32,
     ) -> Result<(), Error<D::Error>> {
-        let file_idx = self.get_file_by_id(file)?;
-        self.open_files[file_idx]
+        let mut data = self.data.try_borrow_mut().map_err(|_| Error::LockError)?;
+        let file_idx = data.get_file_by_id(file)?;
+        data.open_files[file_idx]
             .seek_from_current(offset)
             .map_err(|_| Error::InvalidOffset)?;
         Ok(())
     }
 
     /// Seek a file with an offset back from the end of the file.
-    pub fn file_seek_from_end(
-        &mut self,
-        file: RawFile,
-        offset: u32,
-    ) -> Result<(), Error<D::Error>> {
-        let file_idx = self.get_file_by_id(file)?;
-        self.open_files[file_idx]
+    pub fn file_seek_from_end(&self, file: RawFile, offset: u32) -> Result<(), Error<D::Error>> {
+        let mut data = self.data.try_borrow_mut().map_err(|_| Error::LockError)?;
+        let file_idx = data.get_file_by_id(file)?;
+        data.open_files[file_idx]
             .seek_from_end(offset)
             .map_err(|_| Error::InvalidOffset)?;
         Ok(())
@@ -876,35 +1003,40 @@ where
 
     /// Get the length of a file
     pub fn file_length(&self, file: RawFile) -> Result<u32, Error<D::Error>> {
-        let file_idx = self.get_file_by_id(file)?;
-        Ok(self.open_files[file_idx].length())
+        let data = self.data.try_borrow().map_err(|_| Error::LockError)?;
+        let file_idx = data.get_file_by_id(file)?;
+        Ok(data.open_files[file_idx].length())
     }
 
     /// Get the current offset of a file
     pub fn file_offset(&self, file: RawFile) -> Result<u32, Error<D::Error>> {
-        let file_idx = self.get_file_by_id(file)?;
-        Ok(self.open_files[file_idx].current_offset)
+        let data = self.data.try_borrow().map_err(|_| Error::LockError)?;
+        let file_idx = data.get_file_by_id(file)?;
+        Ok(data.open_files[file_idx].current_offset)
     }
 
     /// Create a directory in a given directory.
     pub fn make_dir_in_dir<N>(
-        &mut self,
+        &self,
         directory: RawDirectory,
         name: N,
     ) -> Result<(), Error<D::Error>>
     where
         N: ToShortFileName,
     {
+        let mut data = self.data.try_borrow_mut().map_err(|_| Error::LockError)?;
+        let data = data.deref_mut();
+
         // This check is load-bearing - we do an unchecked push later.
-        if self.open_dirs.is_full() {
+        if data.open_dirs.is_full() {
             return Err(Error::TooManyOpenDirs);
         }
 
-        let parent_directory_idx = self.get_dir_by_id(directory)?;
-        let parent_directory_info = &self.open_dirs[parent_directory_idx];
-        let volume_id = self.open_dirs[parent_directory_idx].volume_id;
-        let volume_idx = self.get_volume_by_id(volume_id)?;
-        let volume_info = &self.open_volumes[volume_idx];
+        let parent_directory_idx = data.get_dir_by_id(directory)?;
+        let parent_directory_info = &data.open_dirs[parent_directory_idx];
+        let volume_id = data.open_dirs[parent_directory_idx].raw_volume;
+        let volume_idx = data.get_volume_by_id(volume_id)?;
+        let volume_info = &data.open_volumes[volume_idx];
         let sfn = name.to_short_filename().map_err(Error::FilenameError)?;
 
         debug!("Creating directory '{}'", sfn);
@@ -916,7 +1048,7 @@ where
         // Does an entry exist with this name?
         let maybe_dir_entry = match &volume_info.volume_type {
             VolumeType::Fat(fat) => {
-                fat.find_directory_entry(&self.block_device, parent_directory_info, &sfn)
+                fat.find_directory_entry(&mut data.block_cache, parent_directory_info, &sfn)
             }
         };
 
@@ -939,111 +1071,93 @@ where
         let att = Attributes::create_from_fat(Attributes::DIRECTORY);
 
         // Need mutable access for this
-        match &mut self.open_volumes[volume_idx].volume_type {
+        match &mut data.open_volumes[volume_idx].volume_type {
             VolumeType::Fat(fat) => {
                 debug!("Making dir entry");
-                let mut new_dir_entry_in_parent = fat.write_new_directory_entry(
-                    &self.block_device,
+                fat.make_dir(
+                    &mut data.block_cache,
                     &self.time_source,
                     parent_directory_info.cluster,
                     sfn,
                     att,
                 )?;
-                if new_dir_entry_in_parent.cluster == ClusterId::EMPTY {
-                    new_dir_entry_in_parent.cluster =
-                        fat.alloc_cluster(&self.block_device, None, false)?;
-                    // update the parent dir with the cluster of the new dir
-                    fat.write_entry_to_disk(&self.block_device, &new_dir_entry_in_parent)?;
-                }
-                let new_dir_start_block = fat.cluster_to_block(new_dir_entry_in_parent.cluster);
-                debug!("Made new dir entry {:?}", new_dir_entry_in_parent);
-                let now = self.time_source.get_timestamp();
-                let fat_type = fat.get_fat_type();
-                // A blank block
-                let mut blocks = [Block::new()];
-                // make the "." entry
-                let dot_entry_in_child = DirEntry {
-                    name: crate::ShortFileName::this_dir(),
-                    mtime: now,
-                    ctime: now,
-                    attributes: att,
-                    // point at ourselves
-                    cluster: new_dir_entry_in_parent.cluster,
-                    size: 0,
-                    entry_block: new_dir_start_block,
-                    entry_offset: 0,
-                };
-                debug!("New dir has {:?}", dot_entry_in_child);
-                let mut offset = 0;
-                blocks[0][offset..offset + OnDiskDirEntry::LEN]
-                    .copy_from_slice(&dot_entry_in_child.serialize(fat_type)[..]);
-                offset += OnDiskDirEntry::LEN;
-                // make the ".." entry
-                let dot_dot_entry_in_child = DirEntry {
-                    name: crate::ShortFileName::parent_dir(),
-                    mtime: now,
-                    ctime: now,
-                    attributes: att,
-                    // point at our parent
-                    cluster: {
-                        // On FAT16, indicate parent is root using Cluster(0)
-                        if parent_directory_info.cluster == ClusterId::ROOT_DIR {
-                            ClusterId::EMPTY
-                        } else {
-                            parent_directory_info.cluster
-                        }
-                    },
-                    size: 0,
-                    entry_block: new_dir_start_block,
-                    entry_offset: OnDiskDirEntry::LEN_U32,
-                };
-                debug!("New dir has {:?}", dot_dot_entry_in_child);
-                blocks[0][offset..offset + OnDiskDirEntry::LEN]
-                    .copy_from_slice(&dot_dot_entry_in_child.serialize(fat_type)[..]);
-
-                self.block_device
-                    .write(&blocks, new_dir_start_block)
-                    .map_err(Error::DeviceError)?;
-
-                // Now zero the rest of the cluster
-                for b in blocks[0].iter_mut() {
-                    *b = 0;
-                }
-                for block in new_dir_start_block
-                    .range(BlockCount(u32::from(fat.blocks_per_cluster)))
-                    .skip(1)
-                {
-                    self.block_device
-                        .write(&blocks, block)
-                        .map_err(Error::DeviceError)?;
-                }
             }
         };
 
         Ok(())
     }
+}
 
-    fn get_volume_by_id(&self, volume: RawVolume) -> Result<usize, Error<D::Error>> {
+/// The mutable data the VolumeManager needs to hold
+///
+/// Kept separate so its easier to wrap it in a RefCell
+#[derive(Debug)]
+
+struct VolumeManagerData<
+    D,
+    const MAX_DIRS: usize = 4,
+    const MAX_FILES: usize = 4,
+    const MAX_VOLUMES: usize = 1,
+> where
+    D: BlockDevice,
+{
+    id_generator: HandleGenerator,
+    block_cache: BlockCache<D>,
+    open_volumes: Vec<VolumeInfo, MAX_VOLUMES>,
+    open_dirs: Vec<DirectoryInfo, MAX_DIRS>,
+    open_files: Vec<FileInfo, MAX_FILES>,
+}
+
+impl<D, const MAX_DIRS: usize, const MAX_FILES: usize, const MAX_VOLUMES: usize>
+    VolumeManagerData<D, MAX_DIRS, MAX_FILES, MAX_VOLUMES>
+where
+    D: BlockDevice,
+{
+    /// Check if a file is open
+    ///
+    /// Returns `true` if it's open, `false`, otherwise.
+    fn file_is_open(&self, raw_volume: RawVolume, dir_entry: &DirEntry) -> bool {
+        for f in self.open_files.iter() {
+            if f.raw_volume == raw_volume
+                && f.entry.entry_block == dir_entry.entry_block
+                && f.entry.entry_offset == dir_entry.entry_offset
+            {
+                return true;
+            }
+        }
+        false
+    }
+
+    fn get_volume_by_id<E>(&self, raw_volume: RawVolume) -> Result<usize, Error<E>>
+    where
+        E: core::fmt::Debug,
+    {
         for (idx, v) in self.open_volumes.iter().enumerate() {
-            if v.volume_id == volume {
+            if v.raw_volume == raw_volume {
                 return Ok(idx);
             }
         }
         Err(Error::BadHandle)
     }
 
-    fn get_dir_by_id(&self, directory: RawDirectory) -> Result<usize, Error<D::Error>> {
+    fn get_dir_by_id<E>(&self, raw_directory: RawDirectory) -> Result<usize, Error<E>>
+    where
+        E: core::fmt::Debug,
+    {
         for (idx, d) in self.open_dirs.iter().enumerate() {
-            if d.directory_id == directory {
+            if d.raw_directory == raw_directory {
                 return Ok(idx);
             }
         }
         Err(Error::BadHandle)
     }
 
-    fn get_file_by_id(&self, file: RawFile) -> Result<usize, Error<D::Error>> {
+    fn get_file_by_id<E>(&self, raw_file: RawFile) -> Result<usize, Error<E>>
+    where
+        E: core::fmt::Debug,
+    {
         for (idx, f) in self.open_files.iter().enumerate() {
-            if f.file_id == file {
+            if f.raw_file == raw_file {
                 return Ok(idx);
             }
         }
@@ -1060,12 +1174,15 @@ where
     /// * the byte offset into that block for the data we want, and
     /// * how many bytes remain in that block.
     fn find_data_on_disk(
-        &self,
+        &mut self,
         volume_idx: usize,
         start: &mut (u32, ClusterId),
         file_start: ClusterId,
         desired_offset: u32,
-    ) -> Result<(BlockIdx, usize, usize), Error<D::Error>> {
+    ) -> Result<(BlockIdx, usize, usize), Error<D::Error>>
+    where
+        D: BlockDevice,
+    {
         let bytes_per_cluster = match &self.open_volumes[volume_idx].volume_type {
             VolumeType::Fat(fat) => fat.bytes_per_cluster(),
         };
@@ -1080,12 +1197,9 @@ where
         let offset_from_cluster = desired_offset - start.0;
         // walk through the FAT chain
         let num_clusters = offset_from_cluster / bytes_per_cluster;
-        let mut block_cache = BlockCache::empty();
         for _ in 0..num_clusters {
             start.1 = match &self.open_volumes[volume_idx].volume_type {
-                VolumeType::Fat(fat) => {
-                    fat.next_cluster(&self.block_device, start.1, &mut block_cache)?
-                }
+                VolumeType::Fat(fat) => fat.next_cluster(&mut self.block_cache, start.1)?,
             };
             start.0 += bytes_per_cluster;
         }
@@ -1131,7 +1245,7 @@ fn solve_mode_variant(mode: Mode, dir_entry_is_some: bool) -> Mode {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::filesystem::SearchId;
+    use crate::filesystem::Handle;
     use crate::Timestamp;
 
     struct DummyBlockDevice;
@@ -1161,12 +1275,7 @@ mod tests {
         type Error = Error;
 
         /// Read one or more blocks, starting at the given block index.
-        fn read(
-            &self,
-            blocks: &mut [Block],
-            start_block_idx: BlockIdx,
-            _reason: &str,
-        ) -> Result<(), Self::Error> {
+        fn read(&self, blocks: &mut [Block], start_block_idx: BlockIdx) -> Result<(), Self::Error> {
             // Actual blocks taken from an SD card, except I've changed the start and length of partition 0.
             static BLOCKS: [Block; 3] = [
                 Block {
@@ -1371,16 +1480,16 @@ mod tests {
 
     #[test]
     fn partition0() {
-        let mut c: VolumeManager<DummyBlockDevice, Clock, 2, 2> =
+        let c: VolumeManager<DummyBlockDevice, Clock, 2, 2> =
             VolumeManager::new_with_limits(DummyBlockDevice, Clock, 0xAA00_0000);
 
         let v = c.open_raw_volume(VolumeIdx(0)).unwrap();
-        let expected_id = RawVolume(SearchId(0xAA00_0000));
+        let expected_id = RawVolume(Handle(0xAA00_0000));
         assert_eq!(v, expected_id);
         assert_eq!(
-            &c.open_volumes[0],
+            &c.data.borrow().open_volumes[0],
             &VolumeInfo {
-                volume_id: expected_id,
+                raw_volume: expected_id,
                 idx: VolumeIdx(0),
                 volume_type: VolumeType::Fat(crate::FatVolume {
                     lba_start: BlockIdx(1),
@@ -1389,7 +1498,7 @@ mod tests {
                     first_data_block: BlockCount(15136),
                     fat_start: BlockCount(32),
                     second_fat_start: Some(BlockCount(32 + 0x0000_1D80)),
-                    name: fat::VolumeName::new(*b"Pictures   "),
+                    name: fat::VolumeName::create_from_str("Pictures").unwrap(),
                     free_clusters_count: None,
                     next_free_cluster: None,
                     cluster_count: 965_788,

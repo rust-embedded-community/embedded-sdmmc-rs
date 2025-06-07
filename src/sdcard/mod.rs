@@ -162,19 +162,9 @@ where
     /// Read one or more blocks, starting at the given block index.
     ///
     /// This will trigger card (re-)initialisation.
-    fn read(
-        &self,
-        blocks: &mut [Block],
-        start_block_idx: BlockIdx,
-        _reason: &str,
-    ) -> Result<(), Self::Error> {
+    fn read(&self, blocks: &mut [Block], start_block_idx: BlockIdx) -> Result<(), Self::Error> {
         let mut inner = self.inner.borrow_mut();
-        debug!(
-            "Read {} blocks @ {} for {}",
-            blocks.len(),
-            start_block_idx.0,
-            _reason
-        );
+        debug!("Read {} blocks @ {}", blocks.len(), start_block_idx.0,);
         inner.check_init()?;
         inner.read(blocks, start_block_idx)
     }
@@ -351,9 +341,7 @@ where
             return Err(Error::ReadError);
         }
 
-        for b in buffer.iter_mut() {
-            *b = 0xFF;
-        }
+        buffer.fill(0xFF);
         self.transfer_bytes(buffer)?;
 
         // These two bytes are always sent. They are either a valid CRC, or

@@ -85,12 +85,7 @@ where
 {
     type Error = Error;
 
-    fn read(
-        &self,
-        blocks: &mut [Block],
-        start_block_idx: BlockIdx,
-        _reason: &str,
-    ) -> Result<(), Self::Error> {
+    fn read(&self, blocks: &mut [Block], start_block_idx: BlockIdx) -> Result<(), Self::Error> {
         let borrow = self.contents.borrow();
         let contents: &[u8] = borrow.as_ref();
         let mut block_idx = start_block_idx;

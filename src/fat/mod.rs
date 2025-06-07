@@ -14,36 +14,6 @@ pub enum FatType {
     Fat32,
 }
 
-pub(crate) struct BlockCache {
-    block: Block,
-    idx: Option<BlockIdx>,
-}
-impl BlockCache {
-    pub fn empty() -> Self {
-        BlockCache {
-            block: Block::new(),
-            idx: None,
-        }
-    }
-    pub(crate) fn read<D>(
-        &mut self,
-        block_device: &D,
-        block_idx: BlockIdx,
-        reason: &str,
-    ) -> Result<&Block, Error<D::Error>>
-    where
-        D: BlockDevice,
-    {
-        if Some(block_idx) != self.idx {
-            self.idx = Some(block_idx);
-            block_device
-                .read(core::slice::from_mut(&mut self.block), block_idx, reason)
-                .map_err(Error::DeviceError)?;
-        }
-        Ok(&self.block)
-    }
-}
-
 mod bpb;
 mod info;
 mod ondiskdirentry;
@@ -53,8 +23,6 @@ pub use bpb::Bpb;
 pub use info::{Fat16Info, Fat32Info, FatSpecificInfo, InfoSector};
 pub use ondiskdirentry::OnDiskDirEntry;
 pub use volume::{parse_volume, FatVolume, VolumeName};
-
-use crate::{Block, BlockDevice, BlockIdx, Error};
 
 // ****************************************************************************
 //
@@ -116,7 +84,7 @@ mod test {
     fn test_dir_entries() {
         #[derive(Debug)]
         enum Expected {
-            Lfn(bool, u8, [char; 13]),
+            Lfn(bool, u8, u8, [u16; 13]),
             Short(DirEntry),
         }
         let raw_data = r#"
@@ -137,9 +105,14 @@ mod test {
         422e0064007400620000000f0059ffffffffffffffffffffffff0000ffffffff B..d.t.b.....Y..................
         01620063006d00320037000f0059300038002d0072007000690000002d006200 .b.c.m.2.7...Y0.8.-.r.p.i...-.b.
         "#;
+
         let results = [
             Expected::Short(DirEntry {
-                name: ShortFileName::create_from_str_mixed_case("boot").unwrap(),
+                name: unsafe {
+                    VolumeName::create_from_str("boot")
+                        .unwrap()
+                        .to_short_filename()
+                },
                 mtime: Timestamp::from_calendar(2015, 11, 21, 19, 35, 18).unwrap(),
                 ctime: Timestamp::from_calendar(2015, 11, 21, 19, 35, 18).unwrap(),
                 attributes: Attributes::create_from_fat(Attributes::VOLUME),
@@ -151,9 +124,10 @@ mod test {
             Expected::Lfn(
                 true,
                 1,
+                0x47,
                 [
-                    'o', 'v', 'e', 'r', 'l', 'a', 'y', 's', '\u{0000}', '\u{ffff}', '\u{ffff}',
-                    '\u{ffff}', '\u{ffff}',
+                    'o' as u16, 'v' as u16, 'e' as u16, 'r' as u16, 'l' as u16, 'a' as u16,
+                    'y' as u16, 's' as u16, 0x0000, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF,
                 ],
             ),
             Expected::Short(DirEntry {
@@ -169,16 +143,20 @@ mod test {
             Expected::Lfn(
                 true,
                 2,
+                0x79,
                 [
-                    '-', 'p', 'l', 'u', 's', '.', 'd', 't', 'b', '\u{0000}', '\u{ffff}',
-                    '\u{ffff}', '\u{ffff}',
+                    '-' as u16, 'p' as u16, 'l' as u16, 'u' as u16, 's' as u16, '.' as u16,
+                    'd' as u16, 't' as u16, 'b' as u16, 0x0000, 0xFFFF, 0xFFFF, 0xFFFF,
                 ],
             ),
             Expected::Lfn(
                 false,
                 1,
+                0x79,
                 [
-                    'b', 'c', 'm', '2', '7', '0', '8', '-', 'r', 'p', 'i', '-', 'b',
+                    'b' as u16, 'c' as u16, 'm' as u16, '2' as u16, '7' as u16, '0' as u16,
+                    '8' as u16, '-' as u16, 'r' as u16, 'p' as u16, 'i' as u16, '-' as u16,
+                    'b' as u16,
                 ],
             ),
             Expected::Short(DirEntry {
@@ -194,8 +172,11 @@ mod test {
             Expected::Lfn(
                 true,
                 1,
+                0x12,
                 [
-                    'C', 'O', 'P', 'Y', 'I', 'N', 'G', '.', 'l', 'i', 'n', 'u', 'x',
+                    'C' as u16, 'O' as u16, 'P' as u16, 'Y' as u16, 'I' as u16, 'N' as u16,
+                    'G' as u16, '.' as u16, 'l' as u16, 'i' as u16, 'n' as u16, 'u' as u16,
+                    'x' as u16,
                 ],
             ),
             Expected::Short(DirEntry {
@@ -211,16 +192,31 @@ mod test {
             Expected::Lfn(
                 true,
                 2,
+                0x67,
                 [
-                    'c', 'o', 'm', '\u{0}', '\u{ffff}', '\u{ffff}', '\u{ffff}', '\u{ffff}',
-                    '\u{ffff}', '\u{ffff}', '\u{ffff}', '\u{ffff}', '\u{ffff}',
+                    'c' as u16,
+                    'o' as u16,
+                    'm' as u16,
+                    '\u{0}' as u16,
+                    0xFFFF,
+                    0xFFFF,
+                    0xFFFF,
+                    0xFFFF,
+                    0xFFFF,
+                    0xFFFF,
+                    0xFFFF,
+                    0xFFFF,
+                    0xFFFF,
                 ],
             ),
             Expected::Lfn(
                 false,
                 1,
+                0x67,
                 [
-                    'L', 'I', 'C', 'E', 'N', 'C', 'E', '.', 'b', 'r', 'o', 'a', 'd',
+                    'L' as u16, 'I' as u16, 'C' as u16, 'E' as u16, 'N' as u16, 'C' as u16,
+                    'E' as u16, '.' as u16, 'b' as u16, 'r' as u16, 'o' as u16, 'a' as u16,
+                    'd' as u16,
                 ],
             ),
             Expected::Short(DirEntry {
@@ -236,16 +232,20 @@ mod test {
             Expected::Lfn(
                 true,
                 2,
+                0x19,
                 [
-                    '-', 'b', '.', 'd', 't', 'b', '\u{0000}', '\u{ffff}', '\u{ffff}', '\u{ffff}',
-                    '\u{ffff}', '\u{ffff}', '\u{ffff}',
+                    '-' as u16, 'b' as u16, '.' as u16, 'd' as u16, 't' as u16, 'b' as u16, 0x0000,
+                    0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF,
                 ],
             ),
             Expected::Lfn(
                 false,
                 1,
+                0x19,
                 [
-                    'b', 'c', 'm', '2', '7', '0', '9', '-', 'r', 'p', 'i', '-', '2',
+                    'b' as u16, 'c' as u16, 'm' as u16, '2' as u16, '7' as u16, '0' as u16,
+                    '9' as u16, '-' as u16, 'r' as u16, 'p' as u16, 'i' as u16, '-' as u16,
+                    '2' as u16,
                 ],
             ),
             Expected::Short(DirEntry {
@@ -261,16 +261,20 @@ mod test {
             Expected::Lfn(
                 true,
                 2,
+                0x59,
                 [
-                    '.', 'd', 't', 'b', '\u{0000}', '\u{ffff}', '\u{ffff}', '\u{ffff}', '\u{ffff}',
-                    '\u{ffff}', '\u{ffff}', '\u{ffff}', '\u{ffff}',
+                    '.' as u16, 'd' as u16, 't' as u16, 'b' as u16, 0x0000, 0xFFFF, 0xFFFF, 0xFFFF,
+                    0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF,
                 ],
             ),
             Expected::Lfn(
                 false,
                 1,
+                0x59,
                 [
-                    'b', 'c', 'm', '2', '7', '0', '8', '-', 'r', 'p', 'i', '-', 'b',
+                    'b' as u16, 'c' as u16, 'm' as u16, '2' as u16, '7' as u16, '0' as u16,
+                    '8' as u16, '-' as u16, 'r' as u16, 'p' as u16, 'i' as u16, '-' as u16,
+                    'b' as u16,
                 ],
             ),
         ];
@@ -279,12 +283,13 @@ mod test {
         for (part, expected) in data.chunks(OnDiskDirEntry::LEN).zip(results.iter()) {
             let on_disk_entry = OnDiskDirEntry::new(part);
             match expected {
-                Expected::Lfn(start, index, contents) if on_disk_entry.is_lfn() => {
-                    let (calc_start, calc_index, calc_contents) =
+                Expected::Lfn(start, index, csum, contents) if on_disk_entry.is_lfn() => {
+                    let (calc_start, calc_index, calc_csum, calc_contents) =
                         on_disk_entry.lfn_contents().unwrap();
                     assert_eq!(*start, calc_start);
                     assert_eq!(*index, calc_index);
                     assert_eq!(*contents, calc_contents);
+                    assert_eq!(*csum, calc_csum);
                 }
                 Expected::Short(expected_entry) if !on_disk_entry.is_lfn() => {
                     let parsed_entry = on_disk_entry.get_entry(FatType::Fat32, BlockIdx(0), 0);
@@ -349,7 +354,7 @@ mod test {
         assert_eq!(bpb.fat_size16(), 32);
         assert_eq!(bpb.total_blocks32(), 122_880);
         assert_eq!(bpb.footer(), 0xAA55);
-        assert_eq!(bpb.volume_label(), b"boot       ");
+        assert_eq!(bpb.volume_label(), *b"boot       ");
         assert_eq!(bpb.fat_size(), 32);
         assert_eq!(bpb.total_blocks(), 122_880);
         assert_eq!(bpb.fat_type, FatType::Fat16);

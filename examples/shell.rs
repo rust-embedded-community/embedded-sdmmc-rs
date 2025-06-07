@@ -3,6 +3,20 @@
 //! Presents a basic command prompt which implements some basic MS-DOS style
 //! shell commands.
 //!
+//! ```bash
+//! $ cargo run --example shell -- ./disk.img
+//! $ cargo run --example shell -- /dev/mmcblk0
+//! ```
+//!
+//! If you pass a block device it should be unmounted. There is a gzipped
+//! example disk image which you can gunzip and test with if you don't have a
+//! suitable block device.
+//!
+//! ```bash
+//! zcat ./tests/disk.img.gz > ./disk.img
+//! $ cargo run --example shell -- ./disk.img
+//! ```
+//!
 //! Note that `embedded_sdmmc` itself does not care about 'paths' - only
 //! accessing files and directories on on disk, relative to some previously
 //! opened directory. A 'path' is an operating-system level construct, and can
@@ -69,11 +83,14 @@
 //! | `B:/BACKUP.000/NAMES.CSV`   | `B:`    | Yes      | `[BACKUP.000]`     | `NAMES.CSV`    | `B:/BACKUP.000/NAMES.CSV`      |
 //! | `B:../BACKUP.000/NAMES.CSV` | `B:`    | No       | `[.., BACKUP.000]` | `NAMES.CSV`    | `B:/BACKUP.000/NAMES.CSV`      |
 
-use std::io::prelude::*;
+use std::{cell::RefCell, io::prelude::*};
 
 use embedded_sdmmc::{
-    Error as EsError, RawDirectory, RawVolume, ShortFileName, VolumeIdx, VolumeManager,
+    Error as EsError, LfnBuffer, Mode, RawDirectory, RawVolume, ShortFileName, VolumeIdx,
 };
+
+type VolumeManager = embedded_sdmmc::VolumeManager<LinuxBlockDevice, Clock, 8, 8, 4>;
+type Directory<'a> = embedded_sdmmc::Directory<'a, LinuxBlockDevice, Clock, 8, 8, 4>;
 
 use crate::linux::{Clock, LinuxBlockDevice};
 
@@ -182,21 +199,21 @@ struct VolumeState {
 }
 
 struct Context {
-    volume_mgr: VolumeManager<LinuxBlockDevice, Clock, 8, 8, 4>,
-    volumes: [Option<VolumeState>; 4],
+    volume_mgr: VolumeManager,
+    volumes: RefCell<[Option<VolumeState>; 4]>,
     current_volume: usize,
 }
 
 impl Context {
     fn current_path(&self) -> Vec<String> {
-        let Some(s) = &self.volumes[self.current_volume] else {
+        let Some(s) = &self.volumes.borrow()[self.current_volume] else {
             return vec![];
         };
         s.path.clone()
     }
 
     /// Print some help text
-    fn help(&mut self) -> Result<(), Error> {
+    fn help(&self) -> Result<(), Error> {
         println!("Commands:");
         println!("\thelp                -> this help text");
         println!("\t<volume>:           -> change volume/partition");
@@ -219,38 +236,50 @@ impl Context {
     }
 
     /// Print volume manager status
-    fn stat(&mut self) -> Result<(), Error> {
+    fn stat(&self) -> Result<(), Error> {
         println!("Status:\n{:#?}", self.volume_mgr);
         Ok(())
     }
 
     /// Print a directory listing
-    fn dir(&mut self, path: &Path) -> Result<(), Error> {
+    fn dir(&self, path: &Path) -> Result<(), Error> {
         println!("Directory listing of {:?}", path);
         let dir = self.resolve_existing_directory(path)?;
-        let mut dir = dir.to_directory(&mut self.volume_mgr);
-        dir.iterate_dir(|entry| {
-            println!(
-                "{:12} {:9} {} {} {:08X?} {:?}",
-                entry.name, entry.size, entry.ctime, entry.mtime, entry.cluster, entry.attributes
-            );
+        let mut storage = [0u8; 128];
+        let mut lfn_buffer = LfnBuffer::new(&mut storage);
+        dir.iterate_dir_lfn(&mut lfn_buffer, |entry, lfn| {
+            if !entry.attributes.is_volume() {
+                print!(
+                    "{:12} {:9} {} {} {:08X?} {:5?}",
+                    entry.name,
+                    entry.size,
+                    entry.ctime,
+                    entry.mtime,
+                    entry.cluster,
+                    entry.attributes,
+                );
+                if let Some(lfn) = lfn {
+                    println!(" {:?}", lfn);
+                } else {
+                    println!();
+                }
+            }
         })?;
         Ok(())
     }
 
     /// Print a recursive directory listing for the given path
-    fn tree(&mut self, path: &Path) -> Result<(), Error> {
+    fn tree(&self, path: &Path) -> Result<(), Error> {
         println!("Directory listing of {:?}", path);
         let dir = self.resolve_existing_directory(path)?;
         // tree_dir will close this directory, always
-        self.tree_dir(dir)
+        Self::tree_dir(dir)
     }
 
     /// Print a recursive directory listing for the given open directory.
     ///
     /// Will close the given directory.
-    fn tree_dir(&mut self, dir: RawDirectory) -> Result<(), Error> {
-        let mut dir = dir.to_directory(&mut self.volume_mgr);
+    fn tree_dir(dir: Directory) -> Result<(), Error> {
         let mut children = Vec::new();
         dir.iterate_dir(|entry| {
             println!(
@@ -264,25 +293,12 @@ impl Context {
                 children.push(entry.name.clone());
             }
         })?;
-        // Be sure to close this, no matter what happens
-        let dir = dir.to_raw_directory();
         for child in children {
             println!("Entering {}", child);
-            let child_dir = match self.volume_mgr.open_dir(dir, &child) {
-                Ok(child_dir) => child_dir,
-                Err(e) => {
-                    self.volume_mgr.close_dir(dir).expect("close open dir");
-                    return Err(e);
-                }
-            };
-            let result = self.tree_dir(child_dir);
+            let child_dir = dir.open_dir(&child)?;
+            Self::tree_dir(child_dir)?;
             println!("Returning from {}", child);
-            if let Err(e) = result {
-                self.volume_mgr.close_dir(dir).expect("close open dir");
-                return Err(e);
-            }
         }
-        self.volume_mgr.close_dir(dir).expect("close open dir");
         Ok(())
     }
 
@@ -293,23 +309,25 @@ impl Context {
     ///   sub-folder, starting from the current directory on the current volume
     /// * An absolute path like `B:/FOO` changes the CWD on Volume 1 to path
     ///   `/FOO`
-    fn cd(&mut self, full_path: &Path) -> Result<(), Error> {
+    fn cd(&self, full_path: &Path) -> Result<(), Error> {
         let volume_idx = self.resolve_volume(full_path)?;
-        let d = self.resolve_existing_directory(full_path)?;
-        let Some(s) = &mut self.volumes[volume_idx] else {
-            self.volume_mgr.close_dir(d).expect("close open dir");
+        let (mut d, fragment) = self.resolve_filename(full_path)?;
+        d.change_dir(fragment)?;
+        let Some(s) = &mut self.volumes.borrow_mut()[volume_idx] else {
             return Err(Error::NoSuchVolume);
         };
         self.volume_mgr
             .close_dir(s.directory)
             .expect("close open dir");
-        s.directory = d;
+        s.directory = d.to_raw_directory();
         if full_path.is_absolute() {
             s.path.clear();
         }
         for fragment in full_path.iterate_components().filter(|s| !s.is_empty()) {
             if fragment == ".." {
                 s.path.pop();
+            } else if fragment == "." {
+                // do nothing
             } else {
                 s.path.push(fragment.to_owned());
             }
@@ -318,10 +336,9 @@ impl Context {
     }
 
     /// print a text file
-    fn cat(&mut self, filename: &Path) -> Result<(), Error> {
+    fn cat(&self, filename: &Path) -> Result<(), Error> {
         let (dir, filename) = self.resolve_filename(filename)?;
-        let mut dir = dir.to_directory(&mut self.volume_mgr);
-        let mut f = dir.open_file_in_dir(filename, embedded_sdmmc::Mode::ReadOnly)?;
+        let f = dir.open_file_in_dir(filename, Mode::ReadOnly)?;
         let mut data = Vec::new();
         while !f.is_eof() {
             let mut buffer = vec![0u8; 65536];
@@ -339,10 +356,9 @@ impl Context {
     }
 
     /// print a binary file
-    fn hexdump(&mut self, filename: &Path) -> Result<(), Error> {
+    fn hexdump(&self, filename: &Path) -> Result<(), Error> {
         let (dir, filename) = self.resolve_filename(filename)?;
-        let mut dir = dir.to_directory(&mut self.volume_mgr);
-        let mut f = dir.open_file_in_dir(filename, embedded_sdmmc::Mode::ReadOnly)?;
+        let f = dir.open_file_in_dir(filename, Mode::ReadOnly)?;
         let mut data = Vec::new();
         while !f.is_eof() {
             let mut buffer = vec![0u8; 65536];
@@ -376,9 +392,8 @@ impl Context {
     }
 
     /// create a directory
-    fn mkdir(&mut self, dir_name: &Path) -> Result<(), Error> {
+    fn mkdir(&self, dir_name: &Path) -> Result<(), Error> {
         let (dir, filename) = self.resolve_filename(dir_name)?;
-        let mut dir = dir.to_directory(&mut self.volume_mgr);
         dir.make_dir_in_dir(filename)
     }
 
@@ -426,11 +441,10 @@ impl Context {
     /// * Relative names, like `../SOMEDIR` or `./SOMEDIR`, traverse
     ///   starting at the current volume and directory.
     /// * Absolute, like `B:/SOMEDIR/OTHERDIR` start at the given volume.
-    fn resolve_existing_directory(&mut self, full_path: &Path) -> Result<RawDirectory, Error> {
-        let (dir, fragment) = self.resolve_filename(full_path)?;
-        let mut work_dir = dir.to_directory(&mut self.volume_mgr);
-        work_dir.change_dir(fragment)?;
-        Ok(work_dir.to_raw_directory())
+    fn resolve_existing_directory<'a>(&'a self, full_path: &Path) -> Result<Directory<'a>, Error> {
+        let (mut dir, fragment) = self.resolve_filename(full_path)?;
+        dir.change_dir(fragment)?;
+        Ok(dir)
     }
 
     /// Either get the volume from the path, or pick the current volume.
@@ -455,33 +469,30 @@ impl Context {
     /// * Relative names, like `../SOMEDIR/SOMEFILE` or `./SOMEDIR/SOMEFILE`, traverse
     ///   starting at the current volume and directory.
     /// * Absolute, like `B:/SOMEDIR/SOMEFILE` start at the given volume.
-    fn resolve_filename<'path>(
-        &mut self,
+    fn resolve_filename<'a, 'path>(
+        &'a self,
         full_path: &'path Path,
-    ) -> Result<(RawDirectory, &'path str), Error> {
+    ) -> Result<(Directory<'a>, &'path str), Error> {
         let volume_idx = self.resolve_volume(full_path)?;
-        let Some(s) = &mut self.volumes[volume_idx] else {
+        let Some(s) = &self.volumes.borrow()[volume_idx] else {
             return Err(Error::NoSuchVolume);
         };
         let mut work_dir = if full_path.is_absolute() {
             // relative to root
             self.volume_mgr
                 .open_root_dir(s.volume)?
-                .to_directory(&mut self.volume_mgr)
+                .to_directory(&self.volume_mgr)
         } else {
             // relative to CWD
             self.volume_mgr
                 .open_dir(s.directory, ".")?
-                .to_directory(&mut self.volume_mgr)
+                .to_directory(&self.volume_mgr)
         };
 
         for fragment in full_path.iterate_dirs() {
             work_dir.change_dir(fragment)?;
         }
-        Ok((
-            work_dir.to_raw_directory(),
-            full_path.basename().unwrap_or("."),
-        ))
+        Ok((work_dir, full_path.basename().unwrap_or(".")))
     }
 
     /// Convert a volume index to a letter
@@ -498,7 +509,7 @@ impl Context {
 
 impl Drop for Context {
     fn drop(&mut self) {
-        for v in self.volumes.iter_mut() {
+        for v in self.volumes.borrow_mut().iter_mut() {
             if let Some(v) = v {
                 println!("Closing directory {:?}", v.directory);
                 self.volume_mgr
@@ -525,7 +536,7 @@ fn main() -> Result<(), Error> {
 
     let mut ctx = Context {
         volume_mgr: VolumeManager::new_with_limits(lbd, Clock, 100),
-        volumes: [None, None, None, None],
+        volumes: RefCell::new([None, None, None, None]),
         current_volume: 0,
     };
 
@@ -533,10 +544,14 @@ fn main() -> Result<(), Error> {
     for volume_no in 0..4 {
         match ctx.volume_mgr.open_raw_volume(VolumeIdx(volume_no)) {
             Ok(volume) => {
-                println!("Volume # {}: found", Context::volume_to_letter(volume_no));
+                println!(
+                    "Volume # {}: found, label: {:?}",
+                    Context::volume_to_letter(volume_no),
+                    ctx.volume_mgr.get_root_volume_label(volume)?
+                );
                 match ctx.volume_mgr.open_root_dir(volume) {
                     Ok(root_dir) => {
-                        ctx.volumes[volume_no] = Some(VolumeState {
+                        ctx.volumes.borrow_mut()[volume_no] = Some(VolumeState {
                             directory: root_dir,
                             volume,
                             path: vec![],
