@@ -18,6 +18,12 @@ The format is based on [Keep a Changelog] and this project adheres to [Semantic 
 
 - None
 
+## [Version 0.8.2] - 2025-06-07
+
+### Changed
+
+* Fixed writing at block start mid-file (previously overwrote subsequent file data with zeros up to the end of the block)
+
 ## [Version 0.8.1] - 2024-11-03
 
 ### Changed
@@ -174,13 +180,15 @@ The format is based on [Keep a Changelog] and this project adheres to [Semantic 
 
 [Keep a Changelog]: http://keepachangelog.com/en/1.0.0/
 [Semantic Versioning]: http://semver.org/spec/v2.0.0.html
-[Unreleased]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/compare/v0.8.0...develop
-[Version 0.8.0]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/compare/v0.8.0...v0.7.0
-[Version 0.7.0]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/compare/v0.7.0...v0.6.0
-[Version 0.6.0]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/compare/v0.6.0...v0.5.0
-[Version 0.5.0]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/compare/v0.5.0...v0.4.0
-[Version 0.4.0]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/compare/v0.4.0...v0.3.0
-[Version 0.3.0]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/compare/v0.3.0...v0.2.1
-[Version 0.2.1]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/compare/v0.2.1...v0.2.0
-[Version 0.2.0]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/compare/v0.2.0...v0.1.1
+[Unreleased]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/compare/v0.8.2...develop
+[Version 0.8.2]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/compare/v0.8.1...v0.8.2
+[Version 0.8.1]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/compare/v0.8.0...v0.8.1
+[Version 0.8.0]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/compare/v0.7.0...v0.8.0
+[Version 0.7.0]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/compare/v0.6.0...v0.7.0
+[Version 0.6.0]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/compare/v0.5.0...v0.6.0
+[Version 0.5.0]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/compare/v0.4.0...v0.5.0
+[Version 0.4.0]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/compare/v0.3.0...v0.4.0
+[Version 0.3.0]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/compare/v0.2.1...v0.3.0
+[Version 0.2.1]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/compare/v0.2.0...v0.2.1
+[Version 0.2.0]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/compare/v0.1.1...v0.2.0
 [Version 0.1.1]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/releases/tag/v0.1.1
