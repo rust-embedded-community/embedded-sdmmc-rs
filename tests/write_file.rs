@@ -125,25 +125,36 @@ fn random_access_write_file() {
     assert_eq!(length, 1024);
 
     for seek_offset in [100, 0] {
-        let mut expected_buffer = [0u8;4];
+        let mut expected_buffer = [0u8; 4];
 
         // fetch some data at offset seek_offset
-        volume_mgr.file_seek_from_start(f, seek_offset).expect("Seeking");
+        volume_mgr
+            .file_seek_from_start(f, seek_offset)
+            .expect("Seeking");
         volume_mgr.read(f, &mut expected_buffer).expect("read file");
 
         // modify first byte
         expected_buffer[0] ^= 0xff;
 
         // write only first byte, expecting the rest to not change
-        volume_mgr.file_seek_from_start(f, seek_offset).expect("Seeking");
-        volume_mgr.write(f, &expected_buffer[0..1]).expect("file write");
+        volume_mgr
+            .file_seek_from_start(f, seek_offset)
+            .expect("Seeking");
+        volume_mgr
+            .write(f, &expected_buffer[0..1])
+            .expect("file write");
         volume_mgr.flush_file(f).expect("file flush");
 
         // read and verify
-        volume_mgr.file_seek_from_start(f, seek_offset).expect("file seek");
+        volume_mgr
+            .file_seek_from_start(f, seek_offset)
+            .expect("file seek");
         let mut read_buffer = [0xffu8, 0xff, 0xff, 0xff];
         volume_mgr.read(f, &mut read_buffer).expect("file read");
-        assert_eq!(read_buffer, expected_buffer, "mismatch seek+write at offset {seek_offset} from start");
+        assert_eq!(
+            read_buffer, expected_buffer,
+            "mismatch seek+write at offset {seek_offset} from start"
+        );
     }
 
     volume_mgr.close_file(f).expect("close file");

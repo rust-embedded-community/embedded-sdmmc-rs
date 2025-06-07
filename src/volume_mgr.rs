@@ -878,7 +878,9 @@ where
                 Err(e) => return Err(e),
             };
             let to_copy = core::cmp::min(block_avail, bytes_to_write - written);
-            let block = if block_offset != 0 || data.open_files[file_idx].current_offset < data.open_files[file_idx].entry.size {
+            let block = if block_offset != 0
+                || data.open_files[file_idx].current_offset < data.open_files[file_idx].entry.size
+            {
                 debug!("Reading for partial block write");
                 data.block_cache
                     .read_mut(block_idx)
