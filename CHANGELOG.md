@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog] and this project adheres to [Semantic 
 
 ## [Unreleased]
 
+## [Version 0.9.0] - 2025-06-08
+
 ### Changed
 
 - __Breaking Change__: `VolumeManager` now uses interior-mutability (with a `RefCell`) and so most methods are now `&self`. This also makes it easier to open multiple `File`, `Directory` or `Volume` objects at once.
@@ -187,7 +189,8 @@ The format is based on [Keep a Changelog] and this project adheres to [Semantic 
 
 [Keep a Changelog]: http://keepachangelog.com/en/1.0.0/
 [Semantic Versioning]: http://semver.org/spec/v2.0.0.html
-[Unreleased]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/compare/v0.8.2...develop
+[Unreleased]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/compare/v0.9.0...develop
+[Version 0.9.0]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/compare/v0.8.2...v0.9.0
 [Version 0.8.2]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/compare/v0.8.1...v0.8.2
 [Version 0.8.1]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/compare/v0.8.0...v0.8.1
 [Version 0.8.0]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/compare/v0.7.0...v0.8.0
