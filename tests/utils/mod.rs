@@ -2,7 +2,7 @@
 
 use std::io::prelude::*;
 
-use embedded_sdmmc::{Block, BlockCount, BlockDevice, BlockIdx};
+use embedded_sdmmc::blocking::{Block, BlockCount, BlockDevice, BlockIdx, TimeSource, Timestamp};
 
 /// This file contains:
 ///
@@ -90,8 +90,8 @@ where
         let contents: &[u8] = borrow.as_ref();
         let mut block_idx = start_block_idx;
         for block in blocks.iter_mut() {
-            let start_offset = block_idx.0 as usize * embedded_sdmmc::Block::LEN;
-            let end_offset = start_offset + embedded_sdmmc::Block::LEN;
+            let start_offset = block_idx.0 as usize * Block::LEN;
+            let end_offset = start_offset + Block::LEN;
             if end_offset > contents.len() {
                 return Err(Error::OutOfBounds(block_idx));
             }
@@ -108,8 +108,8 @@ where
         let contents: &mut [u8] = borrow.as_mut();
         let mut block_idx = start_block_idx;
         for block in blocks.iter() {
-            let start_offset = block_idx.0 as usize * embedded_sdmmc::Block::LEN;
-            let end_offset = start_offset + embedded_sdmmc::Block::LEN;
+            let start_offset = block_idx.0 as usize * Block::LEN;
+            let end_offset = start_offset + Block::LEN;
             if end_offset > contents.len() {
                 return Err(Error::OutOfBounds(block_idx));
             }
@@ -122,7 +122,7 @@ where
     fn num_blocks(&self) -> Result<BlockCount, Self::Error> {
         let borrow = self.contents.borrow();
         let contents: &[u8] = borrow.as_ref();
-        let len_blocks = contents.len() / embedded_sdmmc::Block::LEN;
+        let len_blocks = contents.len() / Block::LEN;
         if len_blocks > u32::MAX as usize {
             panic!("Test disk too large! Only 2**32 blocks allowed");
         }
@@ -146,11 +146,11 @@ pub fn make_block_device(gzip_bytes: &[u8]) -> Result<RamDisk<Vec<u8>>, Error> {
 }
 
 pub struct TestTimeSource {
-    fixed: embedded_sdmmc::Timestamp,
+    fixed: Timestamp,
 }
 
-impl embedded_sdmmc::TimeSource for TestTimeSource {
-    fn get_timestamp(&self) -> embedded_sdmmc::Timestamp {
+impl TimeSource for TestTimeSource {
+    fn get_timestamp(&self) -> Timestamp {
         self.fixed
     }
 }
@@ -164,7 +164,7 @@ impl embedded_sdmmc::TimeSource for TestTimeSource {
 /// in 1981.
 pub fn make_time_source() -> TestTimeSource {
     TestTimeSource {
-        fixed: embedded_sdmmc::Timestamp {
+        fixed: Timestamp {
             year_since_1970: 33,
             zero_indexed_month: 3,
             zero_indexed_day: 3,

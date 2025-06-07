@@ -34,12 +34,12 @@
 mod linux;
 use linux::*;
 
-use embedded_sdmmc::{ShortFileName, VolumeIdx};
+use embedded_sdmmc::blocking::{ShortFileName, VolumeIdx};
 
-type Error = embedded_sdmmc::Error<std::io::Error>;
+type Error = embedded_sdmmc::blocking::Error<std::io::Error>;
 
-type Directory<'a> = embedded_sdmmc::Directory<'a, LinuxBlockDevice, Clock, 8, 4, 4>;
-type VolumeManager = embedded_sdmmc::VolumeManager<LinuxBlockDevice, Clock, 8, 4, 4>;
+type Directory<'a> = embedded_sdmmc::blocking::Directory<'a, LinuxBlockDevice, Clock, 8, 4, 4>;
+type VolumeManager = embedded_sdmmc::blocking::VolumeManager<LinuxBlockDevice, Clock, 8, 4, 4>;
 
 fn main() -> Result<(), Error> {
     env_logger::init();

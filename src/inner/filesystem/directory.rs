@@ -1,7 +1,11 @@
-use crate::blockdevice::BlockIdx;
-use crate::fat::{FatType, OnDiskDirEntry};
-use crate::filesystem::{Attributes, ClusterId, Handle, LfnBuffer, ShortFileName, Timestamp};
-use crate::{Error, RawVolume, VolumeManager};
+use super::super::super::bisync;
+use super::super::blockdevice::BlockIdx;
+use super::super::fat::{FatType, OnDiskDirEntry};
+use super::super::filesystem::{
+    Attributes, ClusterId, Handle, LfnBuffer, ShortFileName, Timestamp,
+};
+use super::super::{BlockDevice, File, Mode, TimeSource};
+use super::super::{Error, RawVolume, VolumeManager};
 
 use super::ToShortFileName;
 
@@ -34,7 +38,7 @@ pub struct DirEntry {
 /// still have the directory open, and it won't let you open the directory
 /// again.
 ///
-/// Instead you must pass it to [`crate::VolumeManager::close_dir`] to close it
+/// Instead you must pass it to [`VolumeManager::close_dir`] to close it
 /// cleanly.
 ///
 /// If you want your directories to close themselves on drop, create your own
@@ -60,8 +64,8 @@ impl RawDirectory {
         volume_mgr: &VolumeManager<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>,
     ) -> Directory<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>
     where
-        D: crate::BlockDevice,
-        T: crate::TimeSource,
+        D: BlockDevice,
+        T: TimeSource,
     {
         Directory::new(self, volume_mgr)
     }
@@ -83,18 +87,19 @@ pub struct Directory<
     const MAX_FILES: usize,
     const MAX_VOLUMES: usize,
 > where
-    D: crate::BlockDevice,
-    T: crate::TimeSource,
+    D: BlockDevice,
+    T: TimeSource,
 {
     raw_directory: RawDirectory,
     volume_mgr: &'a VolumeManager<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>,
 }
 
+#[bisync]
 impl<'a, D, T, const MAX_DIRS: usize, const MAX_FILES: usize, const MAX_VOLUMES: usize>
     Directory<'a, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>
 where
-    D: crate::BlockDevice,
-    T: crate::TimeSource,
+    D: BlockDevice,
+    T: TimeSource,
 {
     /// Create a new `Directory` from a `RawDirectory`
     pub fn new(
@@ -110,37 +115,38 @@ where
     /// Open a directory.
     ///
     /// You can then read the directory entries with `iterate_dir` and `open_file_in_dir`.
-    pub fn open_dir<N>(
+    pub async fn open_dir<N>(
         &self,
         name: N,
     ) -> Result<Directory<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>, Error<D::Error>>
     where
         N: ToShortFileName,
     {
-        let d = self.volume_mgr.open_dir(self.raw_directory, name)?;
+        let d = self.volume_mgr.open_dir(self.raw_directory, name).await?;
         Ok(d.to_directory(self.volume_mgr))
     }
 
     /// Change to a directory, mutating this object.
     ///
     /// You can then read the directory entries with `iterate_dir` and `open_file_in_dir`.
-    pub fn change_dir<N>(&mut self, name: N) -> Result<(), Error<D::Error>>
+    pub async fn change_dir<N>(&mut self, name: N) -> Result<(), Error<D::Error>>
     where
         N: ToShortFileName,
     {
-        let d = self.volume_mgr.open_dir(self.raw_directory, name)?;
+        let d = self.volume_mgr.open_dir(self.raw_directory, name).await?;
         self.volume_mgr.close_dir(self.raw_directory).unwrap();
         self.raw_directory = d;
         Ok(())
     }
 
     /// Look in a directory for a named file.
-    pub fn find_directory_entry<N>(&self, name: N) -> Result<DirEntry, Error<D::Error>>
+    pub async fn find_directory_entry<N>(&self, name: N) -> Result<DirEntry, Error<D::Error>>
     where
         N: ToShortFileName,
     {
         self.volume_mgr
             .find_directory_entry(self.raw_directory, name)
+            .await
     }
 
     /// Call a callback function for each directory entry in a directory.
@@ -154,11 +160,11 @@ where
     /// object is already locked in order to do the iteration.
     ///
     /// </div>
-    pub fn iterate_dir<F>(&self, func: F) -> Result<(), Error<D::Error>>
+    pub async fn iterate_dir<F>(&self, func: F) -> Result<(), Error<D::Error>>
     where
         F: FnMut(&DirEntry),
     {
-        self.volume_mgr.iterate_dir(self.raw_directory, func)
+        self.volume_mgr.iterate_dir(self.raw_directory, func).await
     }
 
     /// Call a callback function for each directory entry in a directory, and
@@ -176,7 +182,7 @@ where
     /// object is already locked in order to do the iteration.
     ///
     /// </div>
-    pub fn iterate_dir_lfn<F>(
+    pub async fn iterate_dir_lfn<F>(
         &self,
         lfn_buffer: &mut LfnBuffer<'_>,
         func: F,
@@ -186,37 +192,43 @@ where
     {
         self.volume_mgr
             .iterate_dir_lfn(self.raw_directory, lfn_buffer, func)
+            .await
     }
 
     /// Open a file with the given full path. A file can only be opened once.
-    pub fn open_file_in_dir<N>(
+    pub async fn open_file_in_dir<N>(
         &self,
         name: N,
-        mode: crate::Mode,
-    ) -> Result<crate::File<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>, crate::Error<D::Error>>
+        mode: Mode,
+    ) -> Result<File<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>, Error<D::Error>>
     where
         N: super::ToShortFileName,
     {
         let f = self
             .volume_mgr
-            .open_file_in_dir(self.raw_directory, name, mode)?;
+            .open_file_in_dir(self.raw_directory, name, mode)
+            .await?;
         Ok(f.to_file(self.volume_mgr))
     }
 
     /// Delete a closed file with the given filename, if it exists.
-    pub fn delete_file_in_dir<N>(&self, name: N) -> Result<(), Error<D::Error>>
+    pub async fn delete_file_in_dir<N>(&self, name: N) -> Result<(), Error<D::Error>>
     where
         N: ToShortFileName,
     {
-        self.volume_mgr.delete_file_in_dir(self.raw_directory, name)
+        self.volume_mgr
+            .delete_file_in_dir(self.raw_directory, name)
+            .await
     }
 
     /// Make a directory inside this directory
-    pub fn make_dir_in_dir<N>(&self, name: N) -> Result<(), Error<D::Error>>
+    pub async fn make_dir_in_dir<N>(&self, name: N) -> Result<(), Error<D::Error>>
     where
         N: ToShortFileName,
     {
-        self.volume_mgr.make_dir_in_dir(self.raw_directory, name)
+        self.volume_mgr
+            .make_dir_in_dir(self.raw_directory, name)
+            .await
     }
 
     /// Convert back to a raw directory
@@ -240,8 +252,8 @@ where
 impl<'a, D, T, const MAX_DIRS: usize, const MAX_FILES: usize, const MAX_VOLUMES: usize> Drop
     for Directory<'a, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>
 where
-    D: crate::BlockDevice,
-    T: crate::TimeSource,
+    D: BlockDevice,
+    T: TimeSource,
 {
     fn drop(&mut self) {
         _ = self.volume_mgr.close_dir(self.raw_directory)
@@ -251,8 +263,8 @@ where
 impl<'a, D, T, const MAX_DIRS: usize, const MAX_FILES: usize, const MAX_VOLUMES: usize>
     core::fmt::Debug for Directory<'a, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>
 where
-    D: crate::BlockDevice,
-    T: crate::TimeSource,
+    D: BlockDevice,
+    T: TimeSource,
 {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "Directory({})", self.raw_directory.0 .0)
@@ -263,8 +275,8 @@ where
 impl<'a, D, T, const MAX_DIRS: usize, const MAX_FILES: usize, const MAX_VOLUMES: usize>
     defmt::Format for Directory<'a, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>
 where
-    D: crate::BlockDevice,
-    T: crate::TimeSource,
+    D: BlockDevice,
+    T: TimeSource,
 {
     fn format(&self, fmt: defmt::Formatter) {
         defmt::write!(fmt, "Directory({})", self.raw_directory.0 .0)

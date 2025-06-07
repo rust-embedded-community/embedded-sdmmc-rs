@@ -1,7 +1,7 @@
 //! Helpers for using embedded-sdmmc on Linux
 
 use chrono::Timelike;
-use embedded_sdmmc::{Block, BlockCount, BlockDevice, BlockIdx, TimeSource, Timestamp};
+use embedded_sdmmc::blocking::{Block, BlockCount, BlockDevice, BlockIdx, TimeSource, Timestamp};
 use std::cell::RefCell;
 use std::fs::{File, OpenOptions};
 use std::io::prelude::*;

@@ -7,7 +7,7 @@
 
 use core::cell::RefCell;
 
-use embedded_sdmmc::{Error, SdCardError, TimeSource, Timestamp};
+use embedded_sdmmc::blocking::{Error, SdCardError, TimeSource, Timestamp};
 
 pub struct DummyCsPin;
 
@@ -121,7 +121,7 @@ fn main() -> Result<(), MyError> {
     let time_source = FakeTimesource();
     // END Fake stuff that will be replaced with real peripherals
 
-    use embedded_sdmmc::{Mode, SdCard, VolumeIdx, VolumeManager};
+    use embedded_sdmmc::blocking::{Mode, SdCard, VolumeIdx, VolumeManager};
     // Build an SD Card interface out of an SPI device, a chip-select pin and the delay object
     let sdcard = SdCard::new(sdmmc_spi, delay);
     // Get the card size (this also triggers card initialisation because it's not been done yet)

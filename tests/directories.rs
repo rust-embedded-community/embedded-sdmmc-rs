@@ -1,6 +1,8 @@
 //! Directory related tests
 
-use embedded_sdmmc::{LfnBuffer, Mode, ShortFileName};
+use embedded_sdmmc::blocking::{
+    DirEntry, Error, LfnBuffer, Mode, ShortFileName, VolumeIdx, VolumeManager,
+};
 
 mod utils;
 
@@ -13,8 +15,8 @@ struct ExpectedDirEntry {
     is_dir: bool,
 }
 
-impl PartialEq<embedded_sdmmc::DirEntry> for ExpectedDirEntry {
-    fn eq(&self, other: &embedded_sdmmc::DirEntry) -> bool {
+impl PartialEq<DirEntry> for ExpectedDirEntry {
+    fn eq(&self, other: &DirEntry) -> bool {
         if other.name.to_string() != self.name {
             return false;
         }
@@ -38,10 +40,10 @@ impl PartialEq<embedded_sdmmc::DirEntry> for ExpectedDirEntry {
 fn fat16_root_directory_listing() {
     let time_source = utils::make_time_source();
     let disk = utils::make_block_device(utils::DISK_SOURCE).unwrap();
-    let volume_mgr = embedded_sdmmc::VolumeManager::new(disk, time_source);
+    let volume_mgr = VolumeManager::new(disk, time_source);
 
     let fat16_volume = volume_mgr
-        .open_raw_volume(embedded_sdmmc::VolumeIdx(0))
+        .open_raw_volume(VolumeIdx(0))
         .expect("open volume 0");
     let root_dir = volume_mgr
         .open_root_dir(fat16_volume)
@@ -145,10 +147,10 @@ fn fat16_root_directory_listing() {
 fn fat16_sub_directory_listing() {
     let time_source = utils::make_time_source();
     let disk = utils::make_block_device(utils::DISK_SOURCE).unwrap();
-    let volume_mgr = embedded_sdmmc::VolumeManager::new(disk, time_source);
+    let volume_mgr = VolumeManager::new(disk, time_source);
 
     let fat16_volume = volume_mgr
-        .open_raw_volume(embedded_sdmmc::VolumeIdx(0))
+        .open_raw_volume(VolumeIdx(0))
         .expect("open volume 0");
     let root_dir = volume_mgr
         .open_root_dir(fat16_volume)
@@ -216,10 +218,10 @@ fn fat16_sub_directory_listing() {
 fn fat32_root_directory_listing() {
     let time_source = utils::make_time_source();
     let disk = utils::make_block_device(utils::DISK_SOURCE).unwrap();
-    let volume_mgr = embedded_sdmmc::VolumeManager::new(disk, time_source);
+    let volume_mgr = VolumeManager::new(disk, time_source);
 
     let fat32_volume = volume_mgr
-        .open_raw_volume(embedded_sdmmc::VolumeIdx(1))
+        .open_raw_volume(VolumeIdx(1))
         .expect("open volume 1");
     let root_dir = volume_mgr
         .open_root_dir(fat32_volume)
@@ -343,10 +345,10 @@ fn fat32_root_directory_listing() {
 fn open_dir_twice() {
     let time_source = utils::make_time_source();
     let disk = utils::make_block_device(utils::DISK_SOURCE).unwrap();
-    let volume_mgr = embedded_sdmmc::VolumeManager::new(disk, time_source);
+    let volume_mgr = VolumeManager::new(disk, time_source);
 
     let fat32_volume = volume_mgr
-        .open_raw_volume(embedded_sdmmc::VolumeIdx(1))
+        .open_raw_volume(VolumeIdx(1))
         .expect("open volume 1");
 
     let root_dir = volume_mgr
@@ -359,7 +361,7 @@ fn open_dir_twice() {
 
     assert!(matches!(
         volume_mgr.open_dir(root_dir, "README.TXT"),
-        Err(embedded_sdmmc::Error::OpenedFileAsDir)
+        Err(Error::OpenedFileAsDir)
     ));
 
     let test_dir = volume_mgr
@@ -375,7 +377,7 @@ fn open_dir_twice() {
 
     assert!(matches!(
         volume_mgr.close_dir(test_dir),
-        Err(embedded_sdmmc::Error::BadHandle)
+        Err(Error::BadHandle)
     ));
 }
 
@@ -383,16 +385,11 @@ fn open_dir_twice() {
 fn open_too_many_dirs() {
     let time_source = utils::make_time_source();
     let disk = utils::make_block_device(utils::DISK_SOURCE).unwrap();
-    let volume_mgr: embedded_sdmmc::VolumeManager<
-        utils::RamDisk<Vec<u8>>,
-        utils::TestTimeSource,
-        1,
-        4,
-        2,
-    > = embedded_sdmmc::VolumeManager::new_with_limits(disk, time_source, 0x1000_0000);
+    let volume_mgr: VolumeManager<utils::RamDisk<Vec<u8>>, utils::TestTimeSource, 1, 4, 2> =
+        VolumeManager::new_with_limits(disk, time_source, 0x1000_0000);
 
     let fat32_volume = volume_mgr
-        .open_raw_volume(embedded_sdmmc::VolumeIdx(1))
+        .open_raw_volume(VolumeIdx(1))
         .expect("open volume 1");
     let root_dir = volume_mgr
         .open_root_dir(fat32_volume)
@@ -400,7 +397,7 @@ fn open_too_many_dirs() {
 
     assert!(matches!(
         volume_mgr.open_dir(root_dir, "TEST"),
-        Err(embedded_sdmmc::Error::TooManyOpenDirs)
+        Err(Error::TooManyOpenDirs)
     ));
 }
 
@@ -408,10 +405,10 @@ fn open_too_many_dirs() {
 fn find_dir_entry() {
     let time_source = utils::make_time_source();
     let disk = utils::make_block_device(utils::DISK_SOURCE).unwrap();
-    let volume_mgr = embedded_sdmmc::VolumeManager::new(disk, time_source);
+    let volume_mgr = VolumeManager::new(disk, time_source);
 
     let fat32_volume = volume_mgr
-        .open_raw_volume(embedded_sdmmc::VolumeIdx(1))
+        .open_raw_volume(VolumeIdx(1))
         .expect("open volume 1");
 
     let root_dir = volume_mgr
@@ -430,7 +427,7 @@ fn find_dir_entry() {
 
     assert!(matches!(
         volume_mgr.find_directory_entry(root_dir, "README.TXS"),
-        Err(embedded_sdmmc::Error::NotFound)
+        Err(Error::NotFound)
     ));
 }
 
@@ -438,10 +435,10 @@ fn find_dir_entry() {
 fn delete_file() {
     let time_source = utils::make_time_source();
     let disk = utils::make_block_device(utils::DISK_SOURCE).unwrap();
-    let volume_mgr = embedded_sdmmc::VolumeManager::new(disk, time_source);
+    let volume_mgr = VolumeManager::new(disk, time_source);
 
     let fat32_volume = volume_mgr
-        .open_raw_volume(embedded_sdmmc::VolumeIdx(1))
+        .open_raw_volume(VolumeIdx(1))
         .expect("open volume 1");
 
     let root_dir = volume_mgr
@@ -454,12 +451,12 @@ fn delete_file() {
 
     assert!(matches!(
         volume_mgr.delete_file_in_dir(root_dir, "README.TXT"),
-        Err(embedded_sdmmc::Error::FileAlreadyOpen)
+        Err(Error::FileAlreadyOpen)
     ));
 
     assert!(matches!(
         volume_mgr.delete_file_in_dir(root_dir, "README2.TXT"),
-        Err(embedded_sdmmc::Error::NotFound)
+        Err(Error::NotFound)
     ));
 
     volume_mgr.close_file(file).unwrap();
@@ -470,12 +467,12 @@ fn delete_file() {
 
     assert!(matches!(
         volume_mgr.delete_file_in_dir(root_dir, "README.TXT"),
-        Err(embedded_sdmmc::Error::NotFound)
+        Err(Error::NotFound)
     ));
 
     assert!(matches!(
         volume_mgr.open_file_in_dir(root_dir, "README.TXT", Mode::ReadOnly),
-        Err(embedded_sdmmc::Error::NotFound)
+        Err(Error::NotFound)
     ));
 }
 
@@ -483,10 +480,10 @@ fn delete_file() {
 fn make_directory() {
     let time_source = utils::make_time_source();
     let disk = utils::make_block_device(utils::DISK_SOURCE).unwrap();
-    let volume_mgr = embedded_sdmmc::VolumeManager::new(disk, time_source);
+    let volume_mgr = VolumeManager::new(disk, time_source);
 
     let fat32_volume = volume_mgr
-        .open_raw_volume(embedded_sdmmc::VolumeIdx(1))
+        .open_raw_volume(VolumeIdx(1))
         .expect("open volume 1");
 
     let root_dir = volume_mgr
@@ -527,11 +524,7 @@ fn make_directory() {
     assert!(has_parent);
 
     let new_file = volume_mgr
-        .open_file_in_dir(
-            new_dir,
-            &test_file_name,
-            embedded_sdmmc::Mode::ReadWriteCreate,
-        )
+        .open_file_in_dir(new_dir, &test_file_name, Mode::ReadWriteCreate)
         .expect("open new file");
     volume_mgr
         .write(new_file, b"Hello")
@@ -585,7 +578,7 @@ fn make_directory() {
         .open_dir(root_dir, &test_dir_name)
         .expect("find new dir");
     let new_file = volume_mgr
-        .open_file_in_dir(new_dir, &test_file_name, embedded_sdmmc::Mode::ReadOnly)
+        .open_file_in_dir(new_dir, &test_file_name, Mode::ReadOnly)
         .expect("re-open new file");
     volume_mgr.close_dir(root_dir).expect("close root");
     volume_mgr.close_dir(new_dir).expect("close new dir");

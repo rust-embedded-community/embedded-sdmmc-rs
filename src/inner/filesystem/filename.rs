@@ -1,6 +1,6 @@
 //! Filename related types
 
-use crate::fat::VolumeName;
+use super::super::fat::VolumeName;
 use crate::trace;
 
 /// Various filename related errors that can occur.

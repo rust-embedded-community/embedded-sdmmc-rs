@@ -33,8 +33,8 @@ pub use volume::{parse_volume, FatVolume, VolumeName};
 #[cfg(test)]
 mod test {
 
+    use super::super::{Attributes, BlockIdx, ClusterId, DirEntry, ShortFileName, Timestamp};
     use super::*;
-    use crate::{Attributes, BlockIdx, ClusterId, DirEntry, ShortFileName, Timestamp};
 
     fn parse(input: &str) -> Vec<u8> {
         let mut output = Vec::new();
