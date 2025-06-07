@@ -3,6 +3,7 @@
 //! This is currently optimised for readability and debugability, not
 //! performance.
 
+mod device;
 pub mod proto;
 
 use crate::{trace, Block, BlockCount, BlockDevice, BlockIdx};
@@ -14,6 +15,7 @@ use proto::*;
 // ****************************************************************************
 
 use crate::{debug, warn};
+pub use device::*;
 
 // ****************************************************************************
 // Types and Implementations
@@ -37,7 +39,7 @@ use crate::{debug, warn};
 /// [`SpiDevice`]: embedded_hal::spi::SpiDevice
 pub struct SdCard<SPI, DELAYER>
 where
-    SPI: embedded_hal::spi::SpiDevice<u8>,
+    SPI: SdCardSpiDevice,
     DELAYER: embedded_hal::delay::DelayNs,
 {
     inner: RefCell<SdCardInner<SPI, DELAYER>>,
@@ -45,7 +47,7 @@ where
 
 impl<SPI, DELAYER> SdCard<SPI, DELAYER>
 where
-    SPI: embedded_hal::spi::SpiDevice<u8>,
+    SPI: SdCardSpiDevice,
     DELAYER: embedded_hal::delay::DelayNs,
 {
     /// Create a new SD/MMC Card driver using a raw SPI interface.
@@ -130,6 +132,18 @@ where
         inner.card_type
     }
 
+    /// Initialize the SD card.
+    ///
+    /// This must be called before performing any operations on the card, with
+    /// SPI frequency of 100 to 400 KHz. After this method returns
+    /// successfully, the SPI frequency can be increased to the maximum
+    /// supported by the card.
+    pub fn init_card(&self) -> Result<(), Error> {
+        let mut inner = self.inner.borrow_mut();
+        inner.init()?;
+        Ok(())
+    }
+
     /// Tell the driver the card has been initialised.
     ///
     /// This is here in case you were previously using the SD Card, and then a
@@ -154,7 +168,7 @@ where
 
 impl<SPI, DELAYER> BlockDevice for SdCard<SPI, DELAYER>
 where
-    SPI: embedded_hal::spi::SpiDevice<u8>,
+    SPI: SdCardSpiDevice,
     DELAYER: embedded_hal::delay::DelayNs,
 {
     type Error = Error;
@@ -194,7 +208,7 @@ where
 /// All the APIs required `&mut self`.
 struct SdCardInner<SPI, DELAYER>
 where
-    SPI: embedded_hal::spi::SpiDevice<u8>,
+    SPI: SdCardSpiDevice,
     DELAYER: embedded_hal::delay::DelayNs,
 {
     spi: SPI,
@@ -205,7 +219,7 @@ where
 
 impl<SPI, DELAYER> SdCardInner<SPI, DELAYER>
 where
-    SPI: embedded_hal::spi::SpiDevice<u8>,
+    SPI: SdCardSpiDevice,
     DELAYER: embedded_hal::delay::DelayNs,
 {
     /// Read one or more blocks, starting at the given block index.
@@ -559,6 +573,13 @@ where
             }
             delay.delay(&mut self.delayer, Error::TimeoutWaitNotBusy)?;
         }
+        Ok(())
+    }
+
+    fn init(&mut self) -> Result<(), Error> {
+        self.spi
+            .send_clock_pulses()
+            .map_err(|_e| Error::Transport)?;
         Ok(())
     }
 }
