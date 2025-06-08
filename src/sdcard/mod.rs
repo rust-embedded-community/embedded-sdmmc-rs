@@ -624,6 +624,33 @@ pub enum Error {
     GpioError,
 }
 
+impl core::fmt::Display for Error {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        match self {
+            Error::Transport => write!(f, "error from SPI peripheral"),
+            Error::CantEnableCRC => write!(f, "failed to enable CRC checking"),
+            Error::TimeoutReadBuffer => write!(f, "timeout when reading data"),
+            Error::TimeoutWaitNotBusy => write!(f, "timeout when waiting for card to not be busy"),
+            Error::TimeoutCommand(command) => write!(f, "timeout when executing command {command}"),
+            Error::TimeoutACommand(command) => write!(
+                f,
+                "timeout when executing application-specific command {command}"
+            ),
+            Error::Cmd58Error => write!(f, "bad response from command 58"),
+            Error::RegisterReadError => write!(f, "failed to read Card Specific Data register"),
+            Error::CrcError(_, _) => write!(f, "CRC mismatch"),
+            Error::ReadError => write!(f, "read error"),
+            Error::WriteError => write!(f, "write error"),
+            Error::BadState => write!(f, "cannot perform operation with card in thiis state"),
+            Error::CardNotFound => write!(f, "card not found"),
+            Error::GpioError => write!(f, "cannot set GPIO pin"),
+        }
+    }
+}
+
+#[cfg(feature = "core-error")]
+impl core::error::Error for Error {}
+
 /// The different types of card we support.
 #[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
