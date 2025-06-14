@@ -11,7 +11,7 @@ static TEST_DAT_SHA256_SUM: &[u8] =
 fn read_file_512_blocks() {
     let time_source = utils::make_time_source();
     let disk = utils::make_block_device(utils::DISK_SOURCE).unwrap();
-    let mut volume_mgr = embedded_sdmmc::VolumeManager::new(disk, time_source);
+    let volume_mgr = embedded_sdmmc::VolumeManager::new(disk, time_source);
 
     let fat16_volume = volume_mgr
         .open_raw_volume(embedded_sdmmc::VolumeIdx(0))
@@ -53,7 +53,7 @@ fn read_file_512_blocks() {
 fn read_file_all() {
     let time_source = utils::make_time_source();
     let disk = utils::make_block_device(utils::DISK_SOURCE).unwrap();
-    let mut volume_mgr = embedded_sdmmc::VolumeManager::new(disk, time_source);
+    let volume_mgr = embedded_sdmmc::VolumeManager::new(disk, time_source);
 
     let fat16_volume = volume_mgr
         .open_raw_volume(embedded_sdmmc::VolumeIdx(0))
@@ -87,7 +87,7 @@ fn read_file_all() {
 fn read_file_prime_blocks() {
     let time_source = utils::make_time_source();
     let disk = utils::make_block_device(utils::DISK_SOURCE).unwrap();
-    let mut volume_mgr = embedded_sdmmc::VolumeManager::new(disk, time_source);
+    let volume_mgr = embedded_sdmmc::VolumeManager::new(disk, time_source);
 
     let fat16_volume = volume_mgr
         .open_raw_volume(embedded_sdmmc::VolumeIdx(0))
@@ -130,7 +130,7 @@ fn read_file_prime_blocks() {
 fn read_file_backwards() {
     let time_source = utils::make_time_source();
     let disk = utils::make_block_device(utils::DISK_SOURCE).unwrap();
-    let mut volume_mgr = embedded_sdmmc::VolumeManager::new(disk, time_source);
+    let volume_mgr = embedded_sdmmc::VolumeManager::new(disk, time_source);
 
     let fat16_volume = volume_mgr
         .open_raw_volume(embedded_sdmmc::VolumeIdx(0))
@@ -188,13 +188,13 @@ fn read_file_backwards() {
 fn read_file_with_odd_seek() {
     let time_source = utils::make_time_source();
     let disk = utils::make_block_device(utils::DISK_SOURCE).unwrap();
-    let mut volume_mgr = embedded_sdmmc::VolumeManager::new(disk, time_source);
+    let volume_mgr = embedded_sdmmc::VolumeManager::new(disk, time_source);
 
-    let mut volume = volume_mgr
+    let volume = volume_mgr
         .open_volume(embedded_sdmmc::VolumeIdx(0))
         .unwrap();
-    let mut root_dir = volume.open_root_dir().unwrap();
-    let mut f = root_dir
+    let root_dir = volume.open_root_dir().unwrap();
+    let f = root_dir
         .open_file_in_dir("64MB.DAT", embedded_sdmmc::Mode::ReadOnly)
         .unwrap();
     f.seek_from_start(0x2c).unwrap();

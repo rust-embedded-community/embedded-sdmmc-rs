@@ -27,10 +27,10 @@
 //! {
 //!     let sdcard = SdCard::new(spi, delay);
 //!     println!("Card size is {} bytes", sdcard.num_bytes()?);
-//!     let mut volume_mgr = VolumeManager::new(sdcard, ts);
-//!     let mut volume0 = volume_mgr.open_volume(VolumeIdx(0))?;
+//!     let volume_mgr = VolumeManager::new(sdcard, ts);
+//!     let volume0 = volume_mgr.open_volume(VolumeIdx(0))?;
 //!     println!("Volume 0: {:?}", volume0);
-//!     let mut root_dir = volume0.open_root_dir()?;
+//!     let root_dir = volume0.open_root_dir()?;
 //!     let mut my_file = root_dir.open_file_in_dir("MY_FILE.TXT", Mode::ReadOnly)?;
 //!     while !my_file.is_eof() {
 //!         let mut buffer = [0u8; 32];
@@ -43,12 +43,31 @@
 //! }
 //! ```
 //!
+//! For writing files:
+//!
+//! ```rust
+//! use embedded_sdmmc::{BlockDevice, Directory, Error, Mode, TimeSource};
+//! fn write_file<D: BlockDevice, T: TimeSource, const DIRS: usize, const FILES: usize, const VOLUMES: usize>(
+//!     root_dir: &mut Directory<D, T, DIRS, FILES, VOLUMES>,
+//! ) -> Result<(), Error<D::Error>>
+//! {
+//!     let my_other_file = root_dir.open_file_in_dir("MY_DATA.CSV", Mode::ReadWriteCreateOrAppend)?;
+//!     my_other_file.write(b"Timestamp,Signal,Value\n")?;
+//!     my_other_file.write(b"2025-01-01T00:00:00Z,TEMP,25.0\n")?;
+//!     my_other_file.write(b"2025-01-01T00:00:01Z,TEMP,25.1\n")?;
+//!     my_other_file.write(b"2025-01-01T00:00:02Z,TEMP,25.2\n")?;
+//!     // Don't forget to flush the file so that the directory entry is updated
+//!     my_other_file.flush()?;
+//!     Ok(())
+//! }
+//! ```
+//!
 //! ## Features
 //!
 //! * `log`: Enabled by default. Generates log messages using the `log` crate.
 //! * `defmt-log`: By turning off the default features and enabling the
-//! `defmt-log` feature you can configure this crate to log messages over defmt
-//! instead.
+//!   `defmt-log` feature you can configure this crate to log messages over defmt
+//!   instead.
 //!
 //! You cannot enable both the `log` feature and the `defmt-log` feature.
 
@@ -73,18 +92,20 @@ pub mod fat;
 pub mod filesystem;
 pub mod sdcard;
 
-use filesystem::SearchId;
+use core::fmt::Debug;
+use embedded_io::ErrorKind;
+use filesystem::Handle;
 
 #[doc(inline)]
-pub use crate::blockdevice::{Block, BlockCount, BlockDevice, BlockIdx};
+pub use crate::blockdevice::{Block, BlockCache, BlockCount, BlockDevice, BlockIdx};
 
 #[doc(inline)]
-pub use crate::fat::FatVolume;
+pub use crate::fat::{FatVolume, VolumeName};
 
 #[doc(inline)]
 pub use crate::filesystem::{
-    Attributes, ClusterId, DirEntry, Directory, File, FilenameError, Mode, RawDirectory, RawFile,
-    ShortFileName, TimeSource, Timestamp, MAX_FILE_SIZE,
+    Attributes, ClusterId, DirEntry, Directory, File, FilenameError, LfnBuffer, Mode, RawDirectory,
+    RawFile, ShortFileName, TimeSource, Timestamp, MAX_FILE_SIZE,
 };
 
 use filesystem::DirectoryInfo;
@@ -200,6 +221,46 @@ where
     DiskFull,
     /// A directory with that name already exists
     DirAlreadyExists,
+    /// The filesystem tried to gain a lock whilst already locked.
+    ///
+    /// This is either a bug in the filesystem, or you tried to access the
+    /// filesystem API from inside a directory iterator (that isn't allowed).
+    LockError,
+}
+
+impl<E: Debug> embedded_io::Error for Error<E> {
+    fn kind(&self) -> ErrorKind {
+        match self {
+            Error::DeviceError(_)
+            | Error::FormatError(_)
+            | Error::FileAlreadyOpen
+            | Error::DirAlreadyOpen
+            | Error::VolumeStillInUse
+            | Error::VolumeAlreadyOpen
+            | Error::EndOfFile
+            | Error::DiskFull
+            | Error::NotEnoughSpace
+            | Error::AllocationError
+            | Error::LockError => ErrorKind::Other,
+            Error::NoSuchVolume
+            | Error::FilenameError(_)
+            | Error::BadHandle
+            | Error::InvalidOffset => ErrorKind::InvalidInput,
+            Error::TooManyOpenVolumes | Error::TooManyOpenDirs | Error::TooManyOpenFiles => {
+                ErrorKind::OutOfMemory
+            }
+            Error::NotFound => ErrorKind::NotFound,
+            Error::OpenedDirAsFile
+            | Error::OpenedFileAsDir
+            | Error::DeleteDirAsFile
+            | Error::BadCluster
+            | Error::ConversionError
+            | Error::UnterminatedFatChain => ErrorKind::InvalidData,
+            Error::Unsupported | Error::BadBlockSize(_) => ErrorKind::Unsupported,
+            Error::ReadOnly => ErrorKind::PermissionDenied,
+            Error::FileAlreadyExists | Error::DirAlreadyExists => ErrorKind::AlreadyExists,
+        }
+    }
 }
 
 impl<E> From<E> for Error<E>
@@ -211,10 +272,19 @@ where
     }
 }
 
-/// A partition with a filesystem within it.
+/// A handle to a volume.
+///
+/// A volume is a partition with a filesystem within it.
+///
+/// Do NOT drop this object! It doesn't hold a reference to the Volume Manager
+/// it was created from and the VolumeManager will think you still have the
+/// volume open if you just drop it, and it won't let you open the file again.
+///
+/// Instead you must pass it to [`crate::VolumeManager::close_volume`] to close
+/// it cleanly.
 #[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub struct RawVolume(SearchId);
+pub struct RawVolume(Handle);
 
 impl RawVolume {
     /// Convert a raw volume into a droppable [`Volume`]
@@ -226,7 +296,7 @@ impl RawVolume {
         const MAX_VOLUMES: usize,
     >(
         self,
-        volume_mgr: &mut VolumeManager<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>,
+        volume_mgr: &VolumeManager<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>,
     ) -> Volume<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>
     where
         D: crate::BlockDevice,
@@ -236,7 +306,7 @@ impl RawVolume {
     }
 }
 
-/// An open volume on disk, which closes on drop.
+/// A handle for an open volume on disk, which closes on drop.
 ///
 /// In contrast to a `RawVolume`, a `Volume` holds a mutable reference to its
 /// parent `VolumeManager`, which restricts which operations you can perform.
@@ -250,7 +320,7 @@ where
     T: crate::TimeSource,
 {
     raw_volume: RawVolume,
-    volume_mgr: &'a mut VolumeManager<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>,
+    volume_mgr: &'a VolumeManager<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>,
 }
 
 impl<'a, D, T, const MAX_DIRS: usize, const MAX_FILES: usize, const MAX_VOLUMES: usize>
@@ -262,7 +332,7 @@ where
     /// Create a new `Volume` from a `RawVolume`
     pub fn new(
         raw_volume: RawVolume,
-        volume_mgr: &'a mut VolumeManager<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>,
+        volume_mgr: &'a VolumeManager<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>,
     ) -> Volume<'a, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES> {
         Volume {
             raw_volume,
@@ -275,7 +345,7 @@ where
     /// You can then read the directory entries with `iterate_dir`, or you can
     /// use `open_file_in_dir`.
     pub fn open_root_dir(
-        &mut self,
+        &self,
     ) -> Result<crate::Directory<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>, Error<D::Error>> {
         let d = self.volume_mgr.open_root_dir(self.raw_volume)?;
         Ok(d.to_directory(self.volume_mgr))
@@ -337,9 +407,9 @@ where
 #[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct VolumeInfo {
-    /// Search ID for this volume.
-    volume_id: RawVolume,
-    /// TODO: some kind of index
+    /// Handle for this volume.
+    raw_volume: RawVolume,
+    /// Which volume (i.e. partition) we opened on the disk
     idx: VolumeIdx,
     /// What kind of volume this is
     volume_type: VolumeType,
@@ -369,6 +439,9 @@ const PARTITION_ID_FAT16_LBA: u8 = 0x0E;
 /// Marker for a FAT16 partition. Seen on a card formatted with the official
 /// SD-Card formatter.
 const PARTITION_ID_FAT16: u8 = 0x06;
+/// Marker for a FAT16 partition smaller than 32MB. Seen on the wowki simulated
+/// microsd card
+const PARTITION_ID_FAT16_SMALL: u8 = 0x04;
 /// Marker for a FAT32 partition. What Macosx disk utility (and also SD-Card formatter?)
 /// use.
 const PARTITION_ID_FAT32_CHS_LBA: u8 = 0x0B;

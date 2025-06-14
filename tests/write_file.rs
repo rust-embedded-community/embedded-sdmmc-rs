@@ -8,7 +8,7 @@ mod utils;
 fn append_file() {
     let time_source = utils::make_time_source();
     let disk = utils::make_block_device(utils::DISK_SOURCE).unwrap();
-    let mut volume_mgr: VolumeManager<utils::RamDisk<Vec<u8>>, utils::TestTimeSource, 4, 2, 1> =
+    let volume_mgr: VolumeManager<utils::RamDisk<Vec<u8>>, utils::TestTimeSource, 4, 2, 1> =
         VolumeManager::new_with_limits(disk, time_source, 0xAA00_0000);
     let volume = volume_mgr
         .open_raw_volume(VolumeIdx(0))
@@ -59,7 +59,7 @@ fn append_file() {
 fn flush_file() {
     let time_source = utils::make_time_source();
     let disk = utils::make_block_device(utils::DISK_SOURCE).unwrap();
-    let mut volume_mgr: VolumeManager<utils::RamDisk<Vec<u8>>, utils::TestTimeSource, 4, 2, 1> =
+    let volume_mgr: VolumeManager<utils::RamDisk<Vec<u8>>, utils::TestTimeSource, 4, 2, 1> =
         VolumeManager::new_with_limits(disk, time_source, 0xAA00_0000);
     let volume = volume_mgr
         .open_raw_volume(VolumeIdx(0))
@@ -106,7 +106,7 @@ fn flush_file() {
 fn random_access_write_file() {
     let time_source = utils::make_time_source();
     let disk = utils::make_block_device(utils::DISK_SOURCE).unwrap();
-    let mut volume_mgr: VolumeManager<utils::RamDisk<Vec<u8>>, utils::TestTimeSource, 4, 2, 1> =
+    let volume_mgr: VolumeManager<utils::RamDisk<Vec<u8>>, utils::TestTimeSource, 4, 2, 1> =
         VolumeManager::new_with_limits(disk, time_source, 0xAA00_0000);
     let volume = volume_mgr
         .open_raw_volume(VolumeIdx(0))

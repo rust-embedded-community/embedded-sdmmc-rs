@@ -1,7 +1,9 @@
+use super::TimeSource;
 use crate::{
-    filesystem::{ClusterId, DirEntry, SearchId},
-    Error, RawVolume, VolumeManager,
+    filesystem::{ClusterId, DirEntry, Handle},
+    BlockDevice, Error, RawVolume, VolumeManager,
 };
+use embedded_io::{ErrorType, Read, Seek, SeekFrom, Write};
 
 /// A handle for an open file on disk.
 ///
@@ -21,13 +23,13 @@ use crate::{
 /// reason we did it this way.
 #[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub struct RawFile(pub(crate) SearchId);
+pub struct RawFile(pub(crate) Handle);
 
 impl RawFile {
     /// Convert a raw file into a droppable [`File`]
     pub fn to_file<D, T, const MAX_DIRS: usize, const MAX_FILES: usize, const MAX_VOLUMES: usize>(
         self,
-        volume_mgr: &mut VolumeManager<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>,
+        volume_mgr: &VolumeManager<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>,
     ) -> File<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>
     where
         D: crate::BlockDevice,
@@ -51,7 +53,7 @@ where
     T: crate::TimeSource,
 {
     raw_file: RawFile,
-    volume_mgr: &'a mut VolumeManager<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>,
+    volume_mgr: &'a VolumeManager<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>,
 }
 
 impl<'a, D, T, const MAX_DIRS: usize, const MAX_FILES: usize, const MAX_VOLUMES: usize>
@@ -63,7 +65,7 @@ where
     /// Create a new `File` from a `RawFile`
     pub fn new(
         raw_file: RawFile,
-        volume_mgr: &'a mut VolumeManager<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>,
+        volume_mgr: &'a VolumeManager<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>,
     ) -> File<'a, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES> {
         File {
             raw_file,
@@ -74,12 +76,12 @@ where
     /// Read from the file
     ///
     /// Returns how many bytes were read, or an error.
-    pub fn read(&mut self, buffer: &mut [u8]) -> Result<usize, crate::Error<D::Error>> {
+    pub fn read(&self, buffer: &mut [u8]) -> Result<usize, crate::Error<D::Error>> {
         self.volume_mgr.read(self.raw_file, buffer)
     }
 
     /// Write to the file
-    pub fn write(&mut self, buffer: &[u8]) -> Result<(), crate::Error<D::Error>> {
+    pub fn write(&self, buffer: &[u8]) -> Result<(), crate::Error<D::Error>> {
         self.volume_mgr.write(self.raw_file, buffer)
     }
 
@@ -91,18 +93,18 @@ where
     }
 
     /// Seek a file with an offset from the current position.
-    pub fn seek_from_current(&mut self, offset: i32) -> Result<(), crate::Error<D::Error>> {
+    pub fn seek_from_current(&self, offset: i32) -> Result<(), crate::Error<D::Error>> {
         self.volume_mgr
             .file_seek_from_current(self.raw_file, offset)
     }
 
     /// Seek a file with an offset from the start of the file.
-    pub fn seek_from_start(&mut self, offset: u32) -> Result<(), crate::Error<D::Error>> {
+    pub fn seek_from_start(&self, offset: u32) -> Result<(), crate::Error<D::Error>> {
         self.volume_mgr.file_seek_from_start(self.raw_file, offset)
     }
 
     /// Seek a file with an offset back from the end of the file.
-    pub fn seek_from_end(&mut self, offset: u32) -> Result<(), crate::Error<D::Error>> {
+    pub fn seek_from_end(&self, offset: u32) -> Result<(), crate::Error<D::Error>> {
         self.volume_mgr.file_seek_from_end(self.raw_file, offset)
     }
 
@@ -128,7 +130,7 @@ where
     }
 
     /// Flush any written data by updating the directory entry.
-    pub fn flush(&mut self) -> Result<(), Error<D::Error>> {
+    pub fn flush(&self) -> Result<(), Error<D::Error>> {
         self.volume_mgr.flush_file(self.raw_file)
     }
 
@@ -162,6 +164,80 @@ where
 {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "File({})", self.raw_file.0 .0)
+    }
+}
+
+impl<
+        D: BlockDevice,
+        T: TimeSource,
+        const MAX_DIRS: usize,
+        const MAX_FILES: usize,
+        const MAX_VOLUMES: usize,
+    > ErrorType for File<'_, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>
+{
+    type Error = crate::Error<D::Error>;
+}
+
+impl<
+        D: BlockDevice,
+        T: TimeSource,
+        const MAX_DIRS: usize,
+        const MAX_FILES: usize,
+        const MAX_VOLUMES: usize,
+    > Read for File<'_, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>
+{
+    fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+        if buf.is_empty() {
+            Ok(0)
+        } else {
+            self.read(buf)
+        }
+    }
+}
+
+impl<
+        D: BlockDevice,
+        T: TimeSource,
+        const MAX_DIRS: usize,
+        const MAX_FILES: usize,
+        const MAX_VOLUMES: usize,
+    > Write for File<'_, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>
+{
+    fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+        if buf.is_empty() {
+            Ok(0)
+        } else {
+            self.write(buf)?;
+            Ok(buf.len())
+        }
+    }
+
+    fn flush(&mut self) -> Result<(), Self::Error> {
+        Self::flush(self)
+    }
+}
+
+impl<
+        D: BlockDevice,
+        T: TimeSource,
+        const MAX_DIRS: usize,
+        const MAX_FILES: usize,
+        const MAX_VOLUMES: usize,
+    > Seek for File<'_, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>
+{
+    fn seek(&mut self, pos: SeekFrom) -> Result<u64, Self::Error> {
+        match pos {
+            SeekFrom::Start(offset) => {
+                self.seek_from_start(offset.try_into().map_err(|_| Error::InvalidOffset)?)?
+            }
+            SeekFrom::End(offset) => {
+                self.seek_from_end((-offset).try_into().map_err(|_| Error::InvalidOffset)?)?
+            }
+            SeekFrom::Current(offset) => {
+                self.seek_from_current(offset.try_into().map_err(|_| Error::InvalidOffset)?)?
+            }
+        }
+        Ok(self.offset().into())
     }
 }
 
@@ -207,10 +283,10 @@ pub enum Mode {
 #[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
 #[derive(Debug, Clone)]
 pub(crate) struct FileInfo {
-    /// Unique ID for this file
-    pub(crate) file_id: RawFile,
-    /// The unique ID for the volume this directory is on
-    pub(crate) volume_id: RawVolume,
+    /// Handle for this file
+    pub(crate) raw_file: RawFile,
+    /// The handle for the volume this directory is on
+    pub(crate) raw_volume: RawVolume,
     /// The last cluster we accessed, and how many bytes that short-cuts us.
     ///
     /// This saves us walking from the very start of the FAT chain when we move
