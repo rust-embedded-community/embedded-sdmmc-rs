@@ -22,6 +22,7 @@ The format is based on [Keep a Changelog] and this project adheres to [Semantic 
 
 - `File` now implements the `embedded-io` `Read`, `Write` and `Seek` traits.
 - New `iterate_dir_lfn` method on `VolumeManager` and `Directory` - provides decoded Long File Names as `Option<&str>`
+- Implement `core::error::Error` for all error types (behind crate feature `core-error` as this raises the MSRV to 1.81)
 
 ### Removed
 
