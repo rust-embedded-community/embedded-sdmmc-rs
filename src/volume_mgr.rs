@@ -94,9 +94,9 @@ where
     }
 
     /// Temporarily get access to the underlying block device.
-    pub fn device<F>(&self, f: F) -> T
+    pub fn device<R, F>(&self, f: F) -> R
     where
-        F: FnOnce(&mut D) -> T,
+        F: FnOnce(&mut D) -> R,
     {
         let mut data = self.data.borrow_mut();
         let result = f(data.block_cache.block_device());
