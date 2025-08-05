@@ -70,6 +70,7 @@ let cont: VolumeManager<_, _, 6, 12, 4> = VolumeManager::new_with_limits(block, 
 * Delete files
 * Iterate root directory
 * Iterate sub-directories
+* Create directories
 * Log over defmt or the common log interface (feature flags).
 
 ## No-std usage
