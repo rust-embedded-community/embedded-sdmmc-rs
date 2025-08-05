@@ -82,7 +82,6 @@ This repository houses no examples for no-std usage, however you can check out t
 
 ## Todo List (PRs welcome!)
 
-* Create new dirs
 * Delete (empty) directories
 * Handle MS-DOS `/path/foo/bar.txt` style paths.
 
