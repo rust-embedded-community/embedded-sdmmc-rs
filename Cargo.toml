@@ -16,7 +16,9 @@ rust-version = "1.76"
 [dependencies]
 byteorder = {version = "1", default-features = false}
 defmt = {version = "0.3", optional = true}
+embassy-sync-06 = { package = "embassy-sync", version = "0.6.2", optional = true }
 embedded-hal = "1.0.0"
+embedded-hal-bus-03 = { package = "embedded-hal-bus", version = "0.3.0", optional = true }
 embedded-io = "0.6.1"
 heapless = "^0.8"
 log = {version = "0.4", default-features = false, optional = true}
@@ -30,6 +32,8 @@ hex-literal = "0.4.1"
 sha2 = "0.10"
 
 [features]
-default = ["log"]
+default = ["log", "embassy-sync-06", "embedded-hal-bus-03"]
 defmt-log = ["dep:defmt"]
+embassy-sync-06 = ["dep:embassy-sync-06"]
+embedded-hal-bus-03 = ["dep:embedded-hal-bus-03"]
 log = ["dep:log"]

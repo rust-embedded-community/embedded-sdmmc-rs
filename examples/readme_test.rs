@@ -7,7 +7,7 @@
 
 use core::cell::RefCell;
 
-use embedded_sdmmc::{Error, SdCardError, TimeSource, Timestamp};
+use embedded_sdmmc::{sdcard::RefCellSdCardDevice, Error, SdCardError, TimeSource, Timestamp};
 
 pub struct DummyCsPin;
 
@@ -117,13 +117,13 @@ fn main() -> Result<(), MyError> {
     // BEGIN Fake stuff that will be replaced with real peripherals
     let spi_bus = RefCell::new(FakeSpiBus());
     let delay = FakeDelayer();
-    let sdmmc_spi = embedded_hal_bus::spi::RefCellDevice::new(&spi_bus, DummyCsPin, delay).unwrap();
     let time_source = FakeTimesource();
     // END Fake stuff that will be replaced with real peripherals
 
     use embedded_sdmmc::{Mode, SdCard, VolumeIdx, VolumeManager};
     // Build an SD Card interface out of an SPI device, a chip-select pin and the delay object
-    let sdcard = SdCard::new(sdmmc_spi, delay);
+    let spi_device = RefCellSdCardDevice::new(&spi_bus, DummyCsPin);
+    let sdcard = SdCard::new(spi_device, delay);
     // Get the card size (this also triggers card initialisation because it's not been done yet)
     println!("Card size is {} bytes", sdcard.num_bytes()?);
     // Now let's look for volumes (also known as partitions) on our block device.
