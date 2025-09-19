@@ -20,7 +20,7 @@ impl<'a> Bpb<'a> {
     pub(crate) const FOOTER_VALUE: u16 = 0xAA55;
 
     /// Attempt to parse a Boot Parameter Block from a 512 byte sector.
-    pub fn create_from_bytes(data: &[u8; 512]) -> Result<Bpb, &'static str> {
+    pub fn create_from_bytes(data: &[u8; 512]) -> Result<Bpb<'_>, &'static str> {
         let mut bpb = Bpb {
             data,
             fat_type: FatType::Fat16,

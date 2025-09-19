@@ -57,7 +57,7 @@ impl<'a> OnDiskDirEntry<'a> {
 
     /// Create a new on-disk directory entry from a block of 32 bytes read
     /// from a directory file.
-    pub fn new(data: &[u8]) -> OnDiskDirEntry {
+    pub fn new(data: &[u8]) -> OnDiskDirEntry<'_> {
         OnDiskDirEntry { data }
     }
 

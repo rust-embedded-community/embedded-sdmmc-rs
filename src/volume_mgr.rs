@@ -110,7 +110,7 @@ where
     pub fn open_volume(
         &self,
         volume_idx: VolumeIdx,
-    ) -> Result<Volume<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>, Error<D::Error>> {
+    ) -> Result<Volume<'_, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>, Error<D::Error>> {
         let v = self.open_raw_volume(volume_idx)?;
         Ok(v.to_volume(self))
     }
