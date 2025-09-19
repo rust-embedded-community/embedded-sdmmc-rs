@@ -344,7 +344,7 @@ impl RawVolume {
     >(
         self,
         volume_mgr: &VolumeManager<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>,
-    ) -> Volume<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>
+    ) -> Volume<'_, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>
     where
         D: crate::BlockDevice,
         T: crate::TimeSource,
@@ -393,7 +393,7 @@ where
     /// use `open_file_in_dir`.
     pub fn open_root_dir(
         &self,
-    ) -> Result<crate::Directory<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>, Error<D::Error>> {
+    ) -> Result<crate::Directory<'_, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>, Error<D::Error>> {
         let d = self.volume_mgr.open_root_dir(self.raw_volume)?;
         Ok(d.to_directory(self.volume_mgr))
     }

@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog] and this project adheres to [Semantic 
 
 ## [Unreleased]
 
+### Changed
+
+- Updated to `defmt` 1.0.1, `embedded-hal-bus` 0.3.0, `env_logger` 0.11.8, `heapless` 0.9.1, and `hex-literal` 1.0.0.
+- Raised the minimum supported Rust version to 1.86.0.
+
 ## [Version 0.9.0] - 2025-06-08
 
 ### Changed

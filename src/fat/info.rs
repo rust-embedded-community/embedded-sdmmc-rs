@@ -49,7 +49,7 @@ impl<'a> InfoSector<'a> {
     const TRAIL_SIG: u32 = 0xAA55_0000;
 
     /// Try and create a new Info Sector from a block.
-    pub fn create_from_bytes(data: &[u8; 512]) -> Result<InfoSector, &'static str> {
+    pub fn create_from_bytes(data: &[u8; 512]) -> Result<InfoSector<'_>, &'static str> {
         let info = InfoSector { data };
         if info.lead_sig() != Self::LEAD_SIG {
             return Err("Bad lead signature on InfoSector");

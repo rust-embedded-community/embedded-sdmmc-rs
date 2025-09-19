@@ -30,7 +30,7 @@ impl RawFile {
     pub fn to_file<D, T, const MAX_DIRS: usize, const MAX_FILES: usize, const MAX_VOLUMES: usize>(
         self,
         volume_mgr: &VolumeManager<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>,
-    ) -> File<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>
+    ) -> File<'_, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>
     where
         D: crate::BlockDevice,
         T: crate::TimeSource,
