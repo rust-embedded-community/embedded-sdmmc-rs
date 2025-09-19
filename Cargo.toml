@@ -33,3 +33,4 @@ sha2 = "0.10"
 default = ["log"]
 defmt-log = ["dep:defmt"]
 log = ["dep:log"]
+core-error = []

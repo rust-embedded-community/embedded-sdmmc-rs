@@ -68,6 +68,8 @@
 //! * `defmt-log`: By turning off the default features and enabling the
 //!   `defmt-log` feature you can configure this crate to log messages over defmt
 //!   instead.
+//! * `core-error`: Enables implementations of `core::error::Error` for all error
+//!   types. This raises the Minimum Supported Rust Version to 1.81.
 //!
 //! You cannot enable both the `log` feature and the `defmt-log` feature.
 
@@ -271,6 +273,51 @@ where
         Error::DeviceError(value)
     }
 }
+
+impl<E> core::fmt::Display for Error<E>
+where
+    E: core::fmt::Debug + core::fmt::Display,
+{
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        match self {
+            Error::DeviceError(e) => write!(f, "error from underlying block device: {e}"),
+            Error::FormatError(s) => write!(f, "filesystem is badly formatted: {s}"),
+            Error::NoSuchVolume => write!(f, "no such volume"),
+            Error::FilenameError(_) => write!(f, "bad filename"),
+            Error::TooManyOpenVolumes => write!(f, "too many open volumes"),
+            Error::TooManyOpenDirs => write!(f, "too many open directories"),
+            Error::TooManyOpenFiles => write!(f, "too many open files"),
+            Error::BadHandle => write!(f, "bad handle"),
+            Error::NotFound => write!(f, "file or directory does not exist"),
+            Error::FileAlreadyOpen => write!(f, "file already open"),
+            Error::DirAlreadyOpen => write!(f, "directory already open"),
+            Error::OpenedDirAsFile => write!(f, "cannot open directory as file"),
+            Error::OpenedFileAsDir => write!(f, "cannot open file as directory"),
+            Error::DeleteDirAsFile => write!(f, "cannot delete directory as file"),
+            Error::VolumeStillInUse => write!(f, "volume is still in use"),
+            Error::VolumeAlreadyOpen => write!(f, "cannot open volume twice"),
+            Error::Unsupported => write!(f, "unsupported operation"),
+            Error::EndOfFile => write!(f, "end of file"),
+            Error::BadCluster => write!(f, "bad cluster"),
+            Error::ConversionError => write!(f, "type conversion failed"),
+            Error::NotEnoughSpace => write!(f, "not enough space on device"),
+            Error::AllocationError => write!(f, "cluster not properly allocated"),
+            Error::UnterminatedFatChain => write!(f, "FAT chain unterminated"),
+            Error::ReadOnly => write!(f, "file is read-only"),
+            Error::FileAlreadyExists => write!(f, "file already exists"),
+            Error::BadBlockSize(size) => {
+                write!(f, "bad block size: {size} (only 512 byte blocks supported)")
+            }
+            Error::InvalidOffset => write!(f, "invalid seek offset"),
+            Error::DiskFull => write!(f, "disk full"),
+            Error::DirAlreadyExists => write!(f, "directory already exists"),
+            Error::LockError => write!(f, "already locked"),
+        }
+    }
+}
+
+#[cfg(feature = "core-error")]
+impl<E> core::error::Error for Error<E> where E: core::fmt::Debug + core::fmt::Display {}
 
 /// A handle to a volume.
 ///
