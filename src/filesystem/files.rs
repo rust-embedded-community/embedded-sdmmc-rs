@@ -190,7 +190,7 @@ impl<
         if buf.is_empty() {
             Ok(0)
         } else {
-            self.read(buf)
+            File::read(self, buf)
         }
     }
 }
@@ -207,7 +207,7 @@ impl<
         if buf.is_empty() {
             Ok(0)
         } else {
-            self.write(buf)?;
+            File::write(self, buf)?;
             Ok(buf.len())
         }
     }

@@ -6,14 +6,17 @@ The format is based on [Keep a Changelog] and this project adheres to [Semantic 
 
 ## [Unreleased]
 
+## [Version 0.9.0] - 2025-06-08
+
 ### Changed
 
 - __Breaking Change__: `VolumeManager` now uses interior-mutability (with a `RefCell`) and so most methods are now `&self`. This also makes it easier to open multiple `File`, `Directory` or `Volume` objects at once.
-- __Breaking Change__: The `VolumeManager`, `File`, `Directory` and `Volume` no longer implement `Send` or `Sync.
+- __Breaking Change__: The `VolumeManager`, `File`, `Directory` and `Volume` no longer implement `Send` or `Sync`.
 - `VolumeManager` uses an interior block cache of 512 bytes, increasing its size by about 520 bytes but hugely reducing stack space required at run-time.
 - __Breaking Change__: The `VolumeManager::device` method now takes a callback rather than giving you a reference to the underlying `BlockDevice`
 - __Breaking Change__: `Error:LockError` variant added.
 - __Breaking Change__: `SearchId` was renamed to `Handle`
+- Fixed writing at block start mid-file (previously overwrote subsequent file data with zeros up to the end of the block)
 
 ### Added
 
@@ -24,6 +27,20 @@ The format is based on [Keep a Changelog] and this project adheres to [Semantic 
 ### Removed
 
 - __Breaking Change__: Removed the `reason: &str` argument from `BlockDevice`
+
+## [Version 0.8.2] - 2025-06-07
+
+### Changed
+
+* Fixed writing at block start mid-file (previously overwrote subsequent file data with zeros up to the end of the block)
+
+## [Version 0.8.1] - 2024-11-03
+
+### Changed
+
+* Second FAT is now updated, if it is present
+* When creating a directory `..` now points at the root directory correctly
+* The info block containing the free cluster count is now updated when unmounting a FAT32 volume. 
 
 ## [Version 0.8.0] - 2024-07-12
 
@@ -173,13 +190,16 @@ The format is based on [Keep a Changelog] and this project adheres to [Semantic 
 
 [Keep a Changelog]: http://keepachangelog.com/en/1.0.0/
 [Semantic Versioning]: http://semver.org/spec/v2.0.0.html
-[Unreleased]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/compare/v0.8.0...develop
-[Version 0.8.0]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/compare/v0.8.0...v0.7.0
-[Version 0.7.0]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/compare/v0.7.0...v0.6.0
-[Version 0.6.0]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/compare/v0.6.0...v0.5.0
-[Version 0.5.0]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/compare/v0.5.0...v0.4.0
-[Version 0.4.0]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/compare/v0.4.0...v0.3.0
-[Version 0.3.0]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/compare/v0.3.0...v0.2.1
-[Version 0.2.1]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/compare/v0.2.1...v0.2.0
-[Version 0.2.0]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/compare/v0.2.0...v0.1.1
+[Unreleased]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/compare/v0.9.0...develop
+[Version 0.9.0]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/compare/v0.8.2...v0.9.0
+[Version 0.8.2]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/compare/v0.8.1...v0.8.2
+[Version 0.8.1]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/compare/v0.8.0...v0.8.1
+[Version 0.8.0]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/compare/v0.7.0...v0.8.0
+[Version 0.7.0]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/compare/v0.6.0...v0.7.0
+[Version 0.6.0]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/compare/v0.5.0...v0.6.0
+[Version 0.5.0]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/compare/v0.4.0...v0.5.0
+[Version 0.4.0]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/compare/v0.3.0...v0.4.0
+[Version 0.3.0]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/compare/v0.2.1...v0.3.0
+[Version 0.2.1]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/compare/v0.2.0...v0.2.1
+[Version 0.2.0]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/compare/v0.1.1...v0.2.0
 [Version 0.1.1]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/releases/tag/v0.1.1

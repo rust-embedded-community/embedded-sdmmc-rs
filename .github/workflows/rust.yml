@@ -27,5 +27,7 @@ jobs:
         toolchain: ${{ matrix.rust }}
     - name: Build
       run: cargo build --no-default-features --features ${{matrix.features}} --verbose
+      env:
+        DEFMT_LOG: debug
     - name: Run Tests
       run: cargo test --no-default-features --features ${{matrix.features}} --verbose
