@@ -33,7 +33,7 @@ impl ToShortFileName for ShortFileName {
 
 impl ToShortFileName for &ShortFileName {
     fn to_short_filename(self) -> Result<ShortFileName, FilenameError> {
-        Ok(self.clone())
+        Ok(*self)
     }
 }
 
@@ -48,7 +48,7 @@ impl ToShortFileName for &str {
 /// ISO-8859-1 encoding is assumed. All lower-case is converted to upper-case by
 /// default.
 #[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
-#[derive(PartialEq, Eq, Clone)]
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ShortFileName {
     pub(crate) contents: [u8; Self::TOTAL_LEN],
 }
@@ -429,6 +429,40 @@ mod test {
         };
         assert_eq!(format!("{}", &sfn), "1.C");
         assert_eq!(sfn, ShortFileName::create_from_str("1.C").unwrap());
+    }
+
+    #[test]
+    fn filename_ordering() {
+        assert!(
+            ShortFileName::create_from_str("1.C").unwrap()
+                < ShortFileName::create_from_str("2.C").unwrap()
+        );
+        assert!(
+            ShortFileName::create_from_str("1.C").unwrap()
+                < ShortFileName::create_from_str("1.D").unwrap()
+        );
+        assert!(
+            ShortFileName::create_from_str("12.C").unwrap()
+                < ShortFileName::create_from_str("3.C").unwrap()
+        );
+        assert!(
+            ShortFileName::create_from_str("1.D").unwrap()
+                < ShortFileName::create_from_str("12.C").unwrap()
+        );
+        assert_eq!(
+            ShortFileName::create_from_str("1.D")
+                .unwrap()
+                .cmp(&ShortFileName::create_from_str("1.D").unwrap()),
+            core::cmp::Ordering::Equal
+        );
+        assert!(
+            ShortFileName::create_from_str("1").unwrap()
+                < ShortFileName::create_from_str("1.C").unwrap()
+        );
+        assert!(
+            ShortFileName::create_from_str("1.C").unwrap()
+                < ShortFileName::create_from_str("2").unwrap()
+        );
     }
 
     #[test]
