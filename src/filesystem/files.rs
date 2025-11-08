@@ -3,7 +3,10 @@ use crate::{
     filesystem::{ClusterId, DirEntry, Handle},
     BlockDevice, Error, RawVolume, VolumeManager,
 };
+#[cfg(not(feature = "async"))]
 use embedded_io::{ErrorType, Read, Seek, SeekFrom, Write};
+#[cfg(feature = "async")]
+use embedded_io_async::{ErrorType, Read, Seek, SeekFrom, Write};
 
 /// A handle for an open file on disk.
 ///
@@ -76,13 +79,17 @@ where
     /// Read from the file
     ///
     /// Returns how many bytes were read, or an error.
-    pub fn read(&self, buffer: &mut [u8]) -> Result<usize, crate::Error<D::Error>> {
-        self.volume_mgr.read(self.raw_file, buffer)
+    #[cfg_attr(feature = "async", maybe_async::must_be_async)]
+    #[cfg_attr(not(feature = "async"), maybe_async::must_be_sync)]
+    pub async fn read(&self, buffer: &mut [u8]) -> Result<usize, crate::Error<D::Error>> {
+        self.volume_mgr.read(self.raw_file, buffer).await
     }
 
     /// Write to the file
-    pub fn write(&self, buffer: &[u8]) -> Result<(), crate::Error<D::Error>> {
-        self.volume_mgr.write(self.raw_file, buffer)
+    #[cfg_attr(feature = "async", maybe_async::must_be_async)]
+    #[cfg_attr(not(feature = "async"), maybe_async::must_be_sync)]
+    pub async fn write(&self, buffer: &[u8]) -> Result<(), crate::Error<D::Error>> {
+        self.volume_mgr.write(self.raw_file, buffer).await
     }
 
     /// Check if a file is at End Of File.
@@ -130,16 +137,20 @@ where
     }
 
     /// Flush any written data by updating the directory entry.
-    pub fn flush(&self) -> Result<(), Error<D::Error>> {
-        self.volume_mgr.flush_file(self.raw_file)
+    #[cfg_attr(feature = "async", maybe_async::must_be_async)]
+    #[cfg_attr(not(feature = "async"), maybe_async::must_be_sync)]
+    pub async fn flush(&self) -> Result<(), Error<D::Error>> {
+        self.volume_mgr.flush_file(self.raw_file).await
     }
 
     /// Consume the `File` handle and close it. The behavior of this is similar
     /// to using [`core::mem::drop`] or letting the `File` go out of scope,
     /// except this lets the user handle any errors that may occur in the process,
     /// whereas when using drop, any errors will be discarded silently.
-    pub fn close(self) -> Result<(), Error<D::Error>> {
-        let result = self.volume_mgr.close_file(self.raw_file);
+    #[cfg_attr(feature = "async", maybe_async::must_be_async)]
+    #[cfg_attr(not(feature = "async"), maybe_async::must_be_sync)]
+    pub async fn close(self) -> Result<(), Error<D::Error>> {
+        let result = self.volume_mgr.close_file(self.raw_file).await;
         core::mem::forget(self);
         result
     }
@@ -186,11 +197,13 @@ impl<
         const MAX_VOLUMES: usize,
     > Read for File<'_, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>
 {
-    fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+    #[cfg_attr(feature = "async", maybe_async::must_be_async)]
+    #[cfg_attr(not(feature = "async"), maybe_async::must_be_sync)]
+    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         if buf.is_empty() {
             Ok(0)
         } else {
-            File::read(self, buf)
+            File::read(self, buf).await
         }
     }
 }
@@ -203,17 +216,21 @@ impl<
         const MAX_VOLUMES: usize,
     > Write for File<'_, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>
 {
-    fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+    #[cfg_attr(feature = "async", maybe_async::must_be_async)]
+    #[cfg_attr(not(feature = "async"), maybe_async::must_be_sync)]
+    async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         if buf.is_empty() {
             Ok(0)
         } else {
-            File::write(self, buf)?;
+            File::write(self, buf).await?;
             Ok(buf.len())
         }
     }
 
-    fn flush(&mut self) -> Result<(), Self::Error> {
-        Self::flush(self)
+    #[cfg_attr(feature = "async", maybe_async::must_be_async)]
+    #[cfg_attr(not(feature = "async"), maybe_async::must_be_sync)]
+    async fn flush(&mut self) -> Result<(), Self::Error> {
+        Self::flush(self).await
     }
 }
 
@@ -225,7 +242,9 @@ impl<
         const MAX_VOLUMES: usize,
     > Seek for File<'_, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>
 {
-    fn seek(&mut self, pos: SeekFrom) -> Result<u64, Self::Error> {
+    #[cfg_attr(feature = "async", maybe_async::must_be_async)]
+    #[cfg_attr(not(feature = "async"), maybe_async::must_be_sync)]
+    async fn seek(&mut self, pos: SeekFrom) -> Result<u64, Self::Error> {
         match pos {
             SeekFrom::Start(offset) => {
                 self.seek_from_start(offset.try_into().map_err(|_| Error::InvalidOffset)?)?

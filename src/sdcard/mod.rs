@@ -152,6 +152,7 @@ where
     }
 }
 
+#[cfg(not(feature = "async"))]
 impl<SPI, DELAYER> BlockDevice for SdCard<SPI, DELAYER>
 where
     SPI: embedded_hal::spi::SpiDevice<u8>,
@@ -162,7 +163,13 @@ where
     /// Read one or more blocks, starting at the given block index.
     ///
     /// This will trigger card (re-)initialisation.
-    fn read(&self, blocks: &mut [Block], start_block_idx: BlockIdx) -> Result<(), Self::Error> {
+    #[cfg_attr(feature = "async", maybe_async::must_be_async)]
+    #[cfg_attr(not(feature = "async"), maybe_async::must_be_sync)]
+    async fn read(
+        &self,
+        blocks: &mut [Block],
+        start_block_idx: BlockIdx,
+    ) -> Result<(), Self::Error> {
         let mut inner = self.inner.borrow_mut();
         debug!("Read {} blocks @ {}", blocks.len(), start_block_idx.0,);
         inner.check_init()?;
@@ -172,7 +179,9 @@ where
     /// Write one or more blocks, starting at the given block index.
     ///
     /// This will trigger card (re-)initialisation.
-    fn write(&self, blocks: &[Block], start_block_idx: BlockIdx) -> Result<(), Self::Error> {
+    #[cfg_attr(feature = "async", maybe_async::must_be_async)]
+    #[cfg_attr(not(feature = "async"), maybe_async::must_be_sync)]
+    async fn write(&self, blocks: &[Block], start_block_idx: BlockIdx) -> Result<(), Self::Error> {
         let mut inner = self.inner.borrow_mut();
         debug!("Writing {} blocks @ {}", blocks.len(), start_block_idx.0);
         inner.check_init()?;
@@ -182,7 +191,9 @@ where
     /// Determine how many blocks this device can hold.
     ///
     /// This will trigger card (re-)initialisation.
-    fn num_blocks(&self) -> Result<BlockCount, Self::Error> {
+    #[cfg_attr(feature = "async", maybe_async::must_be_async)]
+    #[cfg_attr(not(feature = "async"), maybe_async::must_be_sync)]
+    async fn num_blocks(&self) -> Result<BlockCount, Self::Error> {
         let mut inner = self.inner.borrow_mut();
         inner.check_init()?;
         inner.num_blocks()

@@ -391,7 +391,9 @@ where
     ///
     /// You can then read the directory entries with `iterate_dir`, or you can
     /// use `open_file_in_dir`.
-    pub fn open_root_dir(
+    #[cfg_attr(feature = "async", maybe_async::must_be_async)]
+    #[cfg_attr(not(feature = "async"), maybe_async::must_be_sync)]
+    pub async fn open_root_dir(
         &self,
     ) -> Result<crate::Directory<'_, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>, Error<D::Error>> {
         let d = self.volume_mgr.open_root_dir(self.raw_volume)?;
@@ -409,8 +411,10 @@ where
     /// to using [`core::mem::drop`] or letting the `Volume` go out of scope,
     /// except this lets the user handle any errors that may occur in the process,
     /// whereas when using drop, any errors will be discarded silently.
-    pub fn close(self) -> Result<(), Error<D::Error>> {
-        let result = self.volume_mgr.close_volume(self.raw_volume);
+    #[cfg_attr(feature = "async", maybe_async::must_be_async)]
+    #[cfg_attr(not(feature = "async"), maybe_async::must_be_sync)]
+    pub async fn close(self) -> Result<(), Error<D::Error>> {
+        let result = self.volume_mgr.close_volume(self.raw_volume).await;
         core::mem::forget(self);
         result
     }
