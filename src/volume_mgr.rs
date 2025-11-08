@@ -767,7 +767,7 @@ where
                 if maybe_volume_name.is_none()
                     && de.attributes == Attributes::create_from_fat(Attributes::VOLUME)
                 {
-                    maybe_volume_name = Some(unsafe { de.name.clone().to_volume_label() })
+                    maybe_volume_name = Some(unsafe { de.name.to_volume_label() })
                 }
             })
             .await?;
