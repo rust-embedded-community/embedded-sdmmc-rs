@@ -594,6 +594,49 @@ fn make_directory() {
     volume_mgr.close_file(new_file).expect("close file");
 }
 
+#[test]
+fn delete_directory() {
+    let time_source = utils::make_time_source();
+    let disk = utils::make_block_device(utils::DISK_SOURCE).unwrap();
+    let volume_mgr = embedded_sdmmc::VolumeManager::new(disk, time_source);
+
+    let fat32_volume = volume_mgr
+        .open_raw_volume(embedded_sdmmc::VolumeIdx(1))
+        .expect("open volume 1");
+
+    let root_dir = volume_mgr
+        .open_root_dir(fat32_volume)
+        .expect("open root dir");
+
+    volume_mgr.make_dir_in_dir(root_dir, "FOOBAR").unwrap();
+
+    let dir = volume_mgr.open_dir(root_dir, "FOOBAR").unwrap();
+
+    assert!(matches!(
+        volume_mgr.delete_file_in_dir(root_dir, "FOOBAR"),
+        Err(embedded_sdmmc::Error::DirAlreadyOpen)
+    ));
+
+    assert!(matches!(
+        volume_mgr.delete_file_in_dir(root_dir, "FOO"),
+        Err(embedded_sdmmc::Error::NotFound)
+    ));
+
+    volume_mgr.close_dir(dir).unwrap();
+
+    volume_mgr.delete_file_in_dir(root_dir, "FOOBAR").unwrap();
+
+    assert!(matches!(
+        volume_mgr.delete_file_in_dir(root_dir, "FOOBAR"),
+        Err(embedded_sdmmc::Error::NotFound)
+    ));
+
+    assert!(matches!(
+        volume_mgr.open_dir(root_dir, "FOOBAR"),
+        Err(embedded_sdmmc::Error::NotFound)
+    ));
+}
+
 // ****************************************************************************
 //
 // End Of File

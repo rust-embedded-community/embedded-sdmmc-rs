@@ -666,26 +666,62 @@ where
         let data = data.deref_mut();
 
         let dir_idx = data.get_dir_by_id(directory)?;
-        let dir_info = &data.open_dirs[dir_idx];
-        let volume_idx = data.get_volume_by_id(dir_info.raw_volume)?;
+        let parent_dir_info = &data.open_dirs[dir_idx];
+        let volume_idx = data.get_volume_by_id(parent_dir_info.raw_volume)?;
         let sfn = name.to_short_filename().map_err(Error::FilenameError)?;
 
         let dir_entry = match &data.open_volumes[volume_idx].volume_type {
-            VolumeType::Fat(fat) => fat.find_directory_entry(&mut data.block_cache, dir_info, &sfn),
+            VolumeType::Fat(fat) => {
+                fat.find_directory_entry(&mut data.block_cache, parent_dir_info, &sfn)
+            }
         }?;
 
         if dir_entry.attributes.is_directory() {
-            return Err(Error::DeleteDirAsFile);
-        }
-
-        if data.file_is_open(dir_info.raw_volume, &dir_entry) {
+            // Find the directory to be deleted, so that we can check its contents.
+            let dir_info = if data
+                .open_dirs
+                .iter()
+                .find(|dir_info| dir_info.cluster == dir_entry.cluster)
+                .is_some()
+            {
+                // Subdirectory is already open.
+                return Err(Error::DirAlreadyOpen);
+            } else {
+                // The subdirectory isn't yet open. Open it in order to be able to list it.
+                let raw_directory = RawDirectory(data.id_generator.generate());
+                DirectoryInfo {
+                    raw_directory,
+                    raw_volume: data.open_volumes[volume_idx].raw_volume,
+                    cluster: dir_entry.cluster,
+                }
+            };
+            // Can only delete directories that are already empty.
+            let mut count = 0;
+            // Equivalent to `self.iterate_dir(raw_dir, |_| count += 1)?;`, without locking again.
+            match &data.open_volumes[volume_idx].volume_type {
+                VolumeType::Fat(fat) => {
+                    fat.iterate_dir(&mut data.block_cache, &dir_info, |de| {
+                        // Hide all the LFN directory entries
+                        if !de.attributes.is_lfn()
+                            && de.name != ShortFileName::this_dir()
+                            && de.name != ShortFileName::parent_dir()
+                        {
+                            count += 1;
+                        }
+                    })?;
+                }
+            }
+            if count != 0 {
+                return Err(Error::DeleteNonEmptyDir);
+            }
+        } else if data.file_is_open(parent_dir_info.raw_volume, &dir_entry) {
             return Err(Error::FileAlreadyOpen);
         }
 
-        let volume_idx = data.get_volume_by_id(dir_info.raw_volume)?;
+        let volume_idx = data.get_volume_by_id(parent_dir_info.raw_volume)?;
         match &data.open_volumes[volume_idx].volume_type {
             VolumeType::Fat(fat) => {
-                fat.delete_directory_entry(&mut data.block_cache, dir_info, &sfn)?
+                fat.delete_directory_entry(&mut data.block_cache, parent_dir_info, &sfn)?
             }
         }
 
