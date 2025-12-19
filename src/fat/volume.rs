@@ -1,14 +1,14 @@
 //! FAT-specific volume support.
 
 use crate::{
-    debug,
+    Attributes, Block, BlockCache, BlockCount, BlockDevice, BlockIdx, ClusterId, DirEntry,
+    DirectoryInfo, Error, LfnBuffer, ShortFileName, TimeSource, VolumeType, debug,
     fat::{
         Bpb, Fat16Info, Fat32Info, FatSpecificInfo, FatType, InfoSector, OnDiskDirEntry,
         RESERVED_ENTRIES,
     },
     filesystem::FilenameError,
-    trace, warn, Attributes, Block, BlockCache, BlockCount, BlockDevice, BlockIdx, ClusterId,
-    DirEntry, DirectoryInfo, Error, LfnBuffer, ShortFileName, TimeSource, VolumeType,
+    trace, warn,
 };
 use byteorder::{ByteOrder, LittleEndian};
 use core::convert::TryFrom;
@@ -1036,8 +1036,7 @@ impl FatVolume {
                 while current_cluster.0 < end_cluster.0 {
                     trace!(
                         "current_cluster={:?}, end_cluster={:?}",
-                        current_cluster,
-                        end_cluster
+                        current_cluster, end_cluster
                     );
                     let fat_offset = current_cluster.0 * 2;
                     trace!("fat_offset = {:?}", fat_offset);
@@ -1066,8 +1065,7 @@ impl FatVolume {
                 while current_cluster.0 < end_cluster.0 {
                     trace!(
                         "current_cluster={:?}, end_cluster={:?}",
-                        current_cluster,
-                        end_cluster
+                        current_cluster, end_cluster
                     );
                     let fat_offset = current_cluster.0 * 4;
                     trace!("fat_offset = {:?}", fat_offset);
@@ -1115,8 +1113,7 @@ impl FatVolume {
         };
         trace!(
             "Finding next free between {:?}..={:?}",
-            start_cluster,
-            end_cluster
+            start_cluster, end_cluster
         );
         let new_cluster = match self.find_next_free_cluster(block_cache, start_cluster, end_cluster)
         {
@@ -1137,15 +1134,13 @@ impl FatVolume {
         if let Some(cluster) = prev_cluster {
             trace!(
                 "Updating old cluster {:?} to {:?} in FAT",
-                cluster,
-                new_cluster
+                cluster, new_cluster
             );
             self.update_fat(block_cache, cluster, new_cluster)?;
         }
         trace!(
             "Finding next free between {:?}..={:?}",
-            new_cluster,
-            end_cluster
+            new_cluster, end_cluster
         );
         self.next_free_cluster =
             match self.find_next_free_cluster(block_cache, new_cluster, end_cluster) {

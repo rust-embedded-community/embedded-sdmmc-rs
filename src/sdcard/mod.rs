@@ -5,7 +5,7 @@
 
 pub mod proto;
 
-use crate::{trace, Block, BlockCount, BlockDevice, BlockIdx};
+use crate::{Block, BlockCount, BlockDevice, BlockIdx, trace};
 use core::cell::RefCell;
 use proto::*;
 

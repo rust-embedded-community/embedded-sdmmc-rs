@@ -255,7 +255,7 @@ where
     T: crate::TimeSource,
 {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "Directory({})", self.raw_directory.0 .0)
+        write!(f, "Directory({})", self.raw_directory.0.0)
     }
 }
 
@@ -267,7 +267,7 @@ where
     T: crate::TimeSource,
 {
     fn format(&self, fmt: defmt::Formatter) {
-        defmt::write!(fmt, "Directory({})", self.raw_directory.0 .0)
+        defmt::write!(fmt, "Directory({})", self.raw_directory.0.0)
     }
 }
 

@@ -104,8 +104,8 @@ pub use crate::fat::{FatVolume, VolumeName};
 
 #[doc(inline)]
 pub use crate::filesystem::{
-    Attributes, ClusterId, DirEntry, Directory, File, FilenameError, LfnBuffer, Mode, RawDirectory,
-    RawFile, ShortFileName, TimeSource, Timestamp, MAX_FILE_SIZE,
+    Attributes, ClusterId, DirEntry, Directory, File, FilenameError, LfnBuffer, MAX_FILE_SIZE,
+    Mode, RawDirectory, RawFile, ShortFileName, TimeSource, Timestamp,
 };
 
 use filesystem::DirectoryInfo;
@@ -431,7 +431,7 @@ where
     T: crate::TimeSource,
 {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "Volume({})", self.raw_volume.0 .0)
+        write!(f, "Volume({})", self.raw_volume.0.0)
     }
 }
 
@@ -443,7 +443,7 @@ where
     T: crate::TimeSource,
 {
     fn format(&self, fmt: defmt::Formatter) {
-        defmt::write!(fmt, "Volume({})", self.raw_volume.0 .0)
+        defmt::write!(fmt, "Volume({})", self.raw_volume.0.0)
     }
 }
 

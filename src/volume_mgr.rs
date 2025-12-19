@@ -10,14 +10,15 @@ use byteorder::{ByteOrder, LittleEndian};
 use heapless::Vec;
 
 use crate::{
+    Block, BlockCache, BlockCount, BlockDevice, BlockIdx, Error, PARTITION_ID_FAT16,
+    PARTITION_ID_FAT16_LBA, PARTITION_ID_FAT16_SMALL, PARTITION_ID_FAT32_CHS_LBA,
+    PARTITION_ID_FAT32_LBA, RawVolume, ShortFileName, Volume, VolumeIdx, VolumeInfo, VolumeType,
     debug, fat,
     filesystem::{
-        Attributes, ClusterId, DirEntry, DirectoryInfo, FileInfo, HandleGenerator, LfnBuffer, Mode,
-        RawDirectory, RawFile, TimeSource, ToShortFileName, MAX_FILE_SIZE,
+        Attributes, ClusterId, DirEntry, DirectoryInfo, FileInfo, HandleGenerator, LfnBuffer,
+        MAX_FILE_SIZE, Mode, RawDirectory, RawFile, TimeSource, ToShortFileName,
     },
-    trace, Block, BlockCache, BlockCount, BlockDevice, BlockIdx, Error, RawVolume, ShortFileName,
-    Volume, VolumeIdx, VolumeInfo, VolumeType, PARTITION_ID_FAT16, PARTITION_ID_FAT16_LBA,
-    PARTITION_ID_FAT16_SMALL, PARTITION_ID_FAT32_CHS_LBA, PARTITION_ID_FAT32_LBA,
+    trace,
 };
 
 /// Wraps a block device and gives access to the FAT-formatted volumes within
@@ -1245,8 +1246,8 @@ fn solve_mode_variant(mode: Mode, dir_entry_is_some: bool) -> Mode {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::filesystem::Handle;
     use crate::Timestamp;
+    use crate::filesystem::Handle;
 
     struct DummyBlockDevice;
 
