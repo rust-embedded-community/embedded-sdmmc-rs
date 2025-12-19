@@ -11,7 +11,7 @@ repository = "https://github.com/rust-embedded-community/embedded-sdmmc-rs"
 version = "0.9.0"
 
 # Make sure to update the CI too!
-rust-version = "1.86"
+rust-version = "1.87"
 
 [dependencies]
 byteorder = {version = "1", default-features = false}
@@ -33,4 +33,4 @@ sha2 = "0.10"
 default = ["log"]
 defmt-log = ["dep:defmt"]
 log = ["dep:log"]
-core-error = []
+

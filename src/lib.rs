@@ -68,8 +68,6 @@
 //! * `defmt-log`: By turning off the default features and enabling the
 //!   `defmt-log` feature you can configure this crate to log messages over defmt
 //!   instead.
-//! * `core-error`: Enables implementations of `core::error::Error` for all error
-//!   types. This raises the Minimum Supported Rust Version to 1.81.
 //!
 //! You cannot enable both the `log` feature and the `defmt-log` feature.
 
@@ -316,7 +314,6 @@ where
     }
 }
 
-#[cfg(feature = "core-error")]
 impl<E> core::error::Error for Error<E> where E: core::fmt::Debug + core::fmt::Display {}
 
 /// A handle to a volume.

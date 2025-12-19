@@ -648,7 +648,6 @@ impl core::fmt::Display for Error {
     }
 }
 
-#[cfg(feature = "core-error")]
 impl core::error::Error for Error {}
 
 /// The different types of card we support.
