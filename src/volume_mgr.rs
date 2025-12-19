@@ -100,8 +100,8 @@ where
         F: FnOnce(&mut D) -> R,
     {
         let mut data = self.data.borrow_mut();
-        let result = f(data.block_cache.block_device());
-        result
+
+        f(data.block_cache.block_device())
     }
 
     /// Get a volume (or partition) based on entries in the Master Boot Record.
@@ -724,7 +724,7 @@ where
             if maybe_volume_name.is_none()
                 && de.attributes == Attributes::create_from_fat(Attributes::VOLUME)
             {
-                maybe_volume_name = Some(unsafe { de.name.clone().to_volume_label() })
+                maybe_volume_name = Some(unsafe { de.name.to_volume_label() })
             }
         })?;
 
