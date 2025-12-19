@@ -2,7 +2,7 @@
 authors = ["Jonathan 'theJPster' Pallant <github@thejpster.org.uk>", "Rust Embedded Community Developers"]
 categories = ["embedded", "no-std"]
 description = "A basic SD/MMC driver for Embedded Rust."
-edition = "2021"
+edition = "2024"
 keywords = ["sdcard", "mmc", "embedded", "fat32"]
 license = "MIT OR Apache-2.0"
 name = "embedded-sdmmc"
