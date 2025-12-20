@@ -578,9 +578,11 @@ fn make_directory() {
         .open_root_dir(fat32_volume)
         .expect("open root dir");
     // Check we can't make it again now it exists
-    assert!(volume_mgr
-        .make_dir_in_dir(root_dir, &test_dir_name)
-        .is_err());
+    assert!(
+        volume_mgr
+            .make_dir_in_dir(root_dir, &test_dir_name)
+            .is_err()
+    );
     let new_dir = volume_mgr
         .open_dir(root_dir, &test_dir_name)
         .expect("find new dir");

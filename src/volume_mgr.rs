@@ -10,14 +10,15 @@ use byteorder::{ByteOrder, LittleEndian};
 use heapless::Vec;
 
 use crate::{
+    Block, BlockCache, BlockCount, BlockDevice, BlockIdx, Error, PARTITION_ID_FAT16,
+    PARTITION_ID_FAT16_LBA, PARTITION_ID_FAT16_SMALL, PARTITION_ID_FAT32_CHS_LBA,
+    PARTITION_ID_FAT32_LBA, RawVolume, ShortFileName, Volume, VolumeIdx, VolumeInfo, VolumeType,
     debug, fat,
     filesystem::{
-        Attributes, ClusterId, DirEntry, DirectoryInfo, FileInfo, HandleGenerator, LfnBuffer, Mode,
-        RawDirectory, RawFile, TimeSource, ToShortFileName, MAX_FILE_SIZE,
+        Attributes, ClusterId, DirEntry, DirectoryInfo, FileInfo, HandleGenerator, LfnBuffer,
+        MAX_FILE_SIZE, Mode, RawDirectory, RawFile, TimeSource, ToShortFileName,
     },
-    trace, Block, BlockCache, BlockCount, BlockDevice, BlockIdx, Error, RawVolume, ShortFileName,
-    Volume, VolumeIdx, VolumeInfo, VolumeType, PARTITION_ID_FAT16, PARTITION_ID_FAT16_LBA,
-    PARTITION_ID_FAT16_SMALL, PARTITION_ID_FAT32_CHS_LBA, PARTITION_ID_FAT32_LBA,
+    trace,
 };
 
 /// Wraps a block device and gives access to the FAT-formatted volumes within
@@ -99,8 +100,8 @@ where
         F: FnOnce(&mut D) -> R,
     {
         let mut data = self.data.borrow_mut();
-        let result = f(data.block_cache.block_device());
-        result
+
+        f(data.block_cache.block_device())
     }
 
     /// Get a volume (or partition) based on entries in the Master Boot Record.
@@ -723,7 +724,7 @@ where
             if maybe_volume_name.is_none()
                 && de.attributes == Attributes::create_from_fat(Attributes::VOLUME)
             {
-                maybe_volume_name = Some(unsafe { de.name.clone().to_volume_label() })
+                maybe_volume_name = Some(unsafe { de.name.to_volume_label() })
             }
         })?;
 
@@ -1245,8 +1246,8 @@ fn solve_mode_variant(mode: Mode, dir_entry_is_some: bool) -> Mode {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::filesystem::Handle;
     use crate::Timestamp;
+    use crate::filesystem::Handle;
 
     struct DummyBlockDevice;
 

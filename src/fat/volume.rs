@@ -1,14 +1,14 @@
 //! FAT-specific volume support.
 
 use crate::{
-    debug,
+    Attributes, Block, BlockCache, BlockCount, BlockDevice, BlockIdx, ClusterId, DirEntry,
+    DirectoryInfo, Error, LfnBuffer, ShortFileName, TimeSource, VolumeType, debug,
     fat::{
         Bpb, Fat16Info, Fat32Info, FatSpecificInfo, FatType, InfoSector, OnDiskDirEntry,
         RESERVED_ENTRIES,
     },
     filesystem::FilenameError,
-    trace, warn, Attributes, Block, BlockCache, BlockCount, BlockDevice, BlockIdx, ClusterId,
-    DirEntry, DirectoryInfo, Error, LfnBuffer, ShortFileName, TimeSource, VolumeType,
+    trace, warn,
 };
 use byteorder::{ByteOrder, LittleEndian};
 use core::convert::TryFrom;
@@ -603,7 +603,7 @@ impl FatVolume {
                         lfn_buffer.push(&buffer);
                         SeqState::Complete { csum }
                     }
-                    (true, sequence, _) if sequence >= 0x02 && sequence < 0x14 => {
+                    (true, sequence, _) if (0x02..0x14).contains(&sequence) => {
                         lfn_buffer.clear();
                         lfn_buffer.push(&buffer);
                         SeqState::Remaining {
@@ -616,7 +616,7 @@ impl FatVolume {
                         SeqState::Complete { csum }
                     }
                     (false, sequence, SeqState::Remaining { csum, next })
-                        if sequence >= 0x01 && sequence < 0x13 && next == sequence =>
+                        if (0x01..0x13).contains(&sequence) && next == sequence =>
                     {
                         lfn_buffer.push(&buffer);
                         SeqState::Remaining {
@@ -767,10 +767,7 @@ impl FatVolume {
                     }
                 }
             }
-            current_cluster = match self.next_cluster(block_cache, cluster) {
-                Ok(n) => Some(n),
-                _ => None,
-            };
+            current_cluster = self.next_cluster(block_cache, cluster).ok();
         }
         Ok(())
     }
@@ -849,10 +846,7 @@ impl FatVolume {
                             x => return x,
                         }
                     }
-                    current_cluster = match self.next_cluster(block_cache, cluster) {
-                        Ok(n) => Some(n),
-                        _ => None,
-                    }
+                    current_cluster = self.next_cluster(block_cache, cluster).ok()
                 }
                 Err(Error::NotFound)
             }
@@ -974,10 +968,7 @@ impl FatVolume {
                         }
                     }
                     // Find the next cluster
-                    current_cluster = match self.next_cluster(block_cache, cluster) {
-                        Ok(n) => Some(n),
-                        _ => None,
-                    }
+                    current_cluster = self.next_cluster(block_cache, cluster).ok()
                 }
                 // Ok, give up
             }
@@ -1036,8 +1027,7 @@ impl FatVolume {
                 while current_cluster.0 < end_cluster.0 {
                     trace!(
                         "current_cluster={:?}, end_cluster={:?}",
-                        current_cluster,
-                        end_cluster
+                        current_cluster, end_cluster
                     );
                     let fat_offset = current_cluster.0 * 2;
                     trace!("fat_offset = {:?}", fat_offset);
@@ -1066,8 +1056,7 @@ impl FatVolume {
                 while current_cluster.0 < end_cluster.0 {
                     trace!(
                         "current_cluster={:?}, end_cluster={:?}",
-                        current_cluster,
-                        end_cluster
+                        current_cluster, end_cluster
                     );
                     let fat_offset = current_cluster.0 * 4;
                     trace!("fat_offset = {:?}", fat_offset);
@@ -1115,8 +1104,7 @@ impl FatVolume {
         };
         trace!(
             "Finding next free between {:?}..={:?}",
-            start_cluster,
-            end_cluster
+            start_cluster, end_cluster
         );
         let new_cluster = match self.find_next_free_cluster(block_cache, start_cluster, end_cluster)
         {
@@ -1137,15 +1125,13 @@ impl FatVolume {
         if let Some(cluster) = prev_cluster {
             trace!(
                 "Updating old cluster {:?} to {:?} in FAT",
-                cluster,
-                new_cluster
+                cluster, new_cluster
             );
             self.update_fat(block_cache, cluster, new_cluster)?;
         }
         trace!(
             "Finding next free between {:?}..={:?}",
-            new_cluster,
-            end_cluster
+            new_cluster, end_cluster
         );
         self.next_free_cluster =
             match self.find_next_free_cluster(block_cache, new_cluster, end_cluster) {
@@ -1361,9 +1347,8 @@ where
                 return Err(Error::BadBlockSize(bpb.bytes_per_block()));
             }
             // FirstDataSector = BPB_ResvdSecCnt + (BPB_NumFATs * FATSz) + RootDirSectors;
-            let root_dir_blocks = ((u32::from(bpb.root_entries_count()) * OnDiskDirEntry::LEN_U32)
-                + (Block::LEN_U32 - 1))
-                / Block::LEN_U32;
+            let root_dir_blocks = (u32::from(bpb.root_entries_count()) * OnDiskDirEntry::LEN_U32)
+                .div_ceil(Block::LEN_U32);
             let first_root_dir_block =
                 fat_start + BlockCount(u32::from(bpb.num_fats()) * bpb.fat_size());
             let first_data_block = first_root_dir_block + BlockCount(root_dir_blocks);

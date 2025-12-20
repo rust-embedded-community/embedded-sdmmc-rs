@@ -4,8 +4,8 @@ use chrono::Timelike;
 use embedded_sdmmc::{Block, BlockCount, BlockDevice, BlockIdx, TimeSource, Timestamp};
 use std::cell::RefCell;
 use std::fs::{File, OpenOptions};
-use std::io::prelude::*;
 use std::io::SeekFrom;
+use std::io::prelude::*;
 use std::path::Path;
 
 #[derive(Debug)]
