@@ -828,6 +828,9 @@ impl FatVolume {
                     debug!("Am waiting for LFN start");
                     let mut remaining = match_name;
                     if let Some((true, sequence, csum, buffer)) = odde.lfn_contents() {
+                        #[cfg(feature = "defmt-log")]
+                        debug!("{:02x} {:02x} {:04x}", sequence, csum, buffer);
+                        #[cfg(feature = "log")]
                         debug!("{:02x} {:02x} {:04x?}", sequence, csum, buffer);
                         // trim padding and NUL words off the end of the file name (which is the part that comes first)
                         for word in buffer
@@ -879,6 +882,9 @@ impl FatVolume {
                     );
                     let mut remaining = remaining;
                     if let Some((false, this_sequence, this_csum, buffer)) = odde.lfn_contents() {
+                        #[cfg(feature = "defmt-log")]
+                        debug!("{:02x} {:02x} {:04x}", sequence, csum, buffer);
+                        #[cfg(feature = "log")]
                         debug!("{:02x} {:02x} {:04x?}", sequence, csum, buffer);
                         if (this_sequence != sequence) || (this_csum != csum) {
                             // not what we wanted
@@ -928,7 +934,7 @@ impl FatVolume {
                         result = Ok(de.clone());
                         return Continue::No;
                     } else {
-                        debug!("Bad csum {:02x} != {:02x}", calc_csum, csum)
+                        debug!("Bad csum {:02x} != {:02x}", calc_csum, csum);
                     }
                 }
             }
