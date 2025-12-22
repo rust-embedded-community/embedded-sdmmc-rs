@@ -340,7 +340,7 @@ impl Context {
     /// print a text file
     fn cat(&self, filename: &Path) -> Result<(), Error> {
         let (dir, filename) = self.resolve_filename(filename)?;
-        let f = dir.open_file_in_dir(filename, Mode::ReadOnly)?;
+        let f = dir.open_long_name_file_in_dir(filename, Mode::ReadOnly)?;
         let mut data = Vec::new();
         while !f.is_eof() {
             let mut buffer = vec![0u8; 65536];
@@ -360,7 +360,7 @@ impl Context {
     /// print a binary file
     fn hexdump(&self, filename: &Path) -> Result<(), Error> {
         let (dir, filename) = self.resolve_filename(filename)?;
-        let f = dir.open_file_in_dir(filename, Mode::ReadOnly)?;
+        let f = dir.open_long_name_file_in_dir(filename, Mode::ReadOnly)?;
         let mut data = Vec::new();
         while !f.is_eof() {
             let mut buffer = vec![0u8; 65536];

@@ -197,6 +197,22 @@ where
         Ok(f.to_file(self.volume_mgr))
     }
 
+    /// Open a file.
+    ///
+    /// See [`VolumeManager::open_long_name_file_in_dir`] for details, except the
+    /// directory given is this directory.
+    pub fn open_long_name_file_in_dir(
+        &self,
+        name: &str,
+        mode: crate::Mode,
+    ) -> Result<crate::File<'_, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>, crate::Error<D::Error>>
+    {
+        let f = self
+            .volume_mgr
+            .open_long_name_file_in_dir(self.raw_directory, name, mode)?;
+        Ok(f.to_file(self.volume_mgr))
+    }
+
     /// Delete a file/directory.
     ///
     /// See [`VolumeManager::delete_entry_in_dir`] for details, except the

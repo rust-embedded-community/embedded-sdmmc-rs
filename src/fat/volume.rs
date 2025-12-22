@@ -797,6 +797,146 @@ impl FatVolume {
         result
     }
 
+    /// Get an entry from the given directory
+    pub(crate) fn find_directory_entry_by_lfn<D>(
+        &self,
+        block_cache: &mut BlockCache<D>,
+        dir_info: &DirectoryInfo,
+        match_name: &str,
+    ) -> Result<DirEntry, Error<D::Error>>
+    where
+        D: BlockDevice,
+    {
+        let mut result = Err(Error::NotFound);
+        enum SeqState<'a> {
+            /// Looking for the first entry in an LFN sequence
+            Waiting,
+            /// Scanning through an LFN sequence
+            Scanning {
+                remaining: &'a str,
+                sequence: u8,
+                csum: u8,
+            },
+            /// Found an entry we like
+            Found { csum: u8 },
+        }
+
+        let mut state = SeqState::Waiting;
+        self.iterate_dir_internal(block_cache, dir_info, |de, odde| {
+            match state {
+                SeqState::Waiting => {
+                    debug!("Am waiting for LFN start");
+                    let mut remaining = match_name;
+                    if let Some((true, sequence, csum, buffer)) = odde.lfn_contents() {
+                        debug!("{:02x} {:02x} {:04x?}", sequence, csum, buffer);
+                        // trim padding and NUL words off the end of the file name (which is the part that comes first)
+                        for word in buffer
+                            .iter()
+                            .rev()
+                            .skip_while(|b| **b == 0xFFFF)
+                            .skip_while(|b| **b == 0x0000)
+                        {
+                            debug!("Looking at word {:04x}", *word);
+                            // UCS-2 16-bit values are valid Unicode code points - we do not expect surrogate pairs but if we find then, we give up.
+                            let Some(c) = char::from_u32(*word as u32) else {
+                                return Continue::Yes;
+                            };
+                            debug!("Looking at char '{}'", c);
+                            let Some(r) = remaining.strip_suffix(c) else {
+                                debug!("No, didn't want that");
+                                return Continue::Yes;
+                            };
+                            debug!("Liked it! {:?} is left", r);
+                            remaining = r;
+                        }
+                        if sequence == 1 {
+                            // last piece
+                            if remaining.is_empty() {
+                                // found it
+                                state = SeqState::Found { csum }
+                            } else {
+                                // no, we have characters left over
+                                state = SeqState::Waiting
+                            }
+                        } else {
+                            // keep looking
+                            state = SeqState::Scanning {
+                                remaining,
+                                sequence: sequence - 1,
+                                csum,
+                            };
+                        }
+                    }
+                }
+                SeqState::Scanning {
+                    remaining,
+                    sequence,
+                    csum,
+                } => {
+                    debug!(
+                        "Am waiting for more LFN sequence={:02x}, csum={:02x}",
+                        sequence, csum
+                    );
+                    let mut remaining = remaining;
+                    if let Some((false, this_sequence, this_csum, buffer)) = odde.lfn_contents() {
+                        debug!("{:02x} {:02x} {:04x?}", sequence, csum, buffer);
+                        if (this_sequence != sequence) || (this_csum != csum) {
+                            // not what we wanted
+                            debug!(
+                                "No! Got sequence={:02x}, csum={:02x}",
+                                this_sequence, this_csum
+                            );
+                            state = SeqState::Waiting;
+                            return Continue::Yes;
+                        }
+                        for word in buffer.iter().rev() {
+                            // UCS-2 16-bit values are valid Unicode code points - we do not expect surrogate pairs but if we find then, we give up.
+                            debug!("Looking at word {:04x}", *word);
+                            let Some(c) = char::from_u32(*word as u32) else {
+                                return Continue::Yes;
+                            };
+                            debug!("Looking at char '{}'", c);
+                            let Some(r) = remaining.strip_suffix(c) else {
+                                debug!("No, didn't want that");
+                                return Continue::Yes;
+                            };
+                            debug!("Liked it! {:?} is left", r);
+                            remaining = r;
+                        }
+                        if sequence == 1 {
+                            // last piece
+                            if remaining.is_empty() {
+                                // found it
+                                state = SeqState::Found { csum }
+                            } else {
+                                // no, we have characters left over
+                                state = SeqState::Waiting
+                            }
+                        } else {
+                            // keep looking
+                            state = SeqState::Scanning {
+                                remaining,
+                                sequence: sequence - 1,
+                                csum,
+                            };
+                        }
+                    }
+                }
+                SeqState::Found { csum } => {
+                    let calc_csum = de.name.csum();
+                    if calc_csum == csum {
+                        result = Ok(de.clone());
+                        return Continue::No;
+                    } else {
+                        debug!("Bad csum {:02x} != {:02x}", calc_csum, csum)
+                    }
+                }
+            }
+            Continue::Yes
+        })?;
+        result
+    }
+
     /// Delete an entry from the given directory
     pub(crate) fn delete_directory_entry<D>(
         &self,
