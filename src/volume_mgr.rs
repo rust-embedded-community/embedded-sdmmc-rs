@@ -352,15 +352,13 @@ where
 
         let volume_idx = data.get_volume_by_id(volume)?;
 
-        match &mut data.open_volumes[volume_idx].volume_type {
-            VolumeType::Fat(fat) => {
-                fat.update_info_sector(&mut data.block_cache)?;
-            }
-        }
+        let update_result = match &mut data.open_volumes[volume_idx].volume_type {
+            VolumeType::Fat(fat) => fat.update_info_sector(&mut data.block_cache),
+        };
 
         data.open_volumes.swap_remove(volume_idx);
 
-        Ok(())
+        update_result
     }
 
     /// Look in a directory for a named file.
