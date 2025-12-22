@@ -754,7 +754,7 @@ where
 
         if dir_entry.attributes.is_directory() {
             // Find the directory to be deleted, so that we can check its contents.
-            let dir_info = if data
+            if data
                 .open_dirs
                 .iter()
                 .find(|dir_info| dir_info.cluster == dir_entry.cluster)
@@ -762,14 +762,13 @@ where
             {
                 // Subdirectory is already open.
                 return Err(Error::DirAlreadyOpen);
-            } else {
-                // The subdirectory isn't yet open. Open it in order to be able to list it.
-                let raw_directory = RawDirectory(data.id_generator.generate());
-                DirectoryInfo {
-                    raw_directory,
-                    raw_volume: data.open_volumes[volume_idx].raw_volume,
-                    cluster: dir_entry.cluster,
-                }
+            }
+            // The subdirectory isn't yet open. Open it in order to be able to list it.
+            let raw_directory = RawDirectory(data.id_generator.generate());
+            let dir_info = DirectoryInfo {
+                raw_directory,
+                raw_volume: data.open_volumes[volume_idx].raw_volume,
+                cluster: dir_entry.cluster,
             };
             // Can only delete directories that are already empty.
             let mut count = 0;
