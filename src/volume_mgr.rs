@@ -915,8 +915,8 @@ where
 
     /// Close a file with the given raw file handle.
     ///
-    /// If the flush operation fails, the file is closed anyway and the
-    /// resulting error is returned.
+    /// Attempts to flush the file before closing, if necessary. If the flush
+    /// fails, the file is closed anyway and the resulting error is returned.
     pub fn close_file(&self, file: RawFile) -> Result<(), Error<D::Error>> {
         let flush_result = self.flush_file(file);
         let mut data = self.data.try_borrow_mut().map_err(|_| Error::LockError)?;
