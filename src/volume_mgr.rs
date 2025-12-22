@@ -331,9 +331,12 @@ where
         Err(Error::BadHandle)
     }
 
-    /// Close a volume
+    /// Close a volume.
     ///
     /// You can't close it if there are any files or directories open on it.
+    ///
+    /// If the info sector update (which is non-critical) fails, the volume is
+    /// closed anyway and the resulting error is returned.
     pub fn close_volume(&self, volume: RawVolume) -> Result<(), Error<D::Error>> {
         let mut data = self.data.try_borrow_mut().map_err(|_| Error::LockError)?;
         let data = data.deref_mut();
@@ -352,15 +355,13 @@ where
 
         let volume_idx = data.get_volume_by_id(volume)?;
 
-        match &mut data.open_volumes[volume_idx].volume_type {
-            VolumeType::Fat(fat) => {
-                fat.update_info_sector(&mut data.block_cache)?;
-            }
-        }
+        let update_result = match &mut data.open_volumes[volume_idx].volume_type {
+            VolumeType::Fat(fat) => fat.update_info_sector(&mut data.block_cache),
+        };
 
         data.open_volumes.swap_remove(volume_idx);
 
-        Ok(())
+        update_result
     }
 
     /// Look in a directory for a named file.
@@ -949,6 +950,9 @@ where
     }
 
     /// Close a file with the given raw file handle.
+    ///
+    /// Attempts to flush the file before closing, if necessary. If the flush
+    /// fails, the file is closed anyway and the resulting error is returned.
     pub fn close_file(&self, file: RawFile) -> Result<(), Error<D::Error>> {
         let flush_result = self.flush_file(file);
         let mut data = self.data.try_borrow_mut().map_err(|_| Error::LockError)?;
