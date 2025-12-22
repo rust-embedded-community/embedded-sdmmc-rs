@@ -654,8 +654,8 @@ where
         }
     }
 
-    /// Delete a closed file with the given filename, if it exists.
-    pub fn delete_file_in_dir<N>(
+    /// Delete a closed file or empty directory with the given filename, if it exists.
+    pub fn delete_entry_in_dir<N>(
         &self,
         directory: RawDirectory,
         name: N,

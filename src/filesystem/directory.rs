@@ -204,7 +204,7 @@ where
     }
 
     /// Delete a closed file with the given filename, if it exists.
-    pub fn delete_file_in_dir<N>(&self, name: N) -> Result<(), Error<D::Error>>
+    pub fn delete_entry_in_dir<N>(&self, name: N) -> Result<(), Error<D::Error>>
     where
         N: ToShortFileName,
     {
