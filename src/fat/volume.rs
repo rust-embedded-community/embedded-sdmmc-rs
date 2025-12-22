@@ -559,6 +559,27 @@ impl FatVolume {
         }
     }
 
+    /// Calls callback `func` with every valid entry in the given directory, plus its ODDE.
+    fn iterate_dir_internal<D, F>(
+        &self,
+        block_cache: &mut BlockCache<D>,
+        dir_info: &DirectoryInfo,
+        func: F,
+    ) -> Result<(), Error<D::Error>>
+    where
+        F: FnMut(&DirEntry, &OnDiskDirEntry) -> Continue,
+        D: BlockDevice,
+    {
+        match &self.fat_specific_info {
+            FatSpecificInfo::Fat16(fat16_info) => {
+                self.iterate_fat16(dir_info, fat16_info, block_cache, func)
+            }
+            FatSpecificInfo::Fat32(fat32_info) => {
+                self.iterate_fat32(dir_info, fat32_info, block_cache, func)
+            }
+        }
+    }
+
     /// Calls callback `func` with every valid entry in the given directory,
     /// including the Long File Name.
     ///
@@ -634,44 +655,22 @@ impl FatVolume {
         }
 
         let mut seq_state = SeqState::Waiting;
-        match &self.fat_specific_info {
-            FatSpecificInfo::Fat16(fat16_info) => {
-                self.iterate_fat16(dir_info, fat16_info, block_cache, |de, odde| {
-                    if let Some((start, this_seqno, csum, buffer)) = odde.lfn_contents() {
-                        seq_state = seq_state.update(lfn_buffer, start, this_seqno, csum, buffer);
-                        Continue::Yes
-                    } else if let SeqState::Complete { csum } = seq_state {
-                        if csum == de.name.csum() {
-                            // Checksum is good, and all the pieces are there
-                            func(de, Some(lfn_buffer.as_str()))
-                        } else {
-                            // Checksum was bad
-                            func(de, None)
-                        }
-                    } else {
-                        func(de, None)
-                    }
-                })
+        self.iterate_dir_internal(block_cache, dir_info, |de, odde| {
+            if let Some((start, this_seqno, csum, buffer)) = odde.lfn_contents() {
+                seq_state = seq_state.update(lfn_buffer, start, this_seqno, csum, buffer);
+                Continue::Yes
+            } else if let SeqState::Complete { csum } = seq_state {
+                if csum == de.name.csum() {
+                    // Checksum is good, and all the pieces are there
+                    func(de, Some(lfn_buffer.as_str()))
+                } else {
+                    // Checksum was bad
+                    func(de, None)
+                }
+            } else {
+                func(de, None)
             }
-            FatSpecificInfo::Fat32(fat32_info) => {
-                self.iterate_fat32(dir_info, fat32_info, block_cache, |de, odde| {
-                    if let Some((start, this_seqno, csum, buffer)) = odde.lfn_contents() {
-                        seq_state = seq_state.update(lfn_buffer, start, this_seqno, csum, buffer);
-                        Continue::Yes
-                    } else if let SeqState::Complete { csum } = seq_state {
-                        if csum == de.name.csum() {
-                            // Checksum is good, and all the pieces are there
-                            func(de, Some(lfn_buffer.as_str()))
-                        } else {
-                            // Checksum was bad
-                            func(de, None)
-                        }
-                    } else {
-                        func(de, None)
-                    }
-                })
-            }
-        }
+        })
     }
 
     fn iterate_fat16<D, F>(
@@ -786,103 +785,16 @@ impl FatVolume {
     where
         D: BlockDevice,
     {
-        match &self.fat_specific_info {
-            FatSpecificInfo::Fat16(fat16_info) => {
-                // Root directories on FAT16 have a fixed size, because they use
-                // a specially reserved space on disk (see
-                // `first_root_dir_block`). Other directories can have any size
-                // as they are made of regular clusters.
-                let mut current_cluster = Some(dir_info.cluster);
-                let mut first_dir_block_num = match dir_info.cluster {
-                    ClusterId::ROOT_DIR => self.lba_start + fat16_info.first_root_dir_block,
-                    _ => self.cluster_to_block(dir_info.cluster),
-                };
-                let dir_size = match dir_info.cluster {
-                    ClusterId::ROOT_DIR => {
-                        let len_bytes =
-                            u32::from(fat16_info.root_entries_count) * OnDiskDirEntry::LEN_U32;
-                        BlockCount::from_bytes(len_bytes)
-                    }
-                    _ => BlockCount(u32::from(self.blocks_per_cluster)),
-                };
-
-                while let Some(cluster) = current_cluster {
-                    for block in first_dir_block_num.range(dir_size) {
-                        match self.find_entry_in_block(
-                            block_cache,
-                            FatType::Fat16,
-                            match_name,
-                            block,
-                        ) {
-                            Err(Error::NotFound) => continue,
-                            x => return x,
-                        }
-                    }
-                    if cluster != ClusterId::ROOT_DIR {
-                        current_cluster = match self.next_cluster(block_cache, cluster) {
-                            Ok(n) => {
-                                first_dir_block_num = self.cluster_to_block(n);
-                                Some(n)
-                            }
-                            _ => None,
-                        };
-                    } else {
-                        current_cluster = None;
-                    }
-                }
-                Err(Error::NotFound)
+        let mut result = Err(Error::NotFound);
+        self.iterate_dir(block_cache, dir_info, |de| {
+            if de.name == *match_name {
+                result = Ok(de.clone());
+                Continue::No
+            } else {
+                Continue::Yes
             }
-            FatSpecificInfo::Fat32(fat32_info) => {
-                let mut current_cluster = match dir_info.cluster {
-                    ClusterId::ROOT_DIR => Some(fat32_info.first_root_dir_cluster),
-                    _ => Some(dir_info.cluster),
-                };
-                while let Some(cluster) = current_cluster {
-                    let block_idx = self.cluster_to_block(cluster);
-                    for block in block_idx.range(BlockCount(u32::from(self.blocks_per_cluster))) {
-                        match self.find_entry_in_block(
-                            block_cache,
-                            FatType::Fat32,
-                            match_name,
-                            block,
-                        ) {
-                            Err(Error::NotFound) => continue,
-                            x => return x,
-                        }
-                    }
-                    current_cluster = self.next_cluster(block_cache, cluster).ok()
-                }
-                Err(Error::NotFound)
-            }
-        }
-    }
-
-    /// Finds an entry in a given block of directory entries.
-    fn find_entry_in_block<D>(
-        &self,
-        block_cache: &mut BlockCache<D>,
-        fat_type: FatType,
-        match_name: &ShortFileName,
-        block_idx: BlockIdx,
-    ) -> Result<DirEntry, Error<D::Error>>
-    where
-        D: BlockDevice,
-    {
-        trace!("Reading directory");
-        let block = block_cache.read(block_idx).map_err(Error::DeviceError)?;
-        for (i, dir_entry_bytes) in block.chunks_exact(OnDiskDirEntry::LEN).enumerate() {
-            let dir_entry = OnDiskDirEntry::new(dir_entry_bytes);
-            if dir_entry.is_end() {
-                // Can quit early
-                break;
-            } else if dir_entry.matches(match_name) {
-                // Found it
-                // Block::LEN always fits on a u32
-                let start = (i * OnDiskDirEntry::LEN) as u32;
-                return Ok(dir_entry.get_entry(fat_type, block_idx, start));
-            }
-        }
-        Err(Error::NotFound)
+        })?;
+        result
     }
 
     /// Delete an entry from the given directory
