@@ -10,7 +10,7 @@ use byteorder::{ByteOrder, LittleEndian};
 use heapless::Vec;
 
 use crate::{
-    Block, BlockCache, BlockCount, BlockDevice, BlockIdx, Error, PARTITION_ID_FAT16,
+    Block, BlockCache, BlockCount, BlockDevice, BlockIdx, Continue, Error, PARTITION_ID_FAT16,
     PARTITION_ID_FAT16_LBA, PARTITION_ID_FAT16_SMALL, PARTITION_ID_FAT32_CHS_LBA,
     PARTITION_ID_FAT32_LBA, RawVolume, ShortFileName, Volume, VolumeIdx, VolumeInfo, VolumeType,
     debug, fat,
@@ -465,7 +465,7 @@ where
         mut func: F,
     ) -> Result<(), Error<D::Error>>
     where
-        F: FnMut(&DirEntry),
+        F: FnMut(&DirEntry) -> Continue,
     {
         let mut data = self.data.try_borrow_mut().map_err(|_| Error::LockError)?;
         let data = data.deref_mut();
@@ -480,7 +480,9 @@ where
                     |de| {
                         // Hide all the LFN directory entries
                         if !de.attributes.is_lfn() {
-                            func(de);
+                            func(de)
+                        } else {
+                            Continue::Yes
                         }
                     },
                 )
@@ -515,7 +517,7 @@ where
         func: F,
     ) -> Result<(), Error<D::Error>>
     where
-        F: FnMut(&DirEntry, Option<&str>),
+        F: FnMut(&DirEntry, Option<&str>) -> Continue,
     {
         let mut data = self.data.try_borrow_mut().map_err(|_| Error::LockError)?;
         let data = data.deref_mut();
@@ -783,6 +785,7 @@ where
                         {
                             count += 1;
                         }
+                        Continue::Yes
                     })?;
                 }
             }
@@ -835,7 +838,10 @@ where
             if maybe_volume_name.is_none()
                 && de.attributes == Attributes::create_from_fat(Attributes::VOLUME)
             {
-                maybe_volume_name = Some(unsafe { de.name.to_volume_label() })
+                maybe_volume_name = Some(unsafe { de.name.to_volume_label() });
+                Continue::No
+            } else {
+                Continue::Yes
             }
         })?;
 

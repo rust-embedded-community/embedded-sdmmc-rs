@@ -1,8 +1,8 @@
 //! FAT-specific volume support.
 
 use crate::{
-    Attributes, Block, BlockCache, BlockCount, BlockDevice, BlockIdx, ClusterId, DirEntry,
-    DirectoryInfo, Error, LfnBuffer, ShortFileName, TimeSource, VolumeType, debug,
+    Attributes, Block, BlockCache, BlockCount, BlockDevice, BlockIdx, ClusterId, Continue,
+    DirEntry, DirectoryInfo, Error, LfnBuffer, ShortFileName, TimeSource, VolumeType, debug,
     fat::{
         Bpb, Fat16Info, Fat32Info, FatSpecificInfo, FatType, InfoSector, OnDiskDirEntry,
         RESERVED_ENTRIES,
@@ -546,7 +546,7 @@ impl FatVolume {
         mut func: F,
     ) -> Result<(), Error<D::Error>>
     where
-        F: FnMut(&DirEntry),
+        F: FnMut(&DirEntry) -> Continue,
         D: BlockDevice,
     {
         match &self.fat_specific_info {
@@ -571,7 +571,7 @@ impl FatVolume {
         mut func: F,
     ) -> Result<(), Error<D::Error>>
     where
-        F: FnMut(&DirEntry, Option<&str>),
+        F: FnMut(&DirEntry, Option<&str>) -> Continue,
         D: BlockDevice,
     {
         #[derive(Clone, Copy)]
@@ -639,6 +639,7 @@ impl FatVolume {
                 self.iterate_fat16(dir_info, fat16_info, block_cache, |de, odde| {
                     if let Some((start, this_seqno, csum, buffer)) = odde.lfn_contents() {
                         seq_state = seq_state.update(lfn_buffer, start, this_seqno, csum, buffer);
+                        Continue::Yes
                     } else if let SeqState::Complete { csum } = seq_state {
                         if csum == de.name.csum() {
                             // Checksum is good, and all the pieces are there
@@ -656,6 +657,7 @@ impl FatVolume {
                 self.iterate_fat32(dir_info, fat32_info, block_cache, |de, odde| {
                     if let Some((start, this_seqno, csum, buffer)) = odde.lfn_contents() {
                         seq_state = seq_state.update(lfn_buffer, start, this_seqno, csum, buffer);
+                        Continue::Yes
                     } else if let SeqState::Complete { csum } = seq_state {
                         if csum == de.name.csum() {
                             // Checksum is good, and all the pieces are there
@@ -680,7 +682,7 @@ impl FatVolume {
         mut func: F,
     ) -> Result<(), Error<D::Error>>
     where
-        F: for<'odde> FnMut(&DirEntry, &OnDiskDirEntry<'odde>),
+        F: for<'odde> FnMut(&DirEntry, &OnDiskDirEntry<'odde>) -> Continue,
         D: BlockDevice,
     {
         // Root directories on FAT16 have a fixed size, because they use
@@ -700,7 +702,7 @@ impl FatVolume {
             _ => BlockCount(u32::from(self.blocks_per_cluster)),
         };
 
-        while let Some(cluster) = current_cluster {
+        'outer: while let Some(cluster) = current_cluster {
             for block_idx in first_dir_block_num.range(dir_size) {
                 trace!("Reading FAT");
                 let block = block_cache.read(block_idx)?;
@@ -708,12 +710,14 @@ impl FatVolume {
                     let dir_entry = OnDiskDirEntry::new(dir_entry_bytes);
                     if dir_entry.is_end() {
                         // Can quit early
-                        return Ok(());
+                        break 'outer;
                     } else if dir_entry.is_valid() {
                         // Safe, since Block::LEN always fits on a u32
                         let start = (i * OnDiskDirEntry::LEN) as u32;
                         let entry = dir_entry.get_entry(FatType::Fat16, block_idx, start);
-                        func(&entry, &dir_entry);
+                        if func(&entry, &dir_entry) == Continue::No {
+                            break 'outer;
+                        }
                     }
                 }
             }
@@ -740,7 +744,7 @@ impl FatVolume {
         mut func: F,
     ) -> Result<(), Error<D::Error>>
     where
-        F: for<'odde> FnMut(&DirEntry, &OnDiskDirEntry<'odde>),
+        F: for<'odde> FnMut(&DirEntry, &OnDiskDirEntry<'odde>) -> Continue,
         D: BlockDevice,
     {
         // All directories on FAT32 have a cluster chain but the root

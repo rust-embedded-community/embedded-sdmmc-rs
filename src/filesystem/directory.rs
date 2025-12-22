@@ -1,7 +1,7 @@
 use crate::blockdevice::BlockIdx;
 use crate::fat::{FatType, OnDiskDirEntry};
 use crate::filesystem::{Attributes, ClusterId, Handle, LfnBuffer, ShortFileName, Timestamp};
-use crate::{Error, RawVolume, VolumeManager};
+use crate::{Continue, Error, RawVolume, VolumeManager};
 
 use super::ToShortFileName;
 
@@ -157,7 +157,7 @@ where
     /// given is this directory.
     pub fn iterate_dir<F>(&self, func: F) -> Result<(), Error<D::Error>>
     where
-        F: FnMut(&DirEntry),
+        F: FnMut(&DirEntry) -> Continue,
     {
         self.volume_mgr.iterate_dir(self.raw_directory, func)
     }
@@ -173,7 +173,7 @@ where
         func: F,
     ) -> Result<(), Error<D::Error>>
     where
-        F: FnMut(&DirEntry, Option<&str>),
+        F: FnMut(&DirEntry, Option<&str>) -> Continue,
     {
         self.volume_mgr
             .iterate_dir_lfn(self.raw_directory, lfn_buffer, func)

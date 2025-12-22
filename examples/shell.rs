@@ -264,6 +264,7 @@ impl Context {
                     println!();
                 }
             }
+            embedded_sdmmc::Continue::Yes
         })?;
         Ok(())
     }
@@ -292,6 +293,7 @@ impl Context {
             {
                 children.push(entry.name.clone());
             }
+            embedded_sdmmc::Continue::Yes
         })?;
         for child in children {
             println!("Entering {}", child);

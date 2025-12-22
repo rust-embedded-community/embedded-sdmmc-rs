@@ -79,6 +79,7 @@ fn list_dir(directory: Directory<'_>, path: &str) -> Result<(), Error> {
         {
             children.push(entry.name.clone());
         }
+        embedded_sdmmc::Continue::Yes
     })?;
     for child_name in children {
         let child_dir = directory.open_dir(&child_name)?;
