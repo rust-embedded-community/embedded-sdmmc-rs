@@ -44,7 +44,7 @@ impl RawFile {
 /// In contrast to a `RawFile`, a `File`  holds a mutable reference to its
 /// parent `VolumeManager`, which restricts which operations you can perform.
 ///
-/// If you drop a value of this type, it closes the file automatically, and but
+/// If you drop a value of this type, it closes the file automatically, but any
 /// error that may occur will be ignored. To handle potential errors, use
 /// the [`File::close`] method.
 pub struct File<'a, D, T, const MAX_DIRS: usize, const MAX_FILES: usize, const MAX_VOLUMES: usize>
@@ -76,16 +76,25 @@ where
     /// Read from the file
     ///
     /// Returns how many bytes were read, or an error.
+    ///
+    /// See [`VolumeManager::read`] for details, except the file given is this
+    /// file.
     pub fn read(&self, buffer: &mut [u8]) -> Result<usize, crate::Error<D::Error>> {
         self.volume_mgr.read(self.raw_file, buffer)
     }
 
     /// Write to the file
+    ///
+    /// See [`VolumeManager::write`] for details, except the file given is this
+    /// file.
     pub fn write(&self, buffer: &[u8]) -> Result<(), crate::Error<D::Error>> {
         self.volume_mgr.write(self.raw_file, buffer)
     }
 
     /// Check if a file is at End Of File.
+    ///
+    /// See [`VolumeManager::file_eof`] for details, except the file given is this
+    /// file.
     pub fn is_eof(&self) -> bool {
         self.volume_mgr
             .file_eof(self.raw_file)
@@ -93,22 +102,34 @@ where
     }
 
     /// Seek a file with an offset from the current position.
+    ///
+    /// See [`VolumeManager::file_seek_from_current`] for details, except the
+    /// file given is this file.
     pub fn seek_from_current(&self, offset: i32) -> Result<(), crate::Error<D::Error>> {
         self.volume_mgr
             .file_seek_from_current(self.raw_file, offset)
     }
 
     /// Seek a file with an offset from the start of the file.
+    ///
+    /// See [`VolumeManager::file_seek_from_start`] for details, except the
+    /// file given is this file.
     pub fn seek_from_start(&self, offset: u32) -> Result<(), crate::Error<D::Error>> {
         self.volume_mgr.file_seek_from_start(self.raw_file, offset)
     }
 
     /// Seek a file with an offset back from the end of the file.
+    ///
+    /// See [`VolumeManager::file_seek_from_end`] for details, except the file
+    /// given is this file.
     pub fn seek_from_end(&self, offset: u32) -> Result<(), crate::Error<D::Error>> {
         self.volume_mgr.file_seek_from_end(self.raw_file, offset)
     }
 
     /// Get the length of a file
+    ///
+    /// See [`VolumeManager::file_length`] for details, except the file given
+    /// is this file.
     pub fn length(&self) -> u32 {
         self.volume_mgr
             .file_length(self.raw_file)
@@ -116,6 +137,9 @@ where
     }
 
     /// Get the current offset of a file
+    ///
+    /// See [`VolumeManager::file_offset`] for details, except the file given
+    /// is this file.
     pub fn offset(&self) -> u32 {
         self.volume_mgr
             .file_offset(self.raw_file)
@@ -130,6 +154,9 @@ where
     }
 
     /// Flush any written data by updating the directory entry.
+    ///
+    /// See [`VolumeManager::flush_file`] for details, except the file given
+    /// is this file.
     pub fn flush(&self) -> Result<(), Error<D::Error>> {
         self.volume_mgr.flush_file(self.raw_file)
     }
