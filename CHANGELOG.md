@@ -12,6 +12,8 @@ The format is based on [Keep a Changelog] and this project adheres to [Semantic 
 - Raised the minimum supported Rust version to 1.87.0.
 - Removed `core-error` feature as MSRV is now above 1.81
 - Set edition to 2024
+- Removed `Error::DeleteDirAsFile` (breaking change)
+- Renamed `delete_file_in_dir` to `delete_entry_in_dir` because it can now delete empty directories (breaking change)
 
 ## [Version 0.9.0] - 2025-06-08
 
