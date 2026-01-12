@@ -36,7 +36,7 @@ fn main() -> Result<(), Error<std::io::Error>> {
     let volume = volume_mgr.open_volume(VolumeIdx(0))?;
     let root_dir = volume.open_root_dir()?;
     println!("Deleting file {}...", FILE_TO_DELETE);
-    root_dir.delete_file_in_dir(FILE_TO_DELETE)?;
+    root_dir.delete_entry_in_dir(FILE_TO_DELETE)?;
     println!("Deleted!");
     Ok(())
 }

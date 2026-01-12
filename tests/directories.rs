@@ -453,23 +453,23 @@ fn delete_file() {
         .unwrap();
 
     assert!(matches!(
-        volume_mgr.delete_file_in_dir(root_dir, "README.TXT"),
+        volume_mgr.delete_entry_in_dir(root_dir, "README.TXT"),
         Err(embedded_sdmmc::Error::FileAlreadyOpen)
     ));
 
     assert!(matches!(
-        volume_mgr.delete_file_in_dir(root_dir, "README2.TXT"),
+        volume_mgr.delete_entry_in_dir(root_dir, "README2.TXT"),
         Err(embedded_sdmmc::Error::NotFound)
     ));
 
     volume_mgr.close_file(file).unwrap();
 
     volume_mgr
-        .delete_file_in_dir(root_dir, "README.TXT")
+        .delete_entry_in_dir(root_dir, "README.TXT")
         .unwrap();
 
     assert!(matches!(
-        volume_mgr.delete_file_in_dir(root_dir, "README.TXT"),
+        volume_mgr.delete_entry_in_dir(root_dir, "README.TXT"),
         Err(embedded_sdmmc::Error::NotFound)
     ));
 
@@ -613,21 +613,21 @@ fn delete_directory() {
     let dir = volume_mgr.open_dir(root_dir, "FOOBAR").unwrap();
 
     assert!(matches!(
-        volume_mgr.delete_file_in_dir(root_dir, "FOOBAR"),
+        volume_mgr.delete_entry_in_dir(root_dir, "FOOBAR"),
         Err(embedded_sdmmc::Error::DirAlreadyOpen)
     ));
 
     assert!(matches!(
-        volume_mgr.delete_file_in_dir(root_dir, "FOO"),
+        volume_mgr.delete_entry_in_dir(root_dir, "FOO"),
         Err(embedded_sdmmc::Error::NotFound)
     ));
 
     volume_mgr.close_dir(dir).unwrap();
 
-    volume_mgr.delete_file_in_dir(root_dir, "FOOBAR").unwrap();
+    volume_mgr.delete_entry_in_dir(root_dir, "FOOBAR").unwrap();
 
     assert!(matches!(
-        volume_mgr.delete_file_in_dir(root_dir, "FOOBAR"),
+        volume_mgr.delete_entry_in_dir(root_dir, "FOOBAR"),
         Err(embedded_sdmmc::Error::NotFound)
     ));
 

@@ -121,8 +121,17 @@ where
     /// We do not support GUID Partition Table disks. Nor do we support any
     /// concept of drive letters - that is for a higher layer to handle.
     ///
-    /// This function gives you a `RawVolume` and you must close the volume by
-    /// calling `VolumeManager::close_volume`.
+    /// <div class="warning">
+    ///
+    /// This function gives you a [`RawVolume`] and when you are finished with
+    /// it, you **must** close the volume by calling
+    /// [`VolumeManager::close_volume`] otherwise you will leak internal
+    /// resources.
+    ///
+    /// </div>
+    ///
+    /// If you want a volume handle that closes itself on drop, see
+    /// [`Volume`](crate::Volume).
     pub fn open_raw_volume(&self, volume_idx: VolumeIdx) -> Result<RawVolume, Error<D::Error>> {
         const PARTITION1_START: usize = 446;
         const PARTITION2_START: usize = PARTITION1_START + PARTITION_INFO_LENGTH;
@@ -217,6 +226,18 @@ where
     ///
     /// You can then read the directory entries with `iterate_dir`, or you can
     /// use `open_file_in_dir`.
+    ///
+    /// <div class="warning">
+    ///
+    /// This function gives you a [`RawDirectory`] and when you are finished
+    /// with it, you **must** close the directory by calling
+    /// [`VolumeManager::close_dir`] otherwise you will leak internal
+    /// resources.
+    ///
+    /// </div>
+    ///
+    /// If you want a directory handle that closes itself on drop, see
+    /// [`Directory`](crate::Directory).
     pub fn open_root_dir(&self, volume: RawVolume) -> Result<RawDirectory, Error<D::Error>> {
         debug!("Opening root on {:?}", volume);
 
@@ -244,6 +265,18 @@ where
     /// You can then read the directory entries with `iterate_dir` and `open_file_in_dir`.
     ///
     /// Passing "." as the name results in opening the `parent_dir` a second time.
+    ///
+    /// <div class="warning">
+    ///
+    /// This function gives you a [`RawDirectory`] and when you are finished
+    /// with it, you **must** close the directory by calling
+    /// [`VolumeManager::close_dir`] otherwise you will leak internal
+    /// resources.
+    ///
+    /// </div>
+    ///
+    /// If you want a directory handle that closes itself on drop, see
+    /// [`Directory`](crate::Directory).
     pub fn open_dir<N>(
         &self,
         parent_dir: RawDirectory,
@@ -316,8 +349,12 @@ where
         Ok(directory_id)
     }
 
-    /// Close a directory. You cannot perform operations on an open directory
-    /// and so must close it if you want to do something with it.
+    /// Close a directory.
+    ///
+    /// This releases internal resources and renders the given
+    /// [`RawDirectory`] unusable (although you should discard the value
+    /// rather than relying on getting an error if you do attempt to use it
+    /// again).
     pub fn close_dir(&self, directory: RawDirectory) -> Result<(), Error<D::Error>> {
         debug!("Closing {:?}", directory);
         let mut data = self.data.try_borrow_mut().map_err(|_| Error::LockError)?;
@@ -337,6 +374,10 @@ where
     ///
     /// If the info sector update (which is non-critical) fails, the volume is
     /// closed anyway and the resulting error is returned.
+    ///
+    /// This releases internal resources and renders the given
+    /// [`RawVolume`] unusable (although you should discard the value rather
+    /// than relying on getting an error if you do attempt to use it again).
     pub fn close_volume(&self, volume: RawVolume) -> Result<(), Error<D::Error>> {
         let mut data = self.data.try_borrow_mut().map_err(|_| Error::LockError)?;
         let data = data.deref_mut();
@@ -365,6 +406,18 @@ where
     }
 
     /// Look in a directory for a named file.
+    ///
+    /// You will either get [`DirEntry`] with a matching file name, or an
+    /// error. The [`DirEntry`] will give you the file size, creation date,
+    /// etc.
+    ///
+    /// You can just drop the [`DirEntry`] when you are done with it - it's a
+    /// stand-alone object and takes up no resources in this Volume Manager.
+    ///
+    /// # Open Files
+    ///
+    /// The file length and last update time may be wrong for any currently
+    /// open files that have not been flushed.
     pub fn find_directory_entry<N>(
         &self,
         directory: RawDirectory,
@@ -401,6 +454,11 @@ where
     /// object is already locked in order to do the iteration.
     ///
     /// </div>
+    ///
+    /// # Open Files
+    ///
+    /// The file length and last update time may be wrong for any currently
+    /// open files that have not been flushed.
     pub fn iterate_dir<F>(
         &self,
         directory: RawDirectory,
@@ -445,6 +503,11 @@ where
     /// object is already locked in order to do the iteration.
     ///
     /// </div>
+    ///
+    /// # Open Files
+    ///
+    /// The file length and last update time may be wrong for any currently
+    /// open files that have not been flushed.
     pub fn iterate_dir_lfn<F>(
         &self,
         directory: RawDirectory,
@@ -473,7 +536,19 @@ where
         }
     }
 
-    /// Open a file with the given full path. A file can only be opened once.
+    /// Open a file with the given short file name, in the given directory.
+    ///
+    /// <div class="warning">
+    ///
+    /// This function gives you a [`RawFile`] and when you are finished with
+    /// it, you **must** close the file by calling
+    /// [`VolumeManager::close_file`] otherwise you will leak internal
+    /// resources and/or suffer file-system corruption and data loss.
+    ///
+    /// </div>
+    ///
+    /// If you want a file handle that closes itself on drop, see
+    /// [`File`](crate::File).
     pub fn open_file_in_dir<N>(
         &self,
         directory: RawDirectory,
@@ -654,8 +729,8 @@ where
         }
     }
 
-    /// Delete a closed file with the given filename, if it exists.
-    pub fn delete_file_in_dir<N>(
+    /// Delete a closed file or empty directory with the given filename, if it exists.
+    pub fn delete_entry_in_dir<N>(
         &self,
         directory: RawDirectory,
         name: N,
@@ -679,7 +754,7 @@ where
 
         if dir_entry.attributes.is_directory() {
             // Find the directory to be deleted, so that we can check its contents.
-            let dir_info = if data
+            if data
                 .open_dirs
                 .iter()
                 .find(|dir_info| dir_info.cluster == dir_entry.cluster)
@@ -687,14 +762,13 @@ where
             {
                 // Subdirectory is already open.
                 return Err(Error::DirAlreadyOpen);
-            } else {
-                // The subdirectory isn't yet open. Open it in order to be able to list it.
-                let raw_directory = RawDirectory(data.id_generator.generate());
-                DirectoryInfo {
-                    raw_directory,
-                    raw_volume: data.open_volumes[volume_idx].raw_volume,
-                    cluster: dir_entry.cluster,
-                }
+            }
+            // The subdirectory isn't yet open. Open it in order to be able to list it.
+            let raw_directory = RawDirectory(data.id_generator.generate());
+            let dir_info = DirectoryInfo {
+                raw_directory,
+                raw_volume: data.open_volumes[volume_idx].raw_volume,
+                cluster: dir_entry.cluster,
             };
             // Can only delete directories that are already empty.
             let mut count = 0;
@@ -731,8 +805,8 @@ where
 
     /// Get the volume label
     ///
-    /// Will look in the BPB for a volume label, and if nothing is found, will
-    /// search the root directory for a volume label.
+    /// Will look in the filesystem metadata for a volume label, and if
+    /// nothing is found, will search the root directory for a volume label.
     pub fn get_root_volume_label(
         &self,
         raw_volume: RawVolume,
@@ -774,6 +848,13 @@ where
     }
 
     /// Read from an open file.
+    ///
+    /// We read as many bytes as we can, stopping at either the length of
+    /// `buffer`, or the end of the file.
+    ///
+    /// The number of bytes written to `buffer` is returned on success,
+    /// otherwise you get an error and you should not rely on either the
+    /// current seek position or the contents of `buffer`.
     pub fn read(&self, file: RawFile, buffer: &mut [u8]) -> Result<usize, Error<D::Error>> {
         let mut data = self.data.try_borrow_mut().map_err(|_| Error::LockError)?;
         let data = data.deref_mut();
@@ -816,6 +897,13 @@ where
     }
 
     /// Write to a open file.
+    ///
+    /// Endeavours to write the entire contents of the slice, stopping only if
+    /// there is an error reading from or writing to the disk, or if the
+    /// volume runs out of space.
+    ///
+    /// If you get an error, then you cannot be sure how much of `buffer` was
+    /// successfully written, nor can you rely on the current seek position.
     pub fn write(&self, file: RawFile, buffer: &[u8]) -> Result<(), Error<D::Error>> {
         #[cfg(feature = "defmt-log")]
         debug!("write(file={:?}, buffer={:x}", file, buffer);
@@ -953,6 +1041,10 @@ where
     ///
     /// Attempts to flush the file before closing, if necessary. If the flush
     /// fails, the file is closed anyway and the resulting error is returned.
+    ///
+    /// This is important as it causes the file metadata to be updated in the
+    /// file's directory entry. Simply dropping the `RawFile` would leak
+    /// internal resources and cause that metadata to be wrong.
     pub fn close_file(&self, file: RawFile) -> Result<(), Error<D::Error>> {
         let flush_result = self.flush_file(file);
         let mut data = self.data.try_borrow_mut().map_err(|_| Error::LockError)?;
@@ -1002,6 +1094,10 @@ where
     }
 
     /// Check if a file is at End Of File.
+    ///
+    /// A file is at End of File if the seek position is equal to the length
+    /// of the file. This means any reads will fail with an End of File
+    /// error, and any writes will append to the file.
     pub fn file_eof(&self, file: RawFile) -> Result<bool, Error<D::Error>> {
         let data = self.data.try_borrow().map_err(|_| Error::LockError)?;
         let file_idx = data.get_file_by_id(file)?;
@@ -1009,6 +1105,11 @@ where
     }
 
     /// Seek a file with an offset from the start of the file.
+    ///
+    /// The file seek position will end up equal to the offset given.
+    ///
+    /// Note that the offset is only a `u32`, therefore we can only handle
+    /// files up to 4 GiB in size.
     pub fn file_seek_from_start(&self, file: RawFile, offset: u32) -> Result<(), Error<D::Error>> {
         let mut data = self.data.try_borrow_mut().map_err(|_| Error::LockError)?;
         let file_idx = data.get_file_by_id(file)?;
@@ -1019,6 +1120,12 @@ where
     }
 
     /// Seek a file with an offset from the current position.
+    ///
+    /// The file seek position will be adjusted by the amount given.
+    ///
+    /// Note that the offset is only a `i32`, therefore we can only handle
+    /// seeks that are up to 2 GiB before or after the current position. If
+    /// this is a problem, seek in multiple steps.
     pub fn file_seek_from_current(
         &self,
         file: RawFile,
@@ -1033,6 +1140,12 @@ where
     }
 
     /// Seek a file with an offset back from the end of the file.
+    ///
+    /// The file seek position will set to the file length, minus the amount
+    /// given.
+    ///
+    /// Note that the offset is only a `u32`, therefore we can only handle
+    /// files up to 4 GiB in size.
     pub fn file_seek_from_end(&self, file: RawFile, offset: u32) -> Result<(), Error<D::Error>> {
         let mut data = self.data.try_borrow_mut().map_err(|_| Error::LockError)?;
         let file_idx = data.get_file_by_id(file)?;
@@ -1043,6 +1156,9 @@ where
     }
 
     /// Get the length of a file
+    ///
+    /// Note that the file length is only a `u32`, therefore we can only
+    /// handle files up to 4 GiB in size.
     pub fn file_length(&self, file: RawFile) -> Result<u32, Error<D::Error>> {
         let data = self.data.try_borrow().map_err(|_| Error::LockError)?;
         let file_idx = data.get_file_by_id(file)?;
@@ -1050,13 +1166,19 @@ where
     }
 
     /// Get the current offset of a file
+    ///
+    /// Note that the file offset is only a `u32`, therefore we can only
+    /// handle files up to 4 GiB in size.
     pub fn file_offset(&self, file: RawFile) -> Result<u32, Error<D::Error>> {
         let data = self.data.try_borrow().map_err(|_| Error::LockError)?;
         let file_idx = data.get_file_by_id(file)?;
         Ok(data.open_files[file_idx].current_offset)
     }
 
-    /// Create a directory in a given directory.
+    /// Create a directory in a given directory, with the given short name.
+    ///
+    /// The directory will be empty (apart from any mandatory entries, such as
+    /// the the `.` and `..` entries on FAT filesystems).
     pub fn make_dir_in_dir<N>(
         &self,
         directory: RawDirectory,

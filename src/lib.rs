@@ -189,8 +189,6 @@ where
     OpenedDirAsFile,
     /// You can't open a file as a directory
     OpenedFileAsDir,
-    /// You can't delete a directory as a file [no longer being emitted]
-    DeleteDirAsFile,
     /// You can't delete a non-empty directory
     DeleteNonEmptyDir,
     /// You can't close a volume with open files or directories
@@ -254,7 +252,6 @@ impl<E: Debug> embedded_io::Error for Error<E> {
             Error::NotFound => ErrorKind::NotFound,
             Error::OpenedDirAsFile
             | Error::OpenedFileAsDir
-            | Error::DeleteDirAsFile
             | Error::DeleteNonEmptyDir
             | Error::BadCluster
             | Error::ConversionError
@@ -294,7 +291,6 @@ where
             Error::DirAlreadyOpen => write!(f, "directory already open"),
             Error::OpenedDirAsFile => write!(f, "cannot open directory as file"),
             Error::OpenedFileAsDir => write!(f, "cannot open file as directory"),
-            Error::DeleteDirAsFile => write!(f, "cannot delete directory as file"),
             Error::DeleteNonEmptyDir => write!(f, "cannot delete a non-empty directory"),
             Error::VolumeStillInUse => write!(f, "volume is still in use"),
             Error::VolumeAlreadyOpen => write!(f, "cannot open volume twice"),

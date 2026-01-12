@@ -110,6 +110,9 @@ where
     /// Open a directory.
     ///
     /// You can then read the directory entries with `iterate_dir` and `open_file_in_dir`.
+    ///
+    /// See [`VolumeManager::open_dir`] for details, except the directory
+    /// given is this directory.
     pub fn open_dir<N>(
         &self,
         name: N,
@@ -134,7 +137,10 @@ where
         Ok(())
     }
 
-    /// Look in a directory for a named file.
+    /// Read the directory entry with the given filename from this directory, if it exists.
+    ///
+    /// See [`VolumeManager::find_directory_entry`] for details, except the
+    /// directory given is this directory.
     pub fn find_directory_entry<N>(&self, name: N) -> Result<DirEntry, Error<D::Error>>
     where
         N: ToShortFileName,
@@ -147,13 +153,8 @@ where
     ///
     /// Long File Names will be ignored.
     ///
-    /// <div class="warning">
-    ///
-    /// Do not attempt to call any methods on the VolumeManager or any of its
-    /// handles from inside the callback. You will get a lock error because the
-    /// object is already locked in order to do the iteration.
-    ///
-    /// </div>
+    /// See [`VolumeManager::iterate_dir`] for details, except the directory
+    /// given is this directory.
     pub fn iterate_dir<F>(&self, func: F) -> Result<(), Error<D::Error>>
     where
         F: FnMut(&DirEntry),
@@ -164,18 +165,8 @@ where
     /// Call a callback function for each directory entry in a directory, and
     /// process Long File Names.
     ///
-    /// You must supply a [`LfnBuffer`] this API can use to temporarily hold the
-    /// Long File Name. If you pass one that isn't large enough, any Long File
-    /// Names that don't fit will be ignored and presented as if they only had a
-    /// Short File Name.
-    ///
-    /// <div class="warning">
-    ///
-    /// Do not attempt to call any methods on the VolumeManager or any of its
-    /// handles from inside the callback. You will get a lock error because the
-    /// object is already locked in order to do the iteration.
-    ///
-    /// </div>
+    /// See [`VolumeManager::iterate_dir_lfn`] for details, except the
+    /// directory given is this directory.
     pub fn iterate_dir_lfn<F>(
         &self,
         lfn_buffer: &mut LfnBuffer<'_>,
@@ -188,7 +179,10 @@ where
             .iterate_dir_lfn(self.raw_directory, lfn_buffer, func)
     }
 
-    /// Open a file with the given full path. A file can only be opened once.
+    /// Open a file.
+    ///
+    /// See [`VolumeManager::open_file_in_dir`] for details, except the
+    /// directory given is this directory.
     pub fn open_file_in_dir<N>(
         &self,
         name: N,
@@ -203,15 +197,22 @@ where
         Ok(f.to_file(self.volume_mgr))
     }
 
-    /// Delete a closed file with the given filename, if it exists.
-    pub fn delete_file_in_dir<N>(&self, name: N) -> Result<(), Error<D::Error>>
+    /// Delete a file/directory.
+    ///
+    /// See [`VolumeManager::delete_entry_in_dir`] for details, except the
+    /// directory given is this directory.
+    pub fn delete_entry_in_dir<N>(&self, name: N) -> Result<(), Error<D::Error>>
     where
         N: ToShortFileName,
     {
-        self.volume_mgr.delete_file_in_dir(self.raw_directory, name)
+        self.volume_mgr
+            .delete_entry_in_dir(self.raw_directory, name)
     }
 
-    /// Make a directory inside this directory
+    /// Create a new empty directory.
+    ///
+    /// See [`VolumeManager::make_dir_in_dir`] for details, except the
+    /// directory given is this directory.
     pub fn make_dir_in_dir<N>(&self, name: N) -> Result<(), Error<D::Error>>
     where
         N: ToShortFileName,
