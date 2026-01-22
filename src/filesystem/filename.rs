@@ -228,7 +228,7 @@ pub struct LfnBuffer<'a> {
     /// How many bytes are free.
     ///
     /// This is also the byte index the string starts from.
-    free: usize,
+    free: u16,
     /// Did we overflow?
     overflow: bool,
     /// If a surrogate-pair is split over two directory entries, remember half of it here.
@@ -238,10 +238,14 @@ pub struct LfnBuffer<'a> {
 impl<'a> LfnBuffer<'a> {
     /// Create a new, empty, LFN Buffer using the given mutable slice as its storage.
     pub fn new(storage: &'a mut [u8]) -> LfnBuffer<'a> {
-        let len = storage.len();
+        // Because `free` is a `u16`, we keep at most `u16::MAX` bytes of the buffer.
+        // It is enough to hold all LFN because a LFN has at most 255 characters.
+        // A UTF-8 character takes at most 3 bytes.
+        // Thus, a buffer of 765 (255*3) bytes is able to represent any LFN.
+        let len = storage.len().min(usize::from(u16::MAX));
         LfnBuffer {
-            inner: storage,
-            free: len,
+            inner: &mut storage[..len],
+            free: len as u16,
             overflow: false,
             unpaired_surrogate: None,
         }
@@ -249,7 +253,7 @@ impl<'a> LfnBuffer<'a> {
 
     /// Empty out this buffer
     pub fn clear(&mut self) {
-        self.free = self.inner.len();
+        self.free = self.inner.len() as u16;
         self.overflow = false;
         self.unpaired_surrogate = None;
     }
@@ -324,7 +328,7 @@ impl<'a> LfnBuffer<'a> {
             // a buffer of length 4 is enough to encode any char
             let mut encoded_ch = [0u8; 4];
             let encoded_ch = ch.encode_utf8(&mut encoded_ch);
-            if self.free < encoded_ch.len() {
+            if self.free < encoded_ch.len() as u16 {
                 // the LFN buffer they gave us was not long enough. Note for
                 // later, so we don't show them garbage.
                 self.overflow = true;
@@ -334,7 +338,7 @@ impl<'a> LfnBuffer<'a> {
             // already checked there was enough space.
             for b in encoded_ch.bytes().rev() {
                 self.free -= 1;
-                self.inner[self.free] = b;
+                self.inner[usize::from(self.free)] = b;
             }
         }
     }
@@ -348,7 +352,7 @@ impl<'a> LfnBuffer<'a> {
             ""
         } else {
             // we always only put UTF-8 encoded data in here
-            unsafe { core::str::from_utf8_unchecked(&self.inner[self.free..]) }
+            unsafe { core::str::from_utf8_unchecked(&self.inner[usize::from(self.free)..]) }
         }
     }
 }
