@@ -10,7 +10,7 @@ use byteorder::{ByteOrder, LittleEndian};
 use heapless::Vec;
 
 use crate::{
-    Block, BlockCache, BlockCount, BlockDevice, BlockIdx, Error, PARTITION_ID_FAT16,
+    Block, BlockCache, BlockCount, BlockDevice, BlockIdx, Continue, Error, PARTITION_ID_FAT16,
     PARTITION_ID_FAT16_LBA, PARTITION_ID_FAT16_SMALL, PARTITION_ID_FAT32_CHS_LBA,
     PARTITION_ID_FAT32_LBA, RawVolume, ShortFileName, Volume, VolumeIdx, VolumeInfo, VolumeType,
     debug, fat,
@@ -465,7 +465,7 @@ where
         mut func: F,
     ) -> Result<(), Error<D::Error>>
     where
-        F: FnMut(&DirEntry),
+        F: FnMut(&DirEntry) -> Continue,
     {
         let mut data = self.data.try_borrow_mut().map_err(|_| Error::LockError)?;
         let data = data.deref_mut();
@@ -480,7 +480,9 @@ where
                     |de| {
                         // Hide all the LFN directory entries
                         if !de.attributes.is_lfn() {
-                            func(de);
+                            func(de)
+                        } else {
+                            Continue::Yes
                         }
                     },
                 )
@@ -515,7 +517,7 @@ where
         func: F,
     ) -> Result<(), Error<D::Error>>
     where
-        F: FnMut(&DirEntry, Option<&str>),
+        F: FnMut(&DirEntry, Option<&str>) -> Continue,
     {
         let mut data = self.data.try_borrow_mut().map_err(|_| Error::LockError)?;
         let data = data.deref_mut();
@@ -729,6 +731,158 @@ where
         }
     }
 
+    /// Open a file with the given Unicode long file name, in the given directory.
+    ///
+    /// You can only open existing long-file-name files - you cannot create them.
+    ///
+    /// <div class="warning">
+    ///
+    /// This function gives you a [`RawFile`] and when you are finished with
+    /// it, you **must** close the file by calling
+    /// [`VolumeManager::close_file`] otherwise you will leak internal
+    /// resources and/or suffer file-system corruption and data loss.
+    ///
+    /// </div>
+    ///
+    /// If you want a file handle that closes itself on drop, see
+    /// [`File`](crate::File).
+    pub fn open_long_name_file_in_dir(
+        &self,
+        directory: RawDirectory,
+        name: &str,
+        mode: Mode,
+    ) -> Result<RawFile, Error<D::Error>> {
+        let mut data = self.data.try_borrow_mut().map_err(|_| Error::LockError)?;
+        let data = data.deref_mut();
+
+        // This check is load-bearing - we do an unchecked push later.
+        if data.open_files.is_full() {
+            return Err(Error::TooManyOpenFiles);
+        }
+
+        let directory_idx = data.get_dir_by_id(directory)?;
+        let volume_id = data.open_dirs[directory_idx].raw_volume;
+        let volume_idx = data.get_volume_by_id(volume_id)?;
+        let volume_info = &data.open_volumes[volume_idx];
+
+        let dir_entry = match &volume_info.volume_type {
+            VolumeType::Fat(fat) => fat.find_directory_entry_by_lfn(
+                &mut data.block_cache,
+                &data.open_dirs[directory_idx],
+                name,
+            ),
+        };
+
+        let dir_entry = match dir_entry {
+            Ok(entry) => {
+                // we are opening an existing file
+                entry
+            }
+            Err(_)
+                if (mode == Mode::ReadWriteCreate)
+                    | (mode == Mode::ReadWriteCreateOrTruncate)
+                    | (mode == Mode::ReadWriteCreateOrAppend) =>
+            {
+                // We are opening a non-existant file and we cannot do that with LFNs
+                return Err(Error::NotFound);
+            }
+            _ => {
+                // We are opening a non-existant file, and that's not OK.
+                return Err(Error::NotFound);
+            }
+        };
+
+        // Check if it's open already
+        if data.file_is_open(volume_info.raw_volume, &dir_entry) {
+            return Err(Error::FileAlreadyOpen);
+        }
+
+        let mode = solve_mode_variant(mode, true);
+
+        match mode {
+            Mode::ReadWriteCreate => {
+                return Err(Error::FileAlreadyExists);
+            }
+            _ => {
+                if dir_entry.attributes.is_read_only() && mode != Mode::ReadOnly {
+                    return Err(Error::ReadOnly);
+                }
+
+                if dir_entry.attributes.is_directory() {
+                    return Err(Error::OpenedDirAsFile);
+                }
+
+                // Check it's not already open
+                if data.file_is_open(volume_id, &dir_entry) {
+                    return Err(Error::FileAlreadyOpen);
+                }
+
+                let mode = solve_mode_variant(mode, true);
+                let raw_file = RawFile(data.id_generator.generate());
+
+                let file = match mode {
+                    Mode::ReadOnly => FileInfo {
+                        raw_file,
+                        raw_volume: volume_id,
+                        current_cluster: (0, dir_entry.cluster),
+                        current_offset: 0,
+                        mode,
+                        entry: dir_entry,
+                        dirty: false,
+                    },
+                    Mode::ReadWriteAppend => {
+                        let mut file = FileInfo {
+                            raw_file,
+                            raw_volume: volume_id,
+                            current_cluster: (0, dir_entry.cluster),
+                            current_offset: 0,
+                            mode,
+                            entry: dir_entry,
+                            dirty: false,
+                        };
+                        // seek_from_end with 0 can't fail
+                        file.seek_from_end(0).ok();
+                        file
+                    }
+                    Mode::ReadWriteTruncate => {
+                        let mut file = FileInfo {
+                            raw_file,
+                            raw_volume: volume_id,
+                            current_cluster: (0, dir_entry.cluster),
+                            current_offset: 0,
+                            mode,
+                            entry: dir_entry,
+                            dirty: false,
+                        };
+                        match &mut data.open_volumes[volume_idx].volume_type {
+                            VolumeType::Fat(fat) => fat.truncate_cluster_chain(
+                                &mut data.block_cache,
+                                file.entry.cluster,
+                            )?,
+                        };
+                        file.update_length(0);
+                        match &data.open_volumes[volume_idx].volume_type {
+                            VolumeType::Fat(fat) => {
+                                file.entry.mtime = self.time_source.get_timestamp();
+                                fat.write_entry_to_disk(&mut data.block_cache, &file.entry)?;
+                            }
+                        };
+
+                        file
+                    }
+                    _ => return Err(Error::Unsupported),
+                };
+
+                // Remember this open file - can't be full as we checked already
+                unsafe {
+                    data.open_files.push_unchecked(file);
+                }
+
+                Ok(raw_file)
+            }
+        }
+    }
+
     /// Delete a closed file or empty directory with the given filename, if it exists.
     pub fn delete_entry_in_dir<N>(
         &self,
@@ -783,6 +937,7 @@ where
                         {
                             count += 1;
                         }
+                        Continue::Yes
                     })?;
                 }
             }
@@ -835,7 +990,10 @@ where
             if maybe_volume_name.is_none()
                 && de.attributes == Attributes::create_from_fat(Attributes::VOLUME)
             {
-                maybe_volume_name = Some(unsafe { de.name.to_volume_label() })
+                maybe_volume_name = Some(unsafe { de.name.to_volume_label() });
+                Continue::No
+            } else {
+                Continue::Yes
             }
         })?;
 

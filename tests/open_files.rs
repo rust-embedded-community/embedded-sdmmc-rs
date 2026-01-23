@@ -92,6 +92,40 @@ fn open_files() {
 }
 
 #[test]
+fn open_lfn() {
+    let time_source = utils::make_time_source();
+    let disk = utils::make_block_device(utils::DISK_SOURCE).unwrap();
+    let volume_mgr: VolumeManager<utils::RamDisk<Vec<u8>>, utils::TestTimeSource, 4, 2, 1> =
+        VolumeManager::new_with_limits(disk, time_source, 0xAA00_0000);
+    let volume = volume_mgr.open_volume(VolumeIdx(1)).expect("open volume");
+    let root_dir = volume.open_root_dir().expect("open root dir");
+    let _f = root_dir
+        .open_long_name_file_in_dir("Copy of Readme.txt", Mode::ReadOnly)
+        .expect("open file");
+
+    assert!(matches!(
+        root_dir.open_long_name_file_in_dir("Copy of Readme.tx", Mode::ReadOnly),
+        Err(embedded_sdmmc::Error::NotFound)
+    ));
+    assert!(matches!(
+        root_dir.open_long_name_file_in_dir("opy of Readme.txt", Mode::ReadOnly),
+        Err(embedded_sdmmc::Error::NotFound)
+    ));
+    assert!(matches!(
+        root_dir.open_long_name_file_in_dir("Copyof Readme.txt", Mode::ReadOnly),
+        Err(embedded_sdmmc::Error::NotFound)
+    ));
+    assert!(matches!(
+        root_dir.open_long_name_file_in_dir("Copy_of Readme.txt", Mode::ReadOnly),
+        Err(embedded_sdmmc::Error::NotFound)
+    ));
+    assert!(matches!(
+        root_dir.open_long_name_file_in_dir("Nonsense", Mode::ReadOnly),
+        Err(embedded_sdmmc::Error::NotFound)
+    ));
+}
+
+#[test]
 fn open_non_raw() {
     let time_source = utils::make_time_source();
     let disk = utils::make_block_device(utils::DISK_SOURCE).unwrap();

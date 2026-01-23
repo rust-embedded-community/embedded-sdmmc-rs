@@ -475,6 +475,15 @@ pub enum VolumeType {
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub struct VolumeIdx(pub usize);
 
+/// Whether the callback should continue
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum Continue {
+    /// Yes, give me more directories
+    Yes,
+    /// No, I've had enough
+    No,
+}
+
 /// Marker for a FAT32 partition. Sometimes also use for FAT16 formatted
 /// partitions.
 const PARTITION_ID_FAT32_LBA: u8 = 0x0C;
