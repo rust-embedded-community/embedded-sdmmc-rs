@@ -1,8 +1,8 @@
 //! FAT-specific volume support.
 
 use crate::{
-    Attributes, Block, BlockCache, BlockCount, BlockDevice, BlockIdx, ClusterId, DirEntry,
-    DirectoryInfo, Error, LfnBuffer, ShortFileName, TimeSource, VolumeType, debug,
+    Attributes, Block, BlockCache, BlockCount, BlockDevice, BlockIdx, ClusterId, Continue,
+    DirEntry, DirectoryInfo, Error, LfnBuffer, ShortFileName, TimeSource, VolumeType, debug,
     fat::{
         Bpb, Fat16Info, Fat32Info, FatSpecificInfo, FatType, InfoSector, OnDiskDirEntry,
         RESERVED_ENTRIES,
@@ -546,7 +546,7 @@ impl FatVolume {
         mut func: F,
     ) -> Result<(), Error<D::Error>>
     where
-        F: FnMut(&DirEntry),
+        F: FnMut(&DirEntry) -> Continue,
         D: BlockDevice,
     {
         match &self.fat_specific_info {
@@ -555,6 +555,27 @@ impl FatVolume {
             }
             FatSpecificInfo::Fat32(fat32_info) => {
                 self.iterate_fat32(dir_info, fat32_info, block_cache, |de, _| func(de))
+            }
+        }
+    }
+
+    /// Calls callback `func` with every valid entry in the given directory, plus its ODDE.
+    fn iterate_dir_internal<D, F>(
+        &self,
+        block_cache: &mut BlockCache<D>,
+        dir_info: &DirectoryInfo,
+        func: F,
+    ) -> Result<(), Error<D::Error>>
+    where
+        F: FnMut(&DirEntry, &OnDiskDirEntry) -> Continue,
+        D: BlockDevice,
+    {
+        match &self.fat_specific_info {
+            FatSpecificInfo::Fat16(fat16_info) => {
+                self.iterate_fat16(dir_info, fat16_info, block_cache, func)
+            }
+            FatSpecificInfo::Fat32(fat32_info) => {
+                self.iterate_fat32(dir_info, fat32_info, block_cache, func)
             }
         }
     }
@@ -571,7 +592,7 @@ impl FatVolume {
         mut func: F,
     ) -> Result<(), Error<D::Error>>
     where
-        F: FnMut(&DirEntry, Option<&str>),
+        F: FnMut(&DirEntry, Option<&str>) -> Continue,
         D: BlockDevice,
     {
         #[derive(Clone, Copy)]
@@ -634,42 +655,22 @@ impl FatVolume {
         }
 
         let mut seq_state = SeqState::Waiting;
-        match &self.fat_specific_info {
-            FatSpecificInfo::Fat16(fat16_info) => {
-                self.iterate_fat16(dir_info, fat16_info, block_cache, |de, odde| {
-                    if let Some((start, this_seqno, csum, buffer)) = odde.lfn_contents() {
-                        seq_state = seq_state.update(lfn_buffer, start, this_seqno, csum, buffer);
-                    } else if let SeqState::Complete { csum } = seq_state {
-                        if csum == de.name.csum() {
-                            // Checksum is good, and all the pieces are there
-                            func(de, Some(lfn_buffer.as_str()))
-                        } else {
-                            // Checksum was bad
-                            func(de, None)
-                        }
-                    } else {
-                        func(de, None)
-                    }
-                })
+        self.iterate_dir_internal(block_cache, dir_info, |de, odde| {
+            if let Some((start, this_seqno, csum, buffer)) = odde.lfn_contents() {
+                seq_state = seq_state.update(lfn_buffer, start, this_seqno, csum, buffer);
+                Continue::Yes
+            } else if let SeqState::Complete { csum } = seq_state {
+                if csum == de.name.csum() {
+                    // Checksum is good, and all the pieces are there
+                    func(de, Some(lfn_buffer.as_str()))
+                } else {
+                    // Checksum was bad
+                    func(de, None)
+                }
+            } else {
+                func(de, None)
             }
-            FatSpecificInfo::Fat32(fat32_info) => {
-                self.iterate_fat32(dir_info, fat32_info, block_cache, |de, odde| {
-                    if let Some((start, this_seqno, csum, buffer)) = odde.lfn_contents() {
-                        seq_state = seq_state.update(lfn_buffer, start, this_seqno, csum, buffer);
-                    } else if let SeqState::Complete { csum } = seq_state {
-                        if csum == de.name.csum() {
-                            // Checksum is good, and all the pieces are there
-                            func(de, Some(lfn_buffer.as_str()))
-                        } else {
-                            // Checksum was bad
-                            func(de, None)
-                        }
-                    } else {
-                        func(de, None)
-                    }
-                })
-            }
-        }
+        })
     }
 
     fn iterate_fat16<D, F>(
@@ -680,7 +681,7 @@ impl FatVolume {
         mut func: F,
     ) -> Result<(), Error<D::Error>>
     where
-        F: for<'odde> FnMut(&DirEntry, &OnDiskDirEntry<'odde>),
+        F: for<'odde> FnMut(&DirEntry, &OnDiskDirEntry<'odde>) -> Continue,
         D: BlockDevice,
     {
         // Root directories on FAT16 have a fixed size, because they use
@@ -700,7 +701,7 @@ impl FatVolume {
             _ => BlockCount(u32::from(self.blocks_per_cluster)),
         };
 
-        while let Some(cluster) = current_cluster {
+        'outer: while let Some(cluster) = current_cluster {
             for block_idx in first_dir_block_num.range(dir_size) {
                 trace!("Reading FAT");
                 let block = block_cache.read(block_idx)?;
@@ -708,12 +709,14 @@ impl FatVolume {
                     let dir_entry = OnDiskDirEntry::new(dir_entry_bytes);
                     if dir_entry.is_end() {
                         // Can quit early
-                        return Ok(());
+                        break 'outer;
                     } else if dir_entry.is_valid() {
                         // Safe, since Block::LEN always fits on a u32
                         let start = (i * OnDiskDirEntry::LEN) as u32;
                         let entry = dir_entry.get_entry(FatType::Fat16, block_idx, start);
-                        func(&entry, &dir_entry);
+                        if func(&entry, &dir_entry) == Continue::No {
+                            break 'outer;
+                        }
                     }
                 }
             }
@@ -740,7 +743,7 @@ impl FatVolume {
         mut func: F,
     ) -> Result<(), Error<D::Error>>
     where
-        F: for<'odde> FnMut(&DirEntry, &OnDiskDirEntry<'odde>),
+        F: for<'odde> FnMut(&DirEntry, &OnDiskDirEntry<'odde>) -> Continue,
         D: BlockDevice,
     {
         // All directories on FAT32 have a cluster chain but the root
@@ -782,103 +785,162 @@ impl FatVolume {
     where
         D: BlockDevice,
     {
-        match &self.fat_specific_info {
-            FatSpecificInfo::Fat16(fat16_info) => {
-                // Root directories on FAT16 have a fixed size, because they use
-                // a specially reserved space on disk (see
-                // `first_root_dir_block`). Other directories can have any size
-                // as they are made of regular clusters.
-                let mut current_cluster = Some(dir_info.cluster);
-                let mut first_dir_block_num = match dir_info.cluster {
-                    ClusterId::ROOT_DIR => self.lba_start + fat16_info.first_root_dir_block,
-                    _ => self.cluster_to_block(dir_info.cluster),
-                };
-                let dir_size = match dir_info.cluster {
-                    ClusterId::ROOT_DIR => {
-                        let len_bytes =
-                            u32::from(fat16_info.root_entries_count) * OnDiskDirEntry::LEN_U32;
-                        BlockCount::from_bytes(len_bytes)
-                    }
-                    _ => BlockCount(u32::from(self.blocks_per_cluster)),
-                };
-
-                while let Some(cluster) = current_cluster {
-                    for block in first_dir_block_num.range(dir_size) {
-                        match self.find_entry_in_block(
-                            block_cache,
-                            FatType::Fat16,
-                            match_name,
-                            block,
-                        ) {
-                            Err(Error::NotFound) => continue,
-                            x => return x,
-                        }
-                    }
-                    if cluster != ClusterId::ROOT_DIR {
-                        current_cluster = match self.next_cluster(block_cache, cluster) {
-                            Ok(n) => {
-                                first_dir_block_num = self.cluster_to_block(n);
-                                Some(n)
-                            }
-                            _ => None,
-                        };
-                    } else {
-                        current_cluster = None;
-                    }
-                }
-                Err(Error::NotFound)
+        let mut result = Err(Error::NotFound);
+        self.iterate_dir(block_cache, dir_info, |de| {
+            if de.name == *match_name {
+                result = Ok(de.clone());
+                Continue::No
+            } else {
+                Continue::Yes
             }
-            FatSpecificInfo::Fat32(fat32_info) => {
-                let mut current_cluster = match dir_info.cluster {
-                    ClusterId::ROOT_DIR => Some(fat32_info.first_root_dir_cluster),
-                    _ => Some(dir_info.cluster),
-                };
-                while let Some(cluster) = current_cluster {
-                    let block_idx = self.cluster_to_block(cluster);
-                    for block in block_idx.range(BlockCount(u32::from(self.blocks_per_cluster))) {
-                        match self.find_entry_in_block(
-                            block_cache,
-                            FatType::Fat32,
-                            match_name,
-                            block,
-                        ) {
-                            Err(Error::NotFound) => continue,
-                            x => return x,
-                        }
-                    }
-                    current_cluster = self.next_cluster(block_cache, cluster).ok()
-                }
-                Err(Error::NotFound)
-            }
-        }
+        })?;
+        result
     }
 
-    /// Finds an entry in a given block of directory entries.
-    fn find_entry_in_block<D>(
+    /// Get an entry from the given directory
+    pub(crate) fn find_directory_entry_by_lfn<D>(
         &self,
         block_cache: &mut BlockCache<D>,
-        fat_type: FatType,
-        match_name: &ShortFileName,
-        block_idx: BlockIdx,
+        dir_info: &DirectoryInfo,
+        match_name: &str,
     ) -> Result<DirEntry, Error<D::Error>>
     where
         D: BlockDevice,
     {
-        trace!("Reading directory");
-        let block = block_cache.read(block_idx).map_err(Error::DeviceError)?;
-        for (i, dir_entry_bytes) in block.chunks_exact(OnDiskDirEntry::LEN).enumerate() {
-            let dir_entry = OnDiskDirEntry::new(dir_entry_bytes);
-            if dir_entry.is_end() {
-                // Can quit early
-                break;
-            } else if dir_entry.matches(match_name) {
-                // Found it
-                // Block::LEN always fits on a u32
-                let start = (i * OnDiskDirEntry::LEN) as u32;
-                return Ok(dir_entry.get_entry(fat_type, block_idx, start));
-            }
+        let mut result = Err(Error::NotFound);
+        enum SeqState<'a> {
+            /// Looking for the first entry in an LFN sequence
+            Waiting,
+            /// Scanning through an LFN sequence
+            Scanning {
+                remaining: &'a str,
+                sequence: u8,
+                csum: u8,
+            },
+            /// Found an entry we like
+            Found { csum: u8 },
         }
-        Err(Error::NotFound)
+
+        let mut state = SeqState::Waiting;
+        self.iterate_dir_internal(block_cache, dir_info, |de, odde| {
+            match state {
+                SeqState::Waiting => {
+                    debug!("Am waiting for LFN start");
+                    let mut remaining = match_name;
+                    if let Some((true, sequence, csum, buffer)) = odde.lfn_contents() {
+                        #[cfg(feature = "defmt-log")]
+                        debug!("{:02x} {:02x} {:04x}", sequence, csum, buffer);
+                        #[cfg(feature = "log")]
+                        debug!("{:02x} {:02x} {:04x?}", sequence, csum, buffer);
+                        // trim padding and NUL words off the end of the file name (which is the part that comes first)
+                        for word in buffer
+                            .iter()
+                            .rev()
+                            .skip_while(|b| **b == 0xFFFF)
+                            .skip_while(|b| **b == 0x0000)
+                        {
+                            debug!("Looking at word {:04x}", *word);
+                            // UCS-2 16-bit values are valid Unicode code points - we do not expect surrogate pairs but if we find then, we give up.
+                            let Some(c) = char::from_u32(*word as u32) else {
+                                return Continue::Yes;
+                            };
+                            debug!("Looking at char '{}'", c);
+                            let Some(r) = remaining.strip_suffix(c) else {
+                                debug!("No, didn't want that");
+                                return Continue::Yes;
+                            };
+                            debug!("Liked it! {:?} is left", r);
+                            remaining = r;
+                        }
+                        if sequence == 1 {
+                            // last piece
+                            if remaining.is_empty() {
+                                // found it
+                                state = SeqState::Found { csum }
+                            } else {
+                                // no, we have characters left over
+                                state = SeqState::Waiting
+                            }
+                        } else {
+                            // keep looking
+                            state = SeqState::Scanning {
+                                remaining,
+                                sequence: sequence - 1,
+                                csum,
+                            };
+                        }
+                    }
+                }
+                SeqState::Scanning {
+                    remaining,
+                    sequence,
+                    csum,
+                } => {
+                    debug!(
+                        "Am waiting for more LFN sequence={:02x}, csum={:02x}",
+                        sequence, csum
+                    );
+                    let mut remaining = remaining;
+                    if let Some((false, this_sequence, this_csum, buffer)) = odde.lfn_contents() {
+                        #[cfg(feature = "defmt-log")]
+                        debug!("{:02x} {:02x} {:04x}", sequence, csum, buffer);
+                        #[cfg(feature = "log")]
+                        debug!("{:02x} {:02x} {:04x?}", sequence, csum, buffer);
+                        if (this_sequence != sequence) || (this_csum != csum) {
+                            // not what we wanted
+                            debug!(
+                                "No! Got sequence={:02x}, csum={:02x}",
+                                this_sequence, this_csum
+                            );
+                            state = SeqState::Waiting;
+                            return Continue::Yes;
+                        }
+                        for word in buffer.iter().rev() {
+                            // UCS-2 16-bit values are valid Unicode code points - we do not expect surrogate pairs but if we find then, we give up.
+                            debug!("Looking at word {:04x}", *word);
+                            let Some(c) = char::from_u32(*word as u32) else {
+                                return Continue::Yes;
+                            };
+                            debug!("Looking at char '{}'", c);
+                            let Some(r) = remaining.strip_suffix(c) else {
+                                debug!("No, didn't want that");
+                                return Continue::Yes;
+                            };
+                            debug!("Liked it! {:?} is left", r);
+                            remaining = r;
+                        }
+                        if sequence == 1 {
+                            // last piece
+                            if remaining.is_empty() {
+                                // found it
+                                state = SeqState::Found { csum }
+                            } else {
+                                // no, we have characters left over
+                                state = SeqState::Waiting
+                            }
+                        } else {
+                            // keep looking
+                            state = SeqState::Scanning {
+                                remaining,
+                                sequence: sequence - 1,
+                                csum,
+                            };
+                        }
+                    }
+                }
+                SeqState::Found { csum } => {
+                    let calc_csum = de.name.csum();
+                    if calc_csum == csum {
+                        result = Ok(de.clone());
+                        return Continue::No;
+                    } else {
+                        debug!("Bad csum {:02x} != {:02x}", calc_csum, csum);
+                    }
+                }
+            }
+            Continue::Yes
+        })?;
+        result
     }
 
     /// Delete an entry from the given directory

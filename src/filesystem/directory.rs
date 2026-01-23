@@ -1,7 +1,7 @@
 use crate::blockdevice::BlockIdx;
 use crate::fat::{FatType, OnDiskDirEntry};
 use crate::filesystem::{Attributes, ClusterId, Handle, LfnBuffer, ShortFileName, Timestamp};
-use crate::{Error, RawVolume, VolumeManager};
+use crate::{Continue, Error, RawVolume, VolumeManager};
 
 use super::ToShortFileName;
 
@@ -157,7 +157,7 @@ where
     /// given is this directory.
     pub fn iterate_dir<F>(&self, func: F) -> Result<(), Error<D::Error>>
     where
-        F: FnMut(&DirEntry),
+        F: FnMut(&DirEntry) -> Continue,
     {
         self.volume_mgr.iterate_dir(self.raw_directory, func)
     }
@@ -173,7 +173,7 @@ where
         func: F,
     ) -> Result<(), Error<D::Error>>
     where
-        F: FnMut(&DirEntry, Option<&str>),
+        F: FnMut(&DirEntry, Option<&str>) -> Continue,
     {
         self.volume_mgr
             .iterate_dir_lfn(self.raw_directory, lfn_buffer, func)
@@ -194,6 +194,22 @@ where
         let f = self
             .volume_mgr
             .open_file_in_dir(self.raw_directory, name, mode)?;
+        Ok(f.to_file(self.volume_mgr))
+    }
+
+    /// Open a file.
+    ///
+    /// See [`VolumeManager::open_long_name_file_in_dir`] for details, except the
+    /// directory given is this directory.
+    pub fn open_long_name_file_in_dir(
+        &self,
+        name: &str,
+        mode: crate::Mode,
+    ) -> Result<crate::File<'_, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>, crate::Error<D::Error>>
+    {
+        let f = self
+            .volume_mgr
+            .open_long_name_file_in_dir(self.raw_directory, name, mode)?;
         Ok(f.to_file(self.volume_mgr))
     }
 
