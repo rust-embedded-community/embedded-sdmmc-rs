@@ -251,6 +251,11 @@ impl<'a> LfnBuffer<'a> {
         }
     }
 
+    /// Returns [`Self::free`] casted to `usize`.
+    fn free(&self) -> usize {
+        usize::from(self.free)
+    }
+
     /// Empty out this buffer
     pub fn clear(&mut self) {
         self.free = self.inner.len() as u16;
@@ -328,7 +333,7 @@ impl<'a> LfnBuffer<'a> {
             // a buffer of length 4 is enough to encode any char
             let mut encoded_ch = [0u8; 4];
             let encoded_ch = ch.encode_utf8(&mut encoded_ch);
-            if self.free < encoded_ch.len() as u16 {
+            if self.free() < encoded_ch.len() {
                 // the LFN buffer they gave us was not long enough. Note for
                 // later, so we don't show them garbage.
                 self.overflow = true;
@@ -338,7 +343,7 @@ impl<'a> LfnBuffer<'a> {
             // already checked there was enough space.
             for b in encoded_ch.bytes().rev() {
                 self.free -= 1;
-                self.inner[usize::from(self.free)] = b;
+                self.inner[self.free()] = b;
             }
         }
     }
@@ -352,7 +357,7 @@ impl<'a> LfnBuffer<'a> {
             ""
         } else {
             // we always only put UTF-8 encoded data in here
-            unsafe { core::str::from_utf8_unchecked(&self.inner[usize::from(self.free)..]) }
+            unsafe { core::str::from_utf8_unchecked(&self.inner[self.free()..]) }
         }
     }
 }
