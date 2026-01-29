@@ -1,3 +1,5 @@
+//! File related code
+
 use super::TimeSource;
 use crate::{
     BlockDevice, Error, RawVolume, VolumeManager,

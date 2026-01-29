@@ -1,9 +1,11 @@
+//! Directory related code
+
 use core::ops::ControlFlow;
 
 use crate::blockdevice::BlockIdx;
 use crate::fat::{FatType, OnDiskDirEntry};
 use crate::filesystem::{Attributes, ClusterId, Handle, LfnBuffer, ShortFileName, Timestamp};
-use crate::{Continue, Error, RawVolume, VolumeManager};
+use crate::{Error, RawVolume, VolumeManager};
 
 use super::ToShortFileName;
 

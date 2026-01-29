@@ -676,6 +676,9 @@ impl FatVolume {
         })
     }
 
+    /// Calls callback `func` with every valid entry in the given FAT16 directory.
+    ///
+    /// Useful for performing directory listings.
     fn iterate_fat16<D, F>(
         &self,
         dir_info: &DirectoryInfo,
@@ -738,6 +741,9 @@ impl FatVolume {
         Ok(())
     }
 
+    /// Calls callback `func` with every valid entry in the given FAT32 directory.
+    ///
+    /// Useful for performing directory listings.
     fn iterate_fat32<D, F>(
         &self,
         dir_info: &DirectoryInfo,

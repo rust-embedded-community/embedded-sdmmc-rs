@@ -1,3 +1,5 @@
+//! Time related code
+
 /// Things that impl this can tell you the current time.
 pub trait TimeSource {
     /// Returns the current time
