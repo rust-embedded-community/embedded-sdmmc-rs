@@ -1,3 +1,5 @@
+use core::ops::ControlFlow;
+
 use crate::blockdevice::BlockIdx;
 use crate::fat::{FatType, OnDiskDirEntry};
 use crate::filesystem::{Attributes, ClusterId, Handle, LfnBuffer, ShortFileName, Timestamp};
@@ -157,7 +159,7 @@ where
     /// given is this directory.
     pub fn iterate_dir<F>(&self, func: F) -> Result<(), Error<D::Error>>
     where
-        F: FnMut(&DirEntry) -> Continue,
+        F: FnMut(&DirEntry) -> ControlFlow<()>,
     {
         self.volume_mgr.iterate_dir(self.raw_directory, func)
     }
@@ -173,7 +175,7 @@ where
         func: F,
     ) -> Result<(), Error<D::Error>>
     where
-        F: FnMut(&DirEntry, Option<&str>) -> Continue,
+        F: FnMut(&DirEntry, Option<&str>) -> ControlFlow<()>,
     {
         self.volume_mgr
             .iterate_dir_lfn(self.raw_directory, lfn_buffer, func)

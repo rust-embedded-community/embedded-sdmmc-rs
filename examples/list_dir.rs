@@ -34,6 +34,8 @@
 mod linux;
 use linux::*;
 
+use std::ops::ControlFlow;
+
 use embedded_sdmmc::{ShortFileName, VolumeIdx};
 
 type Error = embedded_sdmmc::Error<std::io::Error>;
@@ -79,7 +81,7 @@ fn list_dir(directory: Directory<'_>, path: &str) -> Result<(), Error> {
         {
             children.push(entry.name.clone());
         }
-        embedded_sdmmc::Continue::Yes
+        ControlFlow::Continue(())
     })?;
     for child_name in children {
         let child_dir = directory.open_dir(&child_name)?;

@@ -83,7 +83,7 @@
 //! | `B:/BACKUP.000/NAMES.CSV`   | `B:`    | Yes      | `[BACKUP.000]`     | `NAMES.CSV`    | `B:/BACKUP.000/NAMES.CSV`      |
 //! | `B:../BACKUP.000/NAMES.CSV` | `B:`    | No       | `[.., BACKUP.000]` | `NAMES.CSV`    | `B:/BACKUP.000/NAMES.CSV`      |
 
-use std::{cell::RefCell, io::prelude::*};
+use std::{cell::RefCell, io::prelude::*, ops::ControlFlow};
 
 use embedded_sdmmc::{
     Error as EsError, LfnBuffer, Mode, RawDirectory, RawVolume, ShortFileName, VolumeIdx,
@@ -264,7 +264,7 @@ impl Context {
                     println!();
                 }
             }
-            embedded_sdmmc::Continue::Yes
+            ControlFlow::Continue(())
         })?;
         Ok(())
     }
@@ -293,7 +293,7 @@ impl Context {
             {
                 children.push(entry.name.clone());
             }
-            embedded_sdmmc::Continue::Yes
+            ControlFlow::Continue(())
         })?;
         for child in children {
             println!("Entering {}", child);
