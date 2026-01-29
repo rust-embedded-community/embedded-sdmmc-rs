@@ -800,9 +800,7 @@ where
         let mode = solve_mode_variant(mode, true);
 
         match mode {
-            Mode::ReadWriteCreate => {
-                return Err(Error::FileAlreadyExists);
-            }
+            Mode::ReadWriteCreate => Err(Error::FileAlreadyExists),
             _ => {
                 if dir_entry.attributes.is_read_only() && mode != Mode::ReadOnly {
                     return Err(Error::ReadOnly);
@@ -911,8 +909,7 @@ where
             if data
                 .open_dirs
                 .iter()
-                .find(|dir_info| dir_info.cluster == dir_entry.cluster)
-                .is_some()
+                .any(|dir_info| dir_info.cluster == dir_entry.cluster)
             {
                 // Subdirectory is already open.
                 return Err(Error::DirAlreadyOpen);
