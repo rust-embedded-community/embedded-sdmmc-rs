@@ -47,14 +47,13 @@ impl Timestamp {
         }
     }
 
-    // TODO add tests for the method
     /// Serialize a `Timestamp` to FAT format
     pub fn serialize_to_fat(self) -> [u8; 4] {
         let mut data = [0u8; 4];
 
-        let hours = (u16::from(self.hours) << 11) & 0xF800;
-        let minutes = (u16::from(self.minutes) << 5) & 0x07E0;
-        let seconds = (u16::from(self.seconds / 2)) & 0x001F;
+        let hours = (u16::from(self.hours) << 11) & (0x1F << 11);
+        let minutes = (u16::from(self.minutes) << 5) & (0x3F << 5);
+        let seconds = (u16::from(self.seconds / 2)) & 0x1F;
         data[..2].copy_from_slice(&(hours | minutes | seconds).to_le_bytes()[..]);
 
         let year = if self.year_since_1970 < 10 {
@@ -81,7 +80,7 @@ impl Timestamp {
         seconds: u8,
     ) -> Result<Timestamp, &'static str> {
         Ok(Timestamp {
-            year_since_1970: if (1970..=(1970 + 255)).contains(&year) {
+            year_since_1970: if (1970..=2097).contains(&year) {
                 (year - 1970) as u8
             } else {
                 return Err("Bad year");
@@ -134,6 +133,55 @@ impl core::fmt::Display for Timestamp {
             self.seconds
         )
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn date_encode1() {
+        // 2018-12-09T19:22:00
+        let ts = Timestamp::from_calendar(2018, 12, 9, 19, 21, 38).unwrap();
+
+        let bytes = ts.serialize_to_fat();
+
+        // values taken from disk.img test image
+        assert_eq!(bytes, [0xb3, 0x9a, 0x89, 0x4d], "{:02x?} is wrong", &bytes);
+    }
+
+    #[test]
+    fn date_decode1() {
+        // 2018-12-09T19:22:00
+        let ts = Timestamp::from_calendar(2018, 12, 9, 19, 21, 38).unwrap();
+
+        // values taken from disk.img test image
+        let actual_ts = Timestamp::from_fat(0x4d89, 0x9ab3);
+
+        assert_eq!(ts, actual_ts);
+    }
+
+    #[test]
+    fn date_encode2() {
+        // 2024-10-25T16:31:14
+        let ts = Timestamp::from_calendar(2024, 10, 25, 16, 31, 14).unwrap();
+
+        let bytes = ts.serialize_to_fat();
+
+        // values taken from disk.img test image
+        assert_eq!(bytes, [0xe7, 0x83, 0x59, 0x59], "{:02x?} is wrong", &bytes);
+    }
+
+    #[test]
+    fn date_decode2() {
+        // 2024-10-25T16:31:14
+        let ts = Timestamp::from_calendar(2024, 10, 25, 16, 31, 14).unwrap();
+
+        // values taken from disk.img test image
+        let actual_ts = Timestamp::from_fat(0x5959, 0x83e7);
+        assert_eq!(ts, actual_ts);
+    }
+    //
 }
 
 // ****************************************************************************
