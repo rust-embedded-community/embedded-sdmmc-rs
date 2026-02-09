@@ -1,3 +1,5 @@
+//! Cluster related code
+
 /// Identifies a cluster on disk.
 ///
 /// A cluster is a consecutive group of blocks. Each cluster has a a numeric ID.

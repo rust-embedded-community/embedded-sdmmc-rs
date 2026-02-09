@@ -4,13 +4,13 @@
 
 use core::cell::RefCell;
 use core::convert::TryFrom;
-use core::ops::DerefMut;
+use core::ops::{ControlFlow, DerefMut};
 
 use byteorder::{ByteOrder, LittleEndian};
 use heapless::Vec;
 
 use crate::{
-    Block, BlockCache, BlockCount, BlockDevice, BlockIdx, Continue, Error, PARTITION_ID_FAT16,
+    Block, BlockCache, BlockCount, BlockDevice, BlockIdx, Error, PARTITION_ID_FAT16,
     PARTITION_ID_FAT16_LBA, PARTITION_ID_FAT16_SMALL, PARTITION_ID_FAT32_CHS_LBA,
     PARTITION_ID_FAT32_LBA, RawVolume, ShortFileName, Volume, VolumeIdx, VolumeInfo, VolumeType,
     debug, fat,
@@ -465,7 +465,7 @@ where
         mut func: F,
     ) -> Result<(), Error<D::Error>>
     where
-        F: FnMut(&DirEntry) -> Continue,
+        F: FnMut(&DirEntry) -> ControlFlow<()>,
     {
         let mut data = self.data.try_borrow_mut().map_err(|_| Error::LockError)?;
         let data = data.deref_mut();
@@ -482,7 +482,7 @@ where
                         if !de.attributes.is_lfn() {
                             func(de)
                         } else {
-                            Continue::Yes
+                            ControlFlow::Continue(())
                         }
                     },
                 )
@@ -517,7 +517,7 @@ where
         func: F,
     ) -> Result<(), Error<D::Error>>
     where
-        F: FnMut(&DirEntry, Option<&str>) -> Continue,
+        F: FnMut(&DirEntry, Option<&str>) -> ControlFlow<()>,
     {
         let mut data = self.data.try_borrow_mut().map_err(|_| Error::LockError)?;
         let data = data.deref_mut();
@@ -800,9 +800,7 @@ where
         let mode = solve_mode_variant(mode, true);
 
         match mode {
-            Mode::ReadWriteCreate => {
-                return Err(Error::FileAlreadyExists);
-            }
+            Mode::ReadWriteCreate => Err(Error::FileAlreadyExists),
             _ => {
                 if dir_entry.attributes.is_read_only() && mode != Mode::ReadOnly {
                     return Err(Error::ReadOnly);
@@ -911,8 +909,7 @@ where
             if data
                 .open_dirs
                 .iter()
-                .find(|dir_info| dir_info.cluster == dir_entry.cluster)
-                .is_some()
+                .any(|dir_info| dir_info.cluster == dir_entry.cluster)
             {
                 // Subdirectory is already open.
                 return Err(Error::DirAlreadyOpen);
@@ -937,7 +934,7 @@ where
                         {
                             count += 1;
                         }
-                        Continue::Yes
+                        ControlFlow::Continue(())
                     })?;
                 }
             }
@@ -991,9 +988,9 @@ where
                 && de.attributes == Attributes::create_from_fat(Attributes::VOLUME)
             {
                 maybe_volume_name = Some(unsafe { de.name.to_volume_label() });
-                Continue::No
+                ControlFlow::Break(())
             } else {
-                Continue::Yes
+                ControlFlow::Continue(())
             }
         })?;
 

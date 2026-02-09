@@ -1,3 +1,5 @@
+//! Attribute related code
+
 /// Indicates whether a directory entry is read-only, a directory, a volume
 /// label, etc.
 #[cfg_attr(feature = "defmt-log", derive(defmt::Format))]

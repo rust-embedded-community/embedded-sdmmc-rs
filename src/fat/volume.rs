@@ -1,8 +1,13 @@
 //! FAT-specific volume support.
 
+use core::convert::TryFrom;
+use core::ops::ControlFlow;
+
+use byteorder::{ByteOrder, LittleEndian};
+
 use crate::{
-    Attributes, Block, BlockCache, BlockCount, BlockDevice, BlockIdx, ClusterId, Continue,
-    DirEntry, DirectoryInfo, Error, LfnBuffer, ShortFileName, TimeSource, VolumeType, debug,
+    Attributes, Block, BlockCache, BlockCount, BlockDevice, BlockIdx, ClusterId, DirEntry,
+    DirectoryInfo, Error, LfnBuffer, ShortFileName, TimeSource, VolumeType, debug,
     fat::{
         Bpb, Fat16Info, Fat32Info, FatSpecificInfo, FatType, InfoSector, OnDiskDirEntry,
         RESERVED_ENTRIES,
@@ -10,8 +15,6 @@ use crate::{
     filesystem::FilenameError,
     trace, warn,
 };
-use byteorder::{ByteOrder, LittleEndian};
-use core::convert::TryFrom;
 
 /// An MS-DOS 11 character volume label.
 ///
@@ -546,7 +549,7 @@ impl FatVolume {
         mut func: F,
     ) -> Result<(), Error<D::Error>>
     where
-        F: FnMut(&DirEntry) -> Continue,
+        F: FnMut(&DirEntry) -> ControlFlow<()>,
         D: BlockDevice,
     {
         match &self.fat_specific_info {
@@ -567,7 +570,7 @@ impl FatVolume {
         func: F,
     ) -> Result<(), Error<D::Error>>
     where
-        F: FnMut(&DirEntry, &OnDiskDirEntry) -> Continue,
+        F: FnMut(&DirEntry, &OnDiskDirEntry) -> ControlFlow<()>,
         D: BlockDevice,
     {
         match &self.fat_specific_info {
@@ -592,7 +595,7 @@ impl FatVolume {
         mut func: F,
     ) -> Result<(), Error<D::Error>>
     where
-        F: FnMut(&DirEntry, Option<&str>) -> Continue,
+        F: FnMut(&DirEntry, Option<&str>) -> ControlFlow<()>,
         D: BlockDevice,
     {
         #[derive(Clone, Copy)]
@@ -658,7 +661,7 @@ impl FatVolume {
         self.iterate_dir_internal(block_cache, dir_info, |de, odde| {
             if let Some((start, this_seqno, csum, buffer)) = odde.lfn_contents() {
                 seq_state = seq_state.update(lfn_buffer, start, this_seqno, csum, buffer);
-                Continue::Yes
+                ControlFlow::Continue(())
             } else if let SeqState::Complete { csum } = seq_state {
                 if csum == de.name.csum() {
                     // Checksum is good, and all the pieces are there
@@ -673,6 +676,9 @@ impl FatVolume {
         })
     }
 
+    /// Calls callback `func` with every valid entry in the given FAT16 directory.
+    ///
+    /// Useful for performing directory listings.
     fn iterate_fat16<D, F>(
         &self,
         dir_info: &DirectoryInfo,
@@ -681,7 +687,7 @@ impl FatVolume {
         mut func: F,
     ) -> Result<(), Error<D::Error>>
     where
-        F: for<'odde> FnMut(&DirEntry, &OnDiskDirEntry<'odde>) -> Continue,
+        F: for<'odde> FnMut(&DirEntry, &OnDiskDirEntry<'odde>) -> ControlFlow<()>,
         D: BlockDevice,
     {
         // Root directories on FAT16 have a fixed size, because they use
@@ -714,7 +720,7 @@ impl FatVolume {
                         // Safe, since Block::LEN always fits on a u32
                         let start = (i * OnDiskDirEntry::LEN) as u32;
                         let entry = dir_entry.get_entry(FatType::Fat16, block_idx, start);
-                        if func(&entry, &dir_entry) == Continue::No {
+                        if func(&entry, &dir_entry) == ControlFlow::Break(()) {
                             break 'outer;
                         }
                     }
@@ -735,6 +741,9 @@ impl FatVolume {
         Ok(())
     }
 
+    /// Calls callback `func` with every valid entry in the given FAT32 directory.
+    ///
+    /// Useful for performing directory listings.
     fn iterate_fat32<D, F>(
         &self,
         dir_info: &DirectoryInfo,
@@ -743,7 +752,7 @@ impl FatVolume {
         mut func: F,
     ) -> Result<(), Error<D::Error>>
     where
-        F: for<'odde> FnMut(&DirEntry, &OnDiskDirEntry<'odde>) -> Continue,
+        F: for<'odde> FnMut(&DirEntry, &OnDiskDirEntry<'odde>) -> ControlFlow<()>,
         D: BlockDevice,
     {
         // All directories on FAT32 have a cluster chain but the root
@@ -761,12 +770,15 @@ impl FatVolume {
                     let dir_entry = OnDiskDirEntry::new(dir_entry_bytes);
                     if dir_entry.is_end() {
                         // Can quit early
-                        return Ok(());
+                        break;
                     } else if dir_entry.is_valid() {
                         // Safe, since Block::LEN always fits on a u32
                         let start = (i * OnDiskDirEntry::LEN) as u32;
                         let entry = dir_entry.get_entry(FatType::Fat32, block_idx, start);
-                        func(&entry, &dir_entry);
+                        if let ControlFlow::Break(_) = func(&entry, &dir_entry) {
+                            // Can quit early
+                            break;
+                        }
                     }
                 }
             }
@@ -789,9 +801,9 @@ impl FatVolume {
         self.iterate_dir(block_cache, dir_info, |de| {
             if de.name == *match_name {
                 result = Ok(de.clone());
-                Continue::No
+                ControlFlow::Break(())
             } else {
-                Continue::Yes
+                ControlFlow::Continue(())
             }
         })?;
         result
@@ -842,12 +854,12 @@ impl FatVolume {
                             debug!("Looking at word {:04x}", *word);
                             // UCS-2 16-bit values are valid Unicode code points - we do not expect surrogate pairs but if we find then, we give up.
                             let Some(c) = char::from_u32(*word as u32) else {
-                                return Continue::Yes;
+                                return ControlFlow::Continue(());
                             };
                             debug!("Looking at char '{}'", c);
                             let Some(r) = remaining.strip_suffix(c) else {
                                 debug!("No, didn't want that");
-                                return Continue::Yes;
+                                return ControlFlow::Continue(());
                             };
                             debug!("Liked it! {:?} is left", r);
                             remaining = r;
@@ -893,18 +905,18 @@ impl FatVolume {
                                 this_sequence, this_csum
                             );
                             state = SeqState::Waiting;
-                            return Continue::Yes;
+                            return ControlFlow::Continue(());
                         }
                         for word in buffer.iter().rev() {
                             // UCS-2 16-bit values are valid Unicode code points - we do not expect surrogate pairs but if we find then, we give up.
                             debug!("Looking at word {:04x}", *word);
                             let Some(c) = char::from_u32(*word as u32) else {
-                                return Continue::Yes;
+                                return ControlFlow::Continue(());
                             };
                             debug!("Looking at char '{}'", c);
                             let Some(r) = remaining.strip_suffix(c) else {
                                 debug!("No, didn't want that");
-                                return Continue::Yes;
+                                return ControlFlow::Continue(());
                             };
                             debug!("Liked it! {:?} is left", r);
                             remaining = r;
@@ -932,13 +944,13 @@ impl FatVolume {
                     let calc_csum = de.name.csum();
                     if calc_csum == csum {
                         result = Ok(de.clone());
-                        return Continue::No;
+                        return ControlFlow::Break(());
                     } else {
                         debug!("Bad csum {:02x} != {:02x}", calc_csum, csum);
                     }
                 }
             }
-            Continue::Yes
+            ControlFlow::Continue(())
         })?;
         result
     }

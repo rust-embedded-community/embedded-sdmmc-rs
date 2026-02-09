@@ -1,5 +1,7 @@
 //! Directory related tests
 
+use std::ops::ControlFlow;
+
 use embedded_sdmmc::{LfnBuffer, Mode, ShortFileName};
 
 mod utils;
@@ -117,7 +119,7 @@ fn fat16_root_directory_listing() {
     volume_mgr
         .iterate_dir_lfn(root_dir, &mut lfn_buffer, |d, opt_lfn| {
             listing.push((d.clone(), opt_lfn.map(String::from)));
-            embedded_sdmmc::Continue::Yes
+            ControlFlow::Continue(())
         })
         .expect("iterate directory");
 
@@ -194,7 +196,7 @@ fn fat16_sub_directory_listing() {
             }
             count += 1;
             listing.push(d.clone());
-            embedded_sdmmc::Continue::Yes
+            ControlFlow::Continue(())
         })
         .expect("iterate directory");
 
@@ -317,7 +319,7 @@ fn fat32_root_directory_listing() {
     volume_mgr
         .iterate_dir_lfn(root_dir, &mut lfn_buffer, |d, opt_lfn| {
             listing.push((d.clone(), opt_lfn.map(String::from)));
-            embedded_sdmmc::Continue::Yes
+            ControlFlow::Continue(())
         })
         .expect("iterate directory");
 
@@ -524,7 +526,7 @@ fn make_directory() {
             } else {
                 panic!("Unexpected item in new dir");
             }
-            embedded_sdmmc::Continue::Yes
+            ControlFlow::Continue(())
         })
         .unwrap();
     assert!(has_this);
@@ -569,7 +571,7 @@ fn make_directory() {
             } else {
                 panic!("Unexpected item in new dir");
             }
-            embedded_sdmmc::Continue::Yes
+            ControlFlow::Continue(())
         })
         .unwrap();
     assert!(has_this);
