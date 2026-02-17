@@ -3,8 +3,13 @@
 use crate::{
     blockdevice::BlockCount,
     fat::{FatType, OnDiskDirEntry},
+    PARTITION_ID_FAT16,PARTITION_ID_FAT16_LBA,PARTITION_ID_FAT16_SMALL,PARTITION_ID_FAT32_CHS_LBA,PARTITION_ID_FAT32_LBA,
 };
 use byteorder::{ByteOrder, LittleEndian};
+
+const PARTITION_INFO_START : usize = 446;
+const PARTITION_INFO_TYPE_INDEX : usize = 4;
+const PARTITION_INFO_TYPE_OFFSET : usize = PARTITION_INFO_START + PARTITION_INFO_TYPE_INDEX;
 
 /// A Boot Parameter Block.
 ///
@@ -35,14 +40,31 @@ impl<'a> Bpb<'a> {
         let non_data_blocks = u32::from(bpb.reserved_block_count())
             + (u32::from(bpb.num_fats()) * bpb.fat_size())
             + root_dir_blocks;
+
         let data_blocks = bpb.total_blocks() - non_data_blocks;
         bpb.cluster_count = data_blocks / u32::from(bpb.blocks_per_cluster());
-        if bpb.cluster_count < 4085 {
-            return Err("FAT12 is unsupported");
-        } else if bpb.cluster_count < 65525 {
-            bpb.fat_type = FatType::Fat16;
-        } else {
-            bpb.fat_type = FatType::Fat32;
+
+        // Figure out the type of partition 
+        let part_type = bpb.data[PARTITION_INFO_TYPE_OFFSET];
+
+        // if bpb.cluster_count < 4085 {
+        //     return Err("FAT12 is unsupported");
+        // } else if bpb.cluster_count < 65525 {
+        //     bpb.fat_type = FatType::Fat16;
+        // } else {
+        //     bpb.fat_type = FatType::Fat32;
+        // }
+
+        match part_type {
+            PARTITION_ID_FAT16 | PARTITION_ID_FAT16_LBA | PARTITION_ID_FAT16_SMALL => {
+                bpb.fat_type = FatType::Fat16;
+            },
+            PARTITION_ID_FAT32_CHS_LBA | PARTITION_ID_FAT32_LBA => {
+                bpb.fat_type = FatType::Fat32;
+            },
+            _ => {
+                return Err("BPB unsupported partition type")
+            }
         }
 
         match bpb.fat_type {
