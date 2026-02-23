@@ -111,10 +111,10 @@ pub use crate::filesystem::{
 use filesystem::DirectoryInfo;
 
 #[doc(inline)]
-pub use crate::sdcard::Error as SdCardError;
+pub use crate::sdcard::spi::Error as SdCardError;
 
 #[doc(inline)]
-pub use crate::sdcard::SdCard;
+pub use crate::sdcard::spi::SdCard;
 
 mod volume_mgr;
 #[doc(inline)]

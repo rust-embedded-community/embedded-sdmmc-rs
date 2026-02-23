@@ -1,743 +1,822 @@
-//! Implements the BlockDevice trait for an SD/MMC Protocol over SPI.
+//! # Low level SD card access module
 //!
-//! This is currently optimised for readability and debugability, not
-//! performance.
+//! Contains constants from the SD Specifications.
+//!
+//! Based on SdFat, under the following terms:
+//!
+//! > Copyright (c) 2011-2018 Bill Greiman
+//! > This file is part of the SdFat library for SD memory cards.
+//! >
+//! > MIT License
+//! >
+//! > Permission is hereby granted, free of charge, to any person obtaining a
+//! > copy of this software and associated documentation files (the "Software"),
+//! > to deal in the Software without restriction, including without limitation
+//! > the rights to use, copy, modify, merge, publish, distribute, sublicense,
+//! > and/or sell copies of the Software, and to permit persons to whom the
+//! > Software is furnished to do so, subject to the following conditions:
+//! >
+//! > The above copyright notice and this permission notice shall be included
+//! > in all copies or substantial portions of the Software.
+//! >
+//! > THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+//! > OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+//! > FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+//! > AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+//! > LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+//! > FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+//! > DEALINGS IN THE SOFTWARE.
 
-pub mod proto;
+//==============================================================================
 
-use crate::{Block, BlockCount, BlockDevice, BlockIdx, trace};
-use core::cell::RefCell;
-use proto::*;
+pub mod cid;
+pub mod csd;
+pub mod spi;
+
+// Possible errors the SD card can return
+/// Card indicates last operation was a success
+pub const ERROR_OK: u8 = 0x00;
+
+//==============================================================================
+
+// SD Card Commands
+
+/// GO_IDLE_STATE - init card in spi mode if CS low
+pub const CMD0: u8 = 0x00;
+/// SEND_IF_COND - verify SD Memory Card interface operating condition.*/
+pub const CMD8: u8 = 0x08;
+/// SEND_CSD - read the Card Specific Data (CSD register)
+pub const CMD9: u8 = 0x09;
+/// STOP_TRANSMISSION - end multiple block read sequence
+pub const CMD12: u8 = 0x0C;
+/// SEND_STATUS - read the card status register
+pub const CMD13: u8 = 0x0D;
+/// READ_SINGLE_BLOCK - read a single data block from the card
+pub const CMD17: u8 = 0x11;
+/// READ_MULTIPLE_BLOCK - read a multiple data blocks from the card
+pub const CMD18: u8 = 0x12;
+/// WRITE_BLOCK - write a single data block to the card
+pub const CMD24: u8 = 0x18;
+/// WRITE_MULTIPLE_BLOCK - write blocks of data until a STOP_TRANSMISSION
+pub const CMD25: u8 = 0x19;
+/// APP_CMD - escape for application specific command
+pub const CMD55: u8 = 0x37;
+/// READ_OCR - read the OCR register of a card
+pub const CMD58: u8 = 0x3A;
+/// CRC_ON_OFF - enable or disable CRC checking
+pub const CMD59: u8 = 0x3B;
+/// Pre-erased before writing
+///
+/// > It is recommended using this command preceding CMD25, some of the cards will be faster for Multiple
+/// > Write Blocks operation. Note that the host should send ACMD23 just before WRITE command if the host
+/// > wants to use the pre-erased feature
+pub const ACMD23: u8 = 0x17;
+/// SD_SEND_OP_COMD - Sends host capacity support information and activates
+/// the card's initialization process
+pub const ACMD41: u8 = 0x29;
+
+//==============================================================================
+
+/// status for card in the ready state
+pub const R1_READY_STATE: u8 = 0x00;
+
+/// status for card in the idle state
+pub const R1_IDLE_STATE: u8 = 0x01;
+
+/// status bit for illegal command
+pub const R1_ILLEGAL_COMMAND: u8 = 0x04;
+
+/// start data token for read or write single block*/
+pub const DATA_START_BLOCK: u8 = 0xFE;
+
+/// stop token for write multiple blocks*/
+pub const STOP_TRAN_TOKEN: u8 = 0xFD;
+
+/// start data token for write multiple blocks*/
+pub const WRITE_MULTIPLE_TOKEN: u8 = 0xFC;
+
+/// mask for data response tokens after a write block operation
+pub const DATA_RES_MASK: u8 = 0x1F;
+
+/// write data accepted token
+pub const DATA_RES_ACCEPTED: u8 = 0x05;
+
+/// Calculate the 7-bit CRC used on the SD card
+pub fn crc7(data: &[u8]) -> u8 {
+    let mut crc = 0u8;
+    for mut d in data.iter().cloned() {
+        for _bit in 0..8 {
+            crc <<= 1;
+            if ((d & 0x80) ^ (crc & 0x80)) != 0 {
+                crc ^= 0x09;
+            }
+            d <<= 1;
+        }
+    }
+    crc & 0x7F
+}
+
+/// Perform the X25 CRC calculation, as used for data blocks.
+pub fn crc16(data: &[u8]) -> u16 {
+    let mut crc = 0u16;
+    for &byte in data {
+        crc = ((crc >> 8) & 0xFF) | (crc << 8);
+        crc ^= u16::from(byte);
+        crc ^= (crc & 0xFF) >> 4;
+        crc ^= crc << 12;
+        crc ^= (crc & 0xFF) << 5;
+    }
+    crc
+}
 
 // ****************************************************************************
-// Imports
+//
+// Unit Tests
+//
 // ****************************************************************************
 
-use crate::{debug, warn};
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::sdcard::csd::*;
 
-// ****************************************************************************
-// Types and Implementations
-// ****************************************************************************
-
-/// Driver for an SD Card on an SPI bus.
-///
-/// Built from an [`SpiDevice`] implementation and a Chip Select pin.
-///
-/// Before talking to the SD Card, the caller needs to send 74 clocks cycles on
-/// the SPI Clock line, at 400 kHz, with no chip-select asserted (or at least,
-/// not the chip-select of the SD Card).
-///
-/// This kind of breaks the embedded-hal model, so how to do this is left to
-/// the caller. You could drive the SpiBus directly, or use an SpiDevice with
-/// a dummy chip-select pin. Or you could try just not doing the 74 clocks and
-/// see if your card works anyway - some do, some don't.
-///
-/// All the APIs take `&self` - mutability is handled using an inner `RefCell`.
-///
-/// [`SpiDevice`]: embedded_hal::spi::SpiDevice
-pub struct SdCard<SPI, DELAYER>
-where
-    SPI: embedded_hal::spi::SpiDevice<u8>,
-    DELAYER: embedded_hal::delay::DelayNs,
-{
-    inner: RefCell<SdCardInner<SPI, DELAYER>>,
-}
-
-impl<SPI, DELAYER> SdCard<SPI, DELAYER>
-where
-    SPI: embedded_hal::spi::SpiDevice<u8>,
-    DELAYER: embedded_hal::delay::DelayNs,
-{
-    /// Create a new SD/MMC Card driver using a raw SPI interface.
-    ///
-    /// The card will not be initialised at this time. Initialisation is
-    /// deferred until a method is called on the object.
-    ///
-    /// Uses the default options.
-    pub fn new(spi: SPI, delayer: DELAYER) -> SdCard<SPI, DELAYER> {
-        Self::new_with_options(spi, delayer, AcquireOpts::default())
+    #[test]
+    fn test_crc7_0() {
+        const DATA: [u8; 15] = hex!("00 26 00 32 5F 59 83 C8 AD DB CF FF D2 40 40");
+        assert_eq!(crc7(&DATA), 0x52);
     }
 
-    /// Construct a new SD/MMC Card driver, using a raw SPI interface and the given options.
-    ///
-    /// See the docs of the [`SdCard`] struct for more information about
-    /// how to construct the needed `SPI` and `CS` types.
-    ///
-    /// The card will not be initialised at this time. Initialisation is
-    /// deferred until a method is called on the object.
-    pub fn new_with_options(
-        spi: SPI,
-        delayer: DELAYER,
-        options: AcquireOpts,
-    ) -> SdCard<SPI, DELAYER> {
-        SdCard {
-            inner: RefCell::new(SdCardInner {
-                spi,
-                delayer,
-                card_type: None,
-                options,
-            }),
-        }
+    #[test]
+    fn test_crc7_1() {
+        // Taken from page 119 of the SD card spec.
+        let cmd0_arg0: [u8; 5] = [0b01000000, 0b00000000, 0b00000000, 0b00000000, 0b00000000];
+        assert_eq!(crc7(&cmd0_arg0), 0b1001010);
     }
 
-    /// Get a temporary borrow on the underlying SPI device.
-    ///
-    /// The given closure will be called exactly once, and will be passed a
-    /// mutable reference to the underlying SPI object.
-    ///
-    /// Useful if you need to re-clock the SPI, but does not perform card
-    /// initialisation.
-    pub fn spi<T, F>(&self, func: F) -> T
-    where
-        F: FnOnce(&mut SPI) -> T,
-    {
-        let mut inner = self.inner.borrow_mut();
-        func(&mut inner.spi)
+    #[test]
+    fn test_crc7_2() {
+        // Taken from page 119 of the SD card spec.
+        let cmd17_arg0: [u8; 5] = [0b01010001, 0b00000000, 0b00000000, 0b00000000, 0b00000000];
+        assert_eq!(crc7(&cmd17_arg0), 0b0101010);
     }
 
-    /// Return the usable size of this SD card in bytes.
-    ///
-    /// This will trigger card (re-)initialisation.
-    pub fn num_bytes(&self) -> Result<u64, Error> {
-        let mut inner = self.inner.borrow_mut();
-        inner.check_init()?;
-        inner.num_bytes()
+    #[test]
+    fn test_crc7_3() {
+        // Taken from page 119 of the SD card spec.
+        let cmd17_response: [u8; 5] = [0b00010001, 0b00000000, 0b00000000, 0b00001001, 0b00000000];
+        assert_eq!(crc7(&cmd17_response), 0b0110011);
     }
 
-    /// Can this card erase single blocks?
-    ///
-    /// This will trigger card (re-)initialisation.
-    pub fn erase_single_block_enabled(&self) -> Result<bool, Error> {
-        let mut inner = self.inner.borrow_mut();
-        inner.check_init()?;
-        inner.erase_single_block_enabled()
+    #[test]
+    fn test_crc16() {
+        // An actual CSD read from an SD card
+        const DATA: [u8; 16] = hex!("00 26 00 32 5F 5A 83 AE FE FB CF FF 92 80 40 DF");
+        assert_eq!(crc16(&DATA), 0x9fc5);
     }
 
-    /// Mark the card as requiring a reset.
-    ///
-    /// The next operation will assume the card has been freshly inserted.
-    pub fn mark_card_uninit(&self) {
-        let mut inner = self.inner.borrow_mut();
-        inner.card_type = None;
-    }
+    #[test]
+    fn test_csdv1b() {
+        const EXAMPLE_HEX: [u8; 16] = hex!("00 26 00 32 5F 59 83 C8 AD DB CF FF D2 40 40 A5");
+        const EXAMPLE_U128: u128 = u128::from_be_bytes(EXAMPLE_HEX);
+        const EXAMPLE: CsdV1 = CsdV1::new_with_raw_value(EXAMPLE_U128);
 
-    /// Get the card type.
-    ///
-    /// This will trigger card (re-)initialisation.
-    pub fn get_card_type(&self) -> Option<CardType> {
-        let mut inner = self.inner.borrow_mut();
-        inner.check_init().ok()?;
-        inner.card_type
-    }
-
-    /// Tell the driver the card has been initialised.
-    ///
-    /// This is here in case you were previously using the SD Card, and then a
-    /// previous instance of this object got destroyed but you know for certain
-    /// the SD Card remained powered up and initialised, and you'd just like to
-    /// read/write to/from the card again without going through the
-    /// initialisation sequence again.
-    ///
-    /// # Safety
-    ///
-    /// Only do this if the SD Card has actually been initialised. That is, if
-    /// you have been through the card initialisation sequence as specified in
-    /// the SD Card Specification by sending each appropriate command in turn,
-    /// either manually or using another variable of this [`SdCard`]. The card
-    /// must also be of the indicated type. Failure to uphold this will cause
-    /// data corruption.
-    pub unsafe fn mark_card_as_init(&self, card_type: CardType) {
-        let mut inner = self.inner.borrow_mut();
-        inner.card_type = Some(card_type);
-    }
-}
-
-impl<SPI, DELAYER> BlockDevice for SdCard<SPI, DELAYER>
-where
-    SPI: embedded_hal::spi::SpiDevice<u8>,
-    DELAYER: embedded_hal::delay::DelayNs,
-{
-    type Error = Error;
-
-    /// Read one or more blocks, starting at the given block index.
-    ///
-    /// This will trigger card (re-)initialisation.
-    fn read(&self, blocks: &mut [Block], start_block_idx: BlockIdx) -> Result<(), Self::Error> {
-        let mut inner = self.inner.borrow_mut();
-        debug!("Read {} blocks @ {}", blocks.len(), start_block_idx.0,);
-        inner.check_init()?;
-        inner.read(blocks, start_block_idx)
-    }
-
-    /// Write one or more blocks, starting at the given block index.
-    ///
-    /// This will trigger card (re-)initialisation.
-    fn write(&self, blocks: &[Block], start_block_idx: BlockIdx) -> Result<(), Self::Error> {
-        let mut inner = self.inner.borrow_mut();
-        debug!("Writing {} blocks @ {}", blocks.len(), start_block_idx.0);
-        inner.check_init()?;
-        inner.write(blocks, start_block_idx)
-    }
-
-    /// Determine how many blocks this device can hold.
-    ///
-    /// This will trigger card (re-)initialisation.
-    fn num_blocks(&self) -> Result<BlockCount, Self::Error> {
-        let mut inner = self.inner.borrow_mut();
-        inner.check_init()?;
-        inner.num_blocks()
-    }
-}
-
-/// Inner details for the SD Card driver.
-///
-/// All the APIs required `&mut self`.
-struct SdCardInner<SPI, DELAYER>
-where
-    SPI: embedded_hal::spi::SpiDevice<u8>,
-    DELAYER: embedded_hal::delay::DelayNs,
-{
-    spi: SPI,
-    delayer: DELAYER,
-    card_type: Option<CardType>,
-    options: AcquireOpts,
-}
-
-impl<SPI, DELAYER> SdCardInner<SPI, DELAYER>
-where
-    SPI: embedded_hal::spi::SpiDevice<u8>,
-    DELAYER: embedded_hal::delay::DelayNs,
-{
-    /// Read one or more blocks, starting at the given block index.
-    fn read(&mut self, blocks: &mut [Block], start_block_idx: BlockIdx) -> Result<(), Error> {
-        let start_idx = match self.card_type {
-            Some(CardType::SD1 | CardType::SD2) => start_block_idx.0 * 512,
-            Some(CardType::SDHC) => start_block_idx.0,
-            None => return Err(Error::CardNotFound),
-        };
-
-        if blocks.len() == 1 {
-            // Start a single-block read
-            self.card_command(CMD17, start_idx)?;
-            self.read_data(&mut blocks[0].contents)?;
-        } else {
-            // Start a multi-block read
-            self.card_command(CMD18, start_idx)?;
-            for block in blocks.iter_mut() {
-                self.read_data(&mut block.contents)?;
-            }
-            // Stop the read
-            self.card_command(CMD12, 0)?;
-        }
-        Ok(())
-    }
-
-    /// Write one or more blocks, starting at the given block index.
-    fn write(&mut self, blocks: &[Block], start_block_idx: BlockIdx) -> Result<(), Error> {
-        let start_idx = match self.card_type {
-            Some(CardType::SD1 | CardType::SD2) => start_block_idx.0 * 512,
-            Some(CardType::SDHC) => start_block_idx.0,
-            None => return Err(Error::CardNotFound),
-        };
-        if blocks.len() == 1 {
-            // Start a single-block write
-            self.card_command(CMD24, start_idx)?;
-            self.write_data(DATA_START_BLOCK, &blocks[0].contents)?;
-            self.wait_not_busy(Delay::new_write())?;
-            if self.card_command(CMD13, 0)? != 0x00 {
-                return Err(Error::WriteError);
-            }
-            if self.read_byte()? != 0x00 {
-                return Err(Error::WriteError);
-            }
-        } else {
-            // > It is recommended using this command preceding CMD25, some of the cards will be faster for Multiple
-            // > Write Blocks operation. Note that the host should send ACMD23 just before WRITE command if the host
-            // > wants to use the pre-erased feature
-            self.card_acmd(ACMD23, blocks.len() as u32)?;
-            // wait for card to be ready before sending the next command
-            self.wait_not_busy(Delay::new_write())?;
-
-            // Start a multi-block write
-            self.card_command(CMD25, start_idx)?;
-            for block in blocks.iter() {
-                self.wait_not_busy(Delay::new_write())?;
-                self.write_data(WRITE_MULTIPLE_TOKEN, &block.contents)?;
-            }
-            // Stop the write
-            self.wait_not_busy(Delay::new_write())?;
-            self.write_byte(STOP_TRAN_TOKEN)?;
-        }
-        Ok(())
-    }
-
-    /// Determine how many blocks this device can hold.
-    fn num_blocks(&mut self) -> Result<BlockCount, Error> {
-        let csd = self.read_csd()?;
-        debug!("CSD: {:?}", csd);
-        let num_blocks = match csd {
-            Csd::V1(ref contents) => contents.card_capacity_blocks(),
-            Csd::V2(ref contents) => contents.card_capacity_blocks(),
-            Csd::V3(ref contents) => contents.card_capacity_blocks(),
-        };
-        Ok(BlockCount(num_blocks))
-    }
-
-    /// Return the usable size of this SD card in bytes.
-    fn num_bytes(&mut self) -> Result<u64, Error> {
-        let csd = self.read_csd()?;
-        debug!("CSD: {:?}", csd);
-        match csd {
-            Csd::V1(ref contents) => Ok(contents.card_capacity_bytes()),
-            Csd::V2(ref contents) => Ok(contents.card_capacity_bytes()),
-            Csd::V3(ref contents) => Ok(contents.card_capacity_bytes()),
-        }
-    }
-
-    /// Can this card erase single blocks?
-    pub fn erase_single_block_enabled(&mut self) -> Result<bool, Error> {
-        let csd = self.read_csd()?;
-        match csd {
-            Csd::V1(ref contents) => Ok(contents.erase_single_block_enabled()),
-            Csd::V2(ref contents) => Ok(contents.erase_single_block_enabled()),
-            Csd::V3(ref contents) => Ok(contents.erase_single_block_enabled()),
-        }
-    }
-
-    /// Read the 'card specific data' block.
-    fn read_csd(&mut self) -> Result<Csd, Error> {
-        let mut csd_raw: [u8; 16] = [0; 16];
-        match self.card_type {
-            Some(CardType::SD1) => {
-                if self.card_command(CMD9, 0)? != 0 {
-                    return Err(Error::RegisterReadError);
-                }
-                self.read_data(&mut csd_raw)?;
-                Ok(Csd::V1(CsdV1::from_be_bytes(&csd_raw)))
-            }
-            Some(CardType::SD2 | CardType::SDHC) => {
-                if self.card_command(CMD9, 0)? != 0 {
-                    return Err(Error::RegisterReadError);
-                }
-                self.read_data(&mut csd_raw)?;
-                Ok(Csd::V2(CsdV2::from_be_bytes(&csd_raw)))
-            }
-            None => Err(Error::CardNotFound),
-        }
-    }
-
-    /// Read an arbitrary number of bytes from the card using the SD Card
-    /// protocol and an optional CRC. Always fills the given buffer, so make
-    /// sure it's the right size.
-    fn read_data(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
-        // Get first non-FF byte.
-        let mut delay = Delay::new_read();
-        let status = loop {
-            let s = self.read_byte()?;
-            if s != 0xFF {
-                break s;
-            }
-            delay.delay(&mut self.delayer, Error::TimeoutReadBuffer)?;
-        };
-        if status != DATA_START_BLOCK {
-            return Err(Error::ReadError);
+        let csd = Csd::new(&EXAMPLE_HEX);
+        assert!(csd.is_ok());
+        if let Ok(Csd::V1(csd_v1)) = csd {
+            assert_eq!(csd_v1.raw_value(), EXAMPLE_U128);
         }
 
-        buffer.fill(0xFF);
-        self.transfer_bytes(buffer)?;
+        // CSD Structure: describes version of CSD structure
+        // 0b00 [Interpreted: Version 1.0]
+        assert_eq!(EXAMPLE.csd_structure().unwrap(), CsdStructure::CsdV1);
 
-        // These two bytes are always sent. They are either a valid CRC, or
-        // junk, depending on whether CRC mode was enabled.
-        let mut crc_bytes = [0xFF; 2];
-        self.transfer_bytes(&mut crc_bytes)?;
-        if self.options.use_crc {
-            let crc = u16::from_be_bytes(crc_bytes);
-            let calc_crc = crc16(buffer);
-            if crc != calc_crc {
-                return Err(Error::CrcError(crc, calc_crc));
-            }
+        // Data Read Access Time 1: defines Asynchronous part of the read
+        // access time 0x26 [Interpreted: 1.5 x 1ms]
+        assert_eq!(EXAMPLE.data_read_access_time1(), 0x26);
+
+        // Data Read Access Time 2: worst case clock dependent factor for data
+        // access time 0x00 [Decimal: 0 x 100 Clocks]
+        assert_eq!(EXAMPLE.data_read_access_time2(), 0x00);
+
+        // Max Data Transfer Rate: sometimes stated as Mhz
+        // 0x32 [Interpreted: 2.5 x 10Mbit/s]
+        assert_eq!(EXAMPLE.max_data_transfer_rate(), 0x32);
+
+        // Card Command Classes: 0x5f5 [Interpreted: Class 0: Yes. Class 1:
+        // No. Class 2: Yes. Class 3: No. Class 4: Yes. Class 5: Yes. Class 6:
+        // Yes. Class 7: Yes. Class 8: Yes. Class 9: No. Class 10: Yes. Class
+        // 11: No. ]
+        assert_eq!(EXAMPLE.card_command_classes_raw().value(), 0x5f5);
+
+        // Max Read Data Block Length:
+        // 0x9 [Interpreted: 512 Bytes]
+        assert_eq!(
+            EXAMPLE.read_block_length().unwrap(),
+            BlockLengthSelectV1::_512
+        );
+
+        // Partial Blocks for Read Allowed:
+        // 0b1 [Interpreted: Yes]
+        assert!(EXAMPLE.partial_blocks_for_read_allowed());
+
+        // Write Block Misalignment:
+        // 0b0 [Interpreted: No]
+        assert!(!EXAMPLE.write_block_misalignment());
+
+        // Read Block Misalignment:
+        // 0b0 [Interpreted: No]
+        assert!(!EXAMPLE.read_block_misalignment());
+
+        // DSR Implemented: indicates configurable driver stage integrated on
+        // card 0b0 [Interpreted: No]
+        assert!(!EXAMPLE.dsr_implemented());
+
+        // Device Size: to calculate the card capacity excl. security area
+        // ((device size + 1)*device size multiplier*max read data block
+        // length) bytes 0xf22 [Decimal: 3874]
+        assert_eq!(EXAMPLE.device_size().value(), 3874);
+
+        // Max Read Current @ VDD Min:
+        // 0x5 [Interpreted: 35mA]
+        assert_eq!(EXAMPLE.max_read_current_vdd_min().value(), 5);
+
+        // Max Read Current @ VDD Max:
+        // 0x5 [Interpreted: 80mA]
+        assert_eq!(EXAMPLE.max_read_current_vdd_max().value(), 5);
+
+        // Max Write Current @ VDD Min:
+        // 0x6 [Interpreted: 60mA]
+        assert_eq!(EXAMPLE.max_write_current_vdd_min().value(), 6);
+
+        // Max Write Current @ VDD Max::
+        // 0x6 [Interpreted: 200mA]
+        assert_eq!(EXAMPLE.max_write_current_vdd_max().value(), 6);
+
+        // Device Size Multiplier:
+        // 0x7 [Interpreted: x512]
+        assert_eq!(EXAMPLE.device_size_multiplier(), SizeMultiplierSelect::_512);
+
+        // Erase Single Block Enabled:
+        // 0x1 [Interpreted: Yes]
+        assert!(EXAMPLE.erase_single_block_enabled());
+
+        // Erase Sector Size: size of erasable sector in write blocks
+        // 0x1f [Interpreted: 32 blocks]
+        assert_eq!(EXAMPLE.erase_sector_size().value(), 0x1F);
+
+        // Write Protect Group Size:
+        // 0x7f [Interpreted: 128 sectors]
+        assert_eq!(EXAMPLE.write_protect_group_size().value(), 0x7f);
+
+        // Write Protect Group Enable:
+        // 0x1 [Interpreted: Yes]
+        assert!(EXAMPLE.write_protect_group_enable());
+
+        // Write Speed Factor: block program time as multiple of read access time
+        // 0x4 [Interpreted: x16]
+        assert_eq!(EXAMPLE.write_speed_factor().value(), 0x4);
+
+        // Max Write Data Block Length:
+        // 0x9 [Interpreted: 512 Bytes]
+        assert_eq!(
+            EXAMPLE.write_block_length().unwrap(),
+            BlockLengthSelectV1::_512
+        );
+
+        // Partial Blocks for Write Allowed:
+        // 0x0 [Interpreted: No]
+        assert!(!EXAMPLE.partial_blocks_for_write_allowed());
+
+        // File Format Group:
+        // 0b0 [Interpreted: is either Hard Disk with Partition Table/DOS FAT without Partition Table/Universal File Format/Other/Unknown]
+        assert!(!EXAMPLE.file_format_group_set());
+
+        // Copy Flag:
+        // 0b1 [Interpreted: Non-Original]
+        assert!(EXAMPLE.copy_flag_set());
+
+        // Permanent Write Protection:
+        // 0b0 [Interpreted: No]
+        assert!(!EXAMPLE.permanent_write_protection());
+
+        // Temporary Write Protection:
+        // 0b0 [Interpreted: No]
+        assert!(!EXAMPLE.temporary_write_protection());
+
+        // File Format:
+        // 0x0 [Interpreted: Hard Disk with Partition Table]
+        assert_eq!(EXAMPLE.file_format().value(), 0x00);
+
+        // CRC7 Checksum:
+        assert_eq!(EXAMPLE.crc().value(), 0x52);
+
+        assert_eq!(EXAMPLE.card_capacity_bytes(), 1_015_808_000);
+        assert_eq!(EXAMPLE.card_capacity_blocks(), 1_984_000);
+
+        assert!(EXAMPLE.verify_crc7());
+    }
+
+    #[test]
+    fn test_csd_invalid_checksum() {
+        const EXAMPLE_HEX: [u8; 16] = hex!("00 26 00 32 5F 59 83 C8 AD DB CF FF D2 40 40 FF");
+        let csd = Csd::new(&EXAMPLE_HEX);
+        assert_eq!(csd.unwrap_err(), CsdCreationError::Checksum)
+    }
+
+    #[test]
+    fn test_csd_invalid_leading_field() {
+        const EXAMPLE_HEX: [u8; 16] = hex!("FF 26 00 32 5F 59 83 C8 AD DB CF FF D2 40 40 A4");
+        let csd = Csd::new(&EXAMPLE_HEX);
+        assert_eq!(csd.unwrap_err(), CsdCreationError::InvalidCsdStructureField)
+    }
+
+    #[test]
+    fn test_csdv1() {
+        const EXAMPLE: CsdV1 = CsdV1::new_with_raw_value(u128::from_be_bytes(hex!(
+            "00 7F 00 32 5B 5A 83 AF 7F FF CF 80 16 80 00 6F"
+        )));
+        // CSD Structure: describes version of CSD structure
+        // 0b00 [Interpreted: Version 1.0]
+        assert_eq!(EXAMPLE.csd_structure().unwrap(), CsdStructure::CsdV1);
+
+        // Data Read Access Time 1: defines Asynchronous part of the read access time
+        // 0x7f [Interpreted: 8.0 x 10ms]
+        assert_eq!(EXAMPLE.data_read_access_time1(), 0x7F);
+
+        // Data Read Access Time 2: worst case clock dependent factor for data access time
+        // 0x00 [Decimal: 0 x 100 Clocks]
+        assert_eq!(EXAMPLE.data_read_access_time2(), 0x00);
+
+        // Max Data Transfer Rate: sometimes stated as Mhz
+        // 0x32 [Interpreted: 2.5 x 10Mbit/s]
+        assert_eq!(EXAMPLE.max_data_transfer_rate(), 0x32);
+
+        // Card Command Classes:
+        // 0x5b5 [Interpreted: Class 0: Yes. Class 1: No. Class 2: Yes. Class 3: No. Class 4: Yes. Class 5: Yes. Class 6: No. Class 7: Yes. Class 8: Yes. Class 9: No. Class 10: Yes. Class 11: No. ]
+        assert_eq!(EXAMPLE.card_command_classes_raw().value(), 0x5b5);
+        assert_eq!(
+            EXAMPLE.card_command_classes(),
+            CardCommandClasses::BASIC
+                | CardCommandClasses::BLOCK_READ
+                | CardCommandClasses::BLOCK_WRITE
+                | CardCommandClasses::ERASE
+                | CardCommandClasses::LOCK_CARD
+                | CardCommandClasses::APP_SPECIFIC
+                | CardCommandClasses::SWITCH
+        );
+
+        // Max Read Data Block Length:
+        // 0xa [Interpreted: 1024 Bytes]
+        assert_eq!(
+            EXAMPLE.read_block_length().unwrap(),
+            BlockLengthSelectV1::_1024
+        );
+
+        // Partial Blocks for Read Allowed:
+        // 0b1 [Interpreted: Yes]
+        assert!(EXAMPLE.partial_blocks_for_read_allowed());
+
+        // Write Block Misalignment:
+        // 0b0 [Interpreted: No]
+        assert!(!EXAMPLE.write_block_misalignment());
+
+        // Read Block Misalignment:
+        // 0b0 [Interpreted: No]
+        assert!(!EXAMPLE.read_block_misalignment());
+
+        // DSR Implemented: indicates configurable driver stage integrated on card
+        // 0b0 [Interpreted: No]
+        assert!(!EXAMPLE.dsr_implemented());
+
+        // Device Size: to calculate the card capacity excl. security area
+        // ((device size + 1)*device size multiplier*max read data block
+        // length) bytes 0xebd [Decimal: 3773]
+        assert_eq!(EXAMPLE.device_size().value(), 3773);
+
+        // Max Read Current @ VDD Min:
+        // 0x7 [Interpreted: 100mA]
+        assert_eq!(EXAMPLE.max_read_current_vdd_min().value(), 7);
+
+        // Max Read Current @ VDD Max:
+        // 0x7 [Interpreted: 200mA]
+        assert_eq!(EXAMPLE.max_read_current_vdd_max().value(), 7);
+
+        // Max Write Current @ VDD Min:
+        // 0x7 [Interpreted: 100mA]
+        assert_eq!(EXAMPLE.max_write_current_vdd_min().value(), 7);
+
+        // Max Write Current @ VDD Max::
+        // 0x7 [Interpreted: 200mA]
+        assert_eq!(EXAMPLE.max_write_current_vdd_max().value(), 7);
+
+        // Device Size Multiplier:
+        // 0x7 [Interpreted: x512]
+        assert_eq!(EXAMPLE.device_size_multiplier(), SizeMultiplierSelect::_512);
+
+        // Erase Single Block Enabled:
+        // 0x1 [Interpreted: Yes]
+        assert!(EXAMPLE.erase_single_block_enabled());
+
+        // Erase Sector Size: size of erasable sector in write blocks
+        // 0x1f [Interpreted: 32 blocks]
+        assert_eq!(EXAMPLE.erase_sector_size().value(), 0x1F);
+
+        // Write Protect Group Size:
+        // 0x00 [Interpreted: 1 sectors]
+        assert_eq!(EXAMPLE.write_protect_group_size().value(), 0x00);
+
+        // Write Protect Group Enable:
+        // 0x0 [Interpreted: No]
+        assert!(!EXAMPLE.write_protect_group_enable());
+
+        // Write Speed Factor: block program time as multiple of read access time
+        // 0x5 [Interpreted: x32]
+        assert_eq!(EXAMPLE.write_speed_factor().value(), 0x5);
+
+        // Max Write Data Block Length:
+        // 0xa [Interpreted: 1024 Bytes]
+        assert_eq!(
+            EXAMPLE.write_block_length().unwrap(),
+            BlockLengthSelectV1::_1024
+        );
+
+        // Partial Blocks for Write Allowed:
+        // 0x0 [Interpreted: No]
+        assert!(!EXAMPLE.partial_blocks_for_write_allowed());
+
+        // File Format Group:
+        // 0b0 [Interpreted: is either Hard Disk with Partition Table/DOS FAT without Partition Table/Universal File Format/Other/Unknown]
+        assert!(!EXAMPLE.file_format_group_set());
+
+        // Copy Flag:
+        // 0b0 [Interpreted: Original]
+        assert!(!EXAMPLE.copy_flag_set());
+
+        // Permanent Write Protection:
+        // 0b0 [Interpreted: No]
+        assert!(!EXAMPLE.permanent_write_protection());
+
+        // Temporary Write Protection:
+        // 0b0 [Interpreted: No]
+        assert!(!EXAMPLE.temporary_write_protection());
+
+        // File Format:
+        // 0x0 [Interpreted: Hard Disk with Partition Table]
+        assert_eq!(EXAMPLE.file_format().value(), 0x00);
+
+        // CRC7 Checksum.
+        assert_eq!(EXAMPLE.crc().value(), 0x37);
+
+        assert_eq!(EXAMPLE.card_capacity_bytes(), 1_978_662_912);
+        assert_eq!(EXAMPLE.card_capacity_blocks(), 3_864_576);
+    }
+
+    #[test]
+    fn test_csdv2() {
+        const EXAMPLE_HEX: [u8; 16] = hex!("40 0E 00 32 5B 59 00 00 1D 69 7F 80 0A 40 00 8B");
+        const EXAMPLE_U128: u128 = u128::from_be_bytes(EXAMPLE_HEX);
+        const EXAMPLE: CsdV2 = CsdV2::new_with_raw_value(EXAMPLE_U128);
+
+        let csd = Csd::new(&EXAMPLE_HEX);
+        assert!(csd.is_ok());
+        if let Ok(Csd::V2(csd_v2)) = csd {
+            assert_eq!(csd_v2.raw_value(), EXAMPLE_U128);
         }
 
-        Ok(())
+        // CSD Structure: describes version of CSD structure
+        // 0b01 [Interpreted: Version 2.0 SDHC]
+        assert_eq!(EXAMPLE.csd_structure().unwrap(), CsdStructure::CsdV2);
+
+        // Data Read Access Time 1: defines Asynchronous part of the read access time
+        // 0x0e [Interpreted: 1.0 x 1ms]
+        assert_eq!(EXAMPLE.data_read_access_time1(), 0x0E);
+
+        // Data Read Access Time 2: worst case clock dependent factor for data access time
+        // 0x00 [Decimal: 0 x 100 Clocks]
+        assert_eq!(EXAMPLE.data_read_access_time2(), 0x00);
+
+        // Max Data Transfer Rate: sometimes stated as Mhz
+        // 0x32 [Interpreted: 2.5 x 10Mbit/s]
+        assert_eq!(EXAMPLE.max_data_transfer_rate(), 0x32);
+
+        // Card Command Classes:
+        // 0x5b5 [Interpreted: Class 0: Yes. Class 1: No. Class 2: Yes. Class 3: No. Class 4: Yes. Class 5: Yes. Class 6: No. Class 7: Yes. Class 8: Yes. Class 9: No. Class 10: Yes. Class 11: No. ]
+        assert_eq!(EXAMPLE.card_command_classes_raw().value(), 0x5b5);
+
+        // Max Read Data Block Length:
+        // 0x9 [Interpreted: 512 Bytes]
+        assert_eq!(
+            EXAMPLE.read_block_length().unwrap(),
+            BlockLengthSelectV2AndV3::_512
+        );
+
+        // Partial Blocks for Read Allowed:
+        // 0b0 [Interpreted: Yes]
+        assert!(!EXAMPLE.partial_blocks_for_read_allowed());
+
+        // Write Block Misalignment:
+        // 0b0 [Interpreted: No]
+        assert!(!EXAMPLE.write_block_misalignment());
+
+        // Read Block Misalignment:
+        // 0b0 [Interpreted: No]
+        assert!(!EXAMPLE.read_block_misalignment());
+
+        // DSR Implemented: indicates configurable driver stage integrated on card
+        // 0b0 [Interpreted: No]
+        assert!(!EXAMPLE.dsr_implemented());
+
+        // Device Size: to calculate the card capacity excl. security area
+        // ((device size + 1)* 512kbytes
+        // 0x001d69 [Decimal: 7529]
+        assert_eq!(EXAMPLE.device_size().value(), 7529);
+
+        // Erase Single Block Enabled:
+        // 0x1 [Interpreted: Yes]
+        assert!(EXAMPLE.erase_single_block_enabled());
+
+        // Erase Sector Size: size of erasable sector in write blocks
+        // 0x7f [Interpreted: 128 blocks]
+        assert_eq!(EXAMPLE.erase_sector_size().value(), 0x7F);
+
+        // Write Protect Group Size:
+        // 0x00 [Interpreted: 1 sectors]
+        assert_eq!(EXAMPLE.write_protect_group_size().value(), 0x00);
+
+        // Write Protect Group Enable:
+        // 0x0 [Interpreted: No]
+        assert!(!EXAMPLE.write_protect_group_enable());
+
+        // Write Speed Factor: block program time as multiple of read access time
+        // 0x2 [Interpreted: x4]
+        assert_eq!(EXAMPLE.write_speed_factor().value(), 0x2);
+
+        // Max Write Data Block Length:
+        // 0x9 [Interpreted: 512 Bytes]
+        assert_eq!(
+            EXAMPLE.write_block_length().unwrap(),
+            BlockLengthSelectV2AndV3::_512
+        );
+
+        // Partial Blocks for Write Allowed:
+        // 0x0 [Interpreted: No]
+        assert!(!EXAMPLE.partial_blocks_for_write_allowed());
+
+        // File Format Group:
+        // 0b0 [Interpreted: is either Hard Disk with Partition Table/DOS FAT without Partition Table/Universal File Format/Other/Unknown]
+        assert!(!EXAMPLE.file_format_group_set());
+
+        // Copy Flag:
+        // 0b0 [Interpreted: Original]
+        assert!(!EXAMPLE.copy_flag_set());
+
+        // Permanent Write Protection:
+        // 0b0 [Interpreted: No]
+        assert!(!EXAMPLE.permanent_write_protection());
+
+        // Temporary Write Protection:
+        // 0b0 [Interpreted: No]
+        assert!(!EXAMPLE.temporary_write_protection());
+
+        // File Format:
+        // 0x0 [Interpreted: Hard Disk with Partition Table]
+        assert_eq!(EXAMPLE.file_format().value(), 0x00);
+
+        // CRC7 Checksum.
+        assert_eq!(EXAMPLE.crc().value(), 0x45);
+
+        assert_eq!(EXAMPLE.card_capacity_bytes(), 3_947_888_640);
+        assert_eq!(EXAMPLE.card_capacity_blocks(), 7_710_720);
+
+        assert!(EXAMPLE.verify_crc7());
     }
 
-    /// Write an arbitrary number of bytes to the card using the SD protocol and
-    /// an optional CRC.
-    fn write_data(&mut self, token: u8, buffer: &[u8]) -> Result<(), Error> {
-        self.write_byte(token)?;
-        self.write_bytes(buffer)?;
-        let crc_bytes = if self.options.use_crc {
-            crc16(buffer).to_be_bytes()
-        } else {
-            [0xFF, 0xFF]
-        };
-        // These two bytes are always sent. They are either a valid CRC, or
-        // junk, depending on whether CRC mode was enabled.
-        self.write_bytes(&crc_bytes)?;
+    #[test]
+    fn test_csdv2b() {
+        const EXAMPLE: CsdV2 = CsdV2::new_with_raw_value(u128::from_be_bytes(hex!(
+            "40 0E 00 32 5B 59 00 00 3A 91 7F 80 0A 40 00 05"
+        )));
+        // CSD Structure: describes version of CSD structure
+        // 0b01 [Interpreted: Version 2.0 SDHC]
+        assert_eq!(EXAMPLE.csd_structure().unwrap(), CsdStructure::CsdV2);
 
-        let status = self.read_byte()?;
-        if (status & DATA_RES_MASK) != DATA_RES_ACCEPTED {
-            Err(Error::WriteError)
-        } else {
-            Ok(())
-        }
+        // Data Read Access Time 1: defines Asynchronous part of the read access time
+        // 0x0e [Interpreted: 1.0 x 1ms]
+        assert_eq!(EXAMPLE.data_read_access_time1(), 0x0E);
+
+        // Data Read Access Time 2: worst case clock dependent factor for data access time
+        // 0x00 [Decimal: 0 x 100 Clocks]
+        assert_eq!(EXAMPLE.data_read_access_time2(), 0x00);
+
+        // Max Data Transfer Rate: sometimes stated as Mhz
+        // 0x32 [Interpreted: 2.5 x 10Mbit/s]
+        assert_eq!(EXAMPLE.max_data_transfer_rate(), 0x32);
+
+        // Card Command Classes:
+        // 0x5b5 [Interpreted: Class 0: Yes. Class 1: No. Class 2: Yes. Class 3: No. Class 4: Yes. Class 5: Yes. Class 6: No. Class 7: Yes. Class 8: Yes. Class 9: No. Class 10: Yes. Class 11: No. ]
+        assert_eq!(EXAMPLE.card_command_classes_raw().value(), 0x5b5);
+
+        // Max Read Data Block Length:
+        // 0x9 [Interpreted: 512 Bytes]
+        assert_eq!(
+            EXAMPLE.read_block_length().unwrap(),
+            BlockLengthSelectV2AndV3::_512
+        );
+
+        // Partial Blocks for Read Allowed:
+        // 0b0 [Interpreted: Yes]
+        assert!(!EXAMPLE.partial_blocks_for_read_allowed());
+
+        // Write Block Misalignment:
+        // 0b0 [Interpreted: No]
+        assert!(!EXAMPLE.write_block_misalignment());
+
+        // Read Block Misalignment:
+        // 0b0 [Interpreted: No]
+        assert!(!EXAMPLE.read_block_misalignment());
+
+        // DSR Implemented: indicates configurable driver stage integrated on card
+        // 0b0 [Interpreted: No]
+        assert!(!EXAMPLE.dsr_implemented());
+
+        // Device Size: to calculate the card capacity excl. security area
+        // ((device size + 1)* 512kbytes
+        // 0x003a91 [Decimal: 7529]
+        assert_eq!(EXAMPLE.device_size().value(), 14993);
+
+        // Erase Single Block Enabled:
+        // 0x1 [Interpreted: Yes]
+        assert!(EXAMPLE.erase_single_block_enabled());
+
+        // Erase Sector Size: size of erasable sector in write blocks
+        // 0x7f [Interpreted: 128 blocks]
+        assert_eq!(EXAMPLE.erase_sector_size().value(), 0x7F);
+
+        // Write Protect Group Size:
+        // 0x00 [Interpreted: 1 sectors]
+        assert_eq!(EXAMPLE.write_protect_group_size().value(), 0x00);
+
+        // Write Protect Group Enable:
+        // 0x0 [Interpreted: No]
+        assert!(!EXAMPLE.write_protect_group_enable());
+
+        // Write Speed Factor: block program time as multiple of read access time
+        // 0x2 [Interpreted: x4]
+        assert_eq!(EXAMPLE.write_speed_factor().value(), 0x2);
+
+        // Max Write Data Block Length:
+        // 0x9 [Interpreted: 512 Bytes]
+        assert_eq!(
+            EXAMPLE.write_block_length().unwrap(),
+            BlockLengthSelectV2AndV3::_512
+        );
+
+        // Partial Blocks for Write Allowed:
+        // 0x0 [Interpreted: No]
+        assert!(!EXAMPLE.partial_blocks_for_write_allowed());
+
+        // File Format Group:
+        // 0b0 [Interpreted: is either Hard Disk with Partition Table/DOS FAT without Partition Table/Universal File Format/Other/Unknown]
+        assert!(!EXAMPLE.file_format_group_set());
+
+        // Copy Flag:
+        // 0b0 [Interpreted: Original]
+        assert!(!EXAMPLE.copy_flag_set());
+
+        // Permanent Write Protection:
+        // 0b0 [Interpreted: No]
+        assert!(!EXAMPLE.permanent_write_protection());
+
+        // Temporary Write Protection:
+        // 0b0 [Interpreted: No]
+        assert!(!EXAMPLE.temporary_write_protection());
+
+        // File Format:
+        // 0x0 [Interpreted: Hard Disk with Partition Table]
+        assert_eq!(EXAMPLE.file_format().value(), 0x00);
+
+        // CRC7 Checksum.
+        assert_eq!(EXAMPLE.crc().value(), 0x02);
+
+        assert_eq!(EXAMPLE.card_capacity_bytes(), 7_861_174_272);
+        assert_eq!(EXAMPLE.card_capacity_blocks(), 15_353_856);
+
+        assert!(EXAMPLE.verify_crc7());
     }
 
-    /// Check the card is initialised.
-    fn check_init(&mut self) -> Result<(), Error> {
-        if self.card_type.is_none() {
-            // If we don't know what the card type is, try and initialise the
-            // card. This will tell us what type of card it is.
-            self.acquire()
-        } else {
-            Ok(())
-        }
-    }
+    #[test]
+    fn test_csdv2c() {
+        const EXAMPLE: CsdV2 = CsdV2::new_with_raw_value(u128::from_be_bytes(hex!(
+            "40 0e 00 32 5b 59 00 00 3a e3 7f 80 0a 40 00 57"
+        )));
 
-    /// Initializes the card into a known state (or at least tries to).
-    fn acquire(&mut self) -> Result<(), Error> {
-        debug!("acquiring card with opts: {:?}", self.options);
-        let f = |s: &mut Self| {
-            // Assume it hasn't worked
-            let mut card_type;
-            trace!("Reset card..");
-            // Enter SPI mode.
-            let mut delay = Delay::new(s.options.acquire_retries);
-            for _attempts in 1.. {
-                trace!("Enter SPI mode, attempt: {}..", _attempts);
-                match s.card_command(CMD0, 0) {
-                    Err(Error::TimeoutCommand(0)) => {
-                        // Try again?
-                        warn!("Timed out, trying again..");
-                        // Try flushing the card as done here: https://github.com/greiman/SdFat/blob/master/src/SdCard/SdSpiCard.cpp#L170,
-                        // https://github.com/rust-embedded-community/embedded-sdmmc-rs/pull/65#issuecomment-1270709448
-                        for _ in 0..0xFF {
-                            s.write_byte(0xFF)?;
-                        }
-                    }
-                    Err(e) => {
-                        return Err(e);
-                    }
-                    Ok(R1_IDLE_STATE) => {
-                        break;
-                    }
-                    Ok(_r) => {
-                        // Try again
-                        warn!("Got response: {:x}, trying again..", _r);
-                    }
-                }
+        // CSD Structure: describes version of CSD structure
+        // 0b01 [Interpreted: Version 2.0 SDHC]
+        assert_eq!(EXAMPLE.csd_structure().unwrap(), CsdStructure::CsdV2);
 
-                delay.delay(&mut s.delayer, Error::CardNotFound)?;
-            }
-            // Enable CRC
-            debug!("Enable CRC: {}", s.options.use_crc);
-            // "The SPI interface is initialized in the CRC OFF mode in default"
-            // -- SD Part 1 Physical Layer Specification v9.00, Section 7.2.2 Bus Transfer Protection
-            if s.options.use_crc && s.card_command(CMD59, 1)? != R1_IDLE_STATE {
-                return Err(Error::CantEnableCRC);
-            }
-            // Check card version
-            let mut delay = Delay::new_command();
-            let arg = loop {
-                if s.card_command(CMD8, 0x1AA)? == (R1_ILLEGAL_COMMAND | R1_IDLE_STATE) {
-                    card_type = CardType::SD1;
-                    break 0;
-                }
-                let mut buffer = [0xFF; 4];
-                s.transfer_bytes(&mut buffer)?;
-                let status = buffer[3];
-                if status == 0xAA {
-                    card_type = CardType::SD2;
-                    break 0x4000_0000;
-                }
-                delay.delay(&mut s.delayer, Error::TimeoutCommand(CMD8))?;
-            };
+        // Data Read Access Time 1: defines Asynchronous part of the read access time
+        // 0x0e [Interpreted: 1.0 x 1ms]
+        assert_eq!(EXAMPLE.data_read_access_time1(), 0x0E);
 
-            let mut delay = Delay::new_command();
-            while s.card_acmd(ACMD41, arg)? != R1_READY_STATE {
-                delay.delay(&mut s.delayer, Error::TimeoutACommand(ACMD41))?;
-            }
+        // Data Read Access Time 2: worst case clock dependent factor for data access time
+        // 0x00 [Decimal: 0 x 100 Clocks]
+        assert_eq!(EXAMPLE.data_read_access_time2(), 0x00);
 
-            if card_type == CardType::SD2 {
-                if s.card_command(CMD58, 0)? != 0 {
-                    return Err(Error::Cmd58Error);
-                }
-                let mut buffer = [0xFF; 4];
-                s.transfer_bytes(&mut buffer)?;
-                if (buffer[0] & 0xC0) == 0xC0 {
-                    card_type = CardType::SDHC;
-                }
-                // Ignore the other three bytes
-            }
-            debug!("Card version: {:?}", card_type);
-            s.card_type = Some(card_type);
-            Ok(())
-        };
-        let result = f(self);
-        let _ = self.read_byte();
-        result
-    }
+        // Max Data Transfer Rate: sometimes stated as Mhz
+        // 0x32 [Interpreted: 2.5 x 10Mbit/s]
+        assert_eq!(EXAMPLE.max_data_transfer_rate(), 0x32);
 
-    /// Perform an application-specific command.
-    fn card_acmd(&mut self, command: u8, arg: u32) -> Result<u8, Error> {
-        self.card_command(CMD55, 0)?;
-        self.card_command(command, arg)
-    }
+        // Card Command Classes:
+        // 0x5b5 [Interpreted: Class 0: Yes. Class 1: No. Class 2: Yes. Class 3: No. Class 4: Yes. Class 5: Yes. Class 6: No. Class 7: Yes. Class 8: Yes. Class 9: No. Class 10: Yes. Class 11: No. ]
+        assert_eq!(EXAMPLE.card_command_classes_raw().value(), 0x5b5);
 
-    /// Perform a command.
-    fn card_command(&mut self, command: u8, arg: u32) -> Result<u8, Error> {
-        if command != CMD0 && command != CMD12 {
-            self.wait_not_busy(Delay::new_command())?;
-        }
+        // Max Read Data Block Length:
+        // 0x9 [Interpreted: 512 Bytes]
+        assert_eq!(
+            EXAMPLE.read_block_length().unwrap(),
+            BlockLengthSelectV2AndV3::_512
+        );
 
-        let mut buf = [
-            0x40 | command,
-            (arg >> 24) as u8,
-            (arg >> 16) as u8,
-            (arg >> 8) as u8,
-            arg as u8,
-            0,
-        ];
-        buf[5] = crc7(&buf[0..5]);
+        // Partial Blocks for Read Allowed:
+        // 0b0 [Interpreted: Yes]
+        assert!(!EXAMPLE.partial_blocks_for_read_allowed());
 
-        self.write_bytes(&buf)?;
+        // Write Block Misalignment:
+        // 0b0 [Interpreted: No]
+        assert!(!EXAMPLE.write_block_misalignment());
 
-        // skip stuff byte for stop read
-        if command == CMD12 {
-            let _result = self.read_byte()?;
-        }
+        // Read Block Misalignment:
+        // 0b0 [Interpreted: No]
+        assert!(!EXAMPLE.read_block_misalignment());
 
-        let mut delay = Delay::new_command();
-        loop {
-            let result = self.read_byte()?;
-            if (result & 0x80) == ERROR_OK {
-                return Ok(result);
-            }
-            delay.delay(&mut self.delayer, Error::TimeoutCommand(command))?;
-        }
-    }
+        // DSR Implemented: indicates configurable driver stage integrated on card
+        // 0b0 [Interpreted: No]
+        assert!(!EXAMPLE.dsr_implemented());
 
-    /// Receive a byte from the SPI bus by clocking out an 0xFF byte.
-    fn read_byte(&mut self) -> Result<u8, Error> {
-        self.transfer_byte(0xFF)
-    }
+        // Device Size: to calculate the card capacity excl. security area
+        // ((device size + 1)* 512kbytes
+        // 0x003a91 [Decimal: 7529]
+        assert_eq!(EXAMPLE.device_size().value(), 15075);
 
-    /// Send a byte over the SPI bus and ignore what comes back.
-    fn write_byte(&mut self, out: u8) -> Result<(), Error> {
-        let _ = self.transfer_byte(out)?;
-        Ok(())
-    }
+        // Erase Single Block Enabled:
+        // 0x1 [Interpreted: Yes]
+        assert!(EXAMPLE.erase_single_block_enabled());
 
-    /// Send one byte and receive one byte over the SPI bus.
-    fn transfer_byte(&mut self, out: u8) -> Result<u8, Error> {
-        let mut read_buf = [0u8; 1];
-        self.spi
-            .transfer(&mut read_buf, &[out])
-            .map_err(|_| Error::Transport)?;
-        Ok(read_buf[0])
-    }
+        // Erase Sector Size: size of erasable sector in write blocks
+        // 0x7f [Interpreted: 128 blocks]
+        assert_eq!(EXAMPLE.erase_sector_size().value(), 0x7F);
 
-    /// Send multiple bytes and ignore what comes back over the SPI bus.
-    fn write_bytes(&mut self, out: &[u8]) -> Result<(), Error> {
-        self.spi.write(out).map_err(|_e| Error::Transport)?;
-        Ok(())
-    }
+        // Write Protect Group Size:
+        // 0x00 [Interpreted: 1 sectors]
+        assert_eq!(EXAMPLE.write_protect_group_size().value(), 0x00);
 
-    /// Send multiple bytes and replace them with what comes back over the SPI bus.
-    fn transfer_bytes(&mut self, in_out: &mut [u8]) -> Result<(), Error> {
-        self.spi
-            .transfer_in_place(in_out)
-            .map_err(|_e| Error::Transport)?;
-        Ok(())
-    }
+        // Write Protect Group Enable:
+        // 0x0 [Interpreted: No]
+        assert!(!EXAMPLE.write_protect_group_enable());
 
-    /// Spin until the card returns 0xFF, or we spin too many times and
-    /// timeout.
-    fn wait_not_busy(&mut self, mut delay: Delay) -> Result<(), Error> {
-        loop {
-            let s = self.read_byte()?;
-            if s == 0xFF {
-                break;
-            }
-            delay.delay(&mut self.delayer, Error::TimeoutWaitNotBusy)?;
-        }
-        Ok(())
-    }
-}
+        // Write Speed Factor: block program time as multiple of read access time
+        // 0x2 [Interpreted: x4]
+        assert_eq!(EXAMPLE.write_speed_factor().value(), 0x2);
 
-/// Options for acquiring the card.
-#[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
-#[derive(Debug)]
-pub struct AcquireOpts {
-    /// Set to true to enable CRC checking on reading/writing blocks of data.
-    ///
-    /// Set to false to disable the CRC. Some cards don't support CRC correctly
-    /// and this option may be useful in that instance.
-    ///
-    /// On by default because without it you might get silent data corruption on
-    /// your card.
-    pub use_crc: bool,
+        // Max Write Data Block Length:
+        // 0x9 [Interpreted: 512 Bytes]
+        assert_eq!(
+            EXAMPLE.write_block_length().unwrap(),
+            BlockLengthSelectV2AndV3::_512
+        );
 
-    /// Sets the number of times we will retry to acquire the card before giving up and returning
-    /// `Err(Error::CardNotFound)`. By default, card acquisition will be retried 50 times.
-    pub acquire_retries: u32,
-}
+        // Partial Blocks for Write Allowed:
+        // 0x0 [Interpreted: No]
+        assert!(!EXAMPLE.partial_blocks_for_write_allowed());
 
-impl Default for AcquireOpts {
-    fn default() -> Self {
-        AcquireOpts {
-            use_crc: true,
-            acquire_retries: 50,
-        }
-    }
-}
+        // File Format Group:
+        // 0b0 [Interpreted: is either Hard Disk with Partition Table/DOS FAT without Partition Table/Universal File Format/Other/Unknown]
+        assert!(!EXAMPLE.file_format_group_set());
 
-/// The possible errors this crate can generate.
-#[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
-#[derive(Debug, Copy, Clone)]
-pub enum Error {
-    /// We got an error from the SPI peripheral
-    Transport,
-    /// We failed to enable CRC checking on the SD card
-    CantEnableCRC,
-    /// We didn't get a response when reading data from the card
-    TimeoutReadBuffer,
-    /// We didn't get a response when waiting for the card to not be busy
-    TimeoutWaitNotBusy,
-    /// We didn't get a response when executing this command
-    TimeoutCommand(u8),
-    /// We didn't get a response when executing this application-specific command
-    TimeoutACommand(u8),
-    /// We got a bad response from Command 58
-    Cmd58Error,
-    /// We failed to read the Card Specific Data register
-    RegisterReadError,
-    /// We got a CRC mismatch (card gave us, we calculated)
-    CrcError(u16, u16),
-    /// Error reading from the card
-    ReadError,
-    /// Error writing to the card
-    WriteError,
-    /// Can't perform this operation with the card in this state
-    BadState,
-    /// Couldn't find the card
-    CardNotFound,
-    /// Couldn't set a GPIO pin
-    GpioError,
-}
+        // Copy Flag:
+        // 0b0 [Interpreted: Original]
+        assert!(!EXAMPLE.copy_flag_set());
 
-impl core::fmt::Display for Error {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-        match self {
-            Error::Transport => write!(f, "error from SPI peripheral"),
-            Error::CantEnableCRC => write!(f, "failed to enable CRC checking"),
-            Error::TimeoutReadBuffer => write!(f, "timeout when reading data"),
-            Error::TimeoutWaitNotBusy => write!(f, "timeout when waiting for card to not be busy"),
-            Error::TimeoutCommand(command) => write!(f, "timeout when executing command {command}"),
-            Error::TimeoutACommand(command) => write!(
-                f,
-                "timeout when executing application-specific command {command}"
-            ),
-            Error::Cmd58Error => write!(f, "bad response from command 58"),
-            Error::RegisterReadError => write!(f, "failed to read Card Specific Data register"),
-            Error::CrcError(_, _) => write!(f, "CRC mismatch"),
-            Error::ReadError => write!(f, "read error"),
-            Error::WriteError => write!(f, "write error"),
-            Error::BadState => write!(f, "cannot perform operation with card in thiis state"),
-            Error::CardNotFound => write!(f, "card not found"),
-            Error::GpioError => write!(f, "cannot set GPIO pin"),
-        }
-    }
-}
+        // Permanent Write Protection:
+        // 0b0 [Interpreted: No]
+        assert!(!EXAMPLE.permanent_write_protection());
 
-impl core::error::Error for Error {}
+        // Temporary Write Protection:
+        // 0b0 [Interpreted: No]
+        assert!(!EXAMPLE.temporary_write_protection());
 
-/// The different types of card we support.
-#[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum CardType {
-    /// An standard-capacity SD Card supporting v1.x of the standard.
-    ///
-    /// Uses byte-addressing internally, so limited to 2GiB in size.
-    SD1,
-    /// An standard-capacity SD Card supporting v2.x of the standard.
-    ///
-    /// Uses byte-addressing internally, so limited to 2GiB in size.
-    SD2,
-    /// An high-capacity 'SDHC' Card.
-    ///
-    /// Uses block-addressing internally to support capacities above 2GiB.
-    SDHC,
-}
+        // File Format:
+        // 0x0 [Interpreted: Hard Disk with Partition Table]
+        assert_eq!(EXAMPLE.file_format().value(), 0x00);
 
-/// This an object you can use to busy-wait with a timeout.
-///
-/// Will let you call `delay` up to `max_retries` times before `delay` returns
-/// an error.
-struct Delay {
-    retries_left: u32,
-}
+        // CRC7 Checksum.
+        assert_eq!(EXAMPLE.crc().value(), 0x2B);
 
-impl Delay {
-    /// The default number of retries for a read operation.
-    ///
-    /// At ~10us each this is ~100ms.
-    ///
-    /// See `Part1_Physical_Layer_Simplified_Specification_Ver9.00-1.pdf` Section 4.6.2.1
-    pub const DEFAULT_READ_RETRIES: u32 = 10_000;
+        // 8 GB.
+        assert_eq!(EXAMPLE.card_capacity_bytes(), 7_904_165_888);
+        assert_eq!(EXAMPLE.card_capacity_blocks(), 15_437_824);
 
-    /// The default number of retries for a write operation.
-    ///
-    /// At ~10us each this is ~500ms.
-    ///
-    /// See `Part1_Physical_Layer_Simplified_Specification_Ver9.00-1.pdf` Section 4.6.2.2
-    pub const DEFAULT_WRITE_RETRIES: u32 = 50_000;
-
-    /// The default number of retries for a control command.
-    ///
-    /// At ~10us each this is ~100ms.
-    ///
-    /// No value is given in the specification, so we pick the same as the read timeout.
-    pub const DEFAULT_COMMAND_RETRIES: u32 = 10_000;
-
-    /// Create a new Delay object with the given maximum number of retries.
-    fn new(max_retries: u32) -> Delay {
-        Delay {
-            retries_left: max_retries,
-        }
-    }
-
-    /// Create a new Delay object with the maximum number of retries for a read operation.
-    fn new_read() -> Delay {
-        Delay::new(Self::DEFAULT_READ_RETRIES)
-    }
-
-    /// Create a new Delay object with the maximum number of retries for a write operation.
-    fn new_write() -> Delay {
-        Delay::new(Self::DEFAULT_WRITE_RETRIES)
-    }
-
-    /// Create a new Delay object with the maximum number of retries for a command operation.
-    fn new_command() -> Delay {
-        Delay::new(Self::DEFAULT_COMMAND_RETRIES)
-    }
-
-    /// Wait for a while.
-    ///
-    /// Checks the retry counter first, and if we hit the max retry limit, the
-    /// value `err` is returned. Otherwise we wait for 10us and then return
-    /// `Ok(())`.
-    fn delay<T>(&mut self, delayer: &mut T, err: Error) -> Result<(), Error>
-    where
-        T: embedded_hal::delay::DelayNs,
-    {
-        if self.retries_left == 0 {
-            Err(err)
-        } else {
-            delayer.delay_us(10);
-            self.retries_left -= 1;
-            Ok(())
-        }
+        assert!(EXAMPLE.verify_crc7());
     }
 }
 
