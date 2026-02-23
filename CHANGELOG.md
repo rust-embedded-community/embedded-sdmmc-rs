@@ -21,6 +21,8 @@ The format is based on [Keep a Changelog] and this project adheres to [Semantic 
 ### Added
 
 - Added `CsdV3` data structure.
+- `Csd::new` constructor which creates the CSD from a raw `&[u8; 16]` and also performs a CRC7
+  check.
 - Added `verify_crc7` function on CSD structures.
 
 ## [Version 0.9.0] - 2025-06-08
