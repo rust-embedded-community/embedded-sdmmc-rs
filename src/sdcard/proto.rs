@@ -260,7 +260,7 @@ bitflags::bitflags! {
 }
 
 /// CSD V1 register structure.
-#[bitbybit::bitfield(u128, debug, defmt_fields(feature = "defmt-log"))]
+#[bitbybit::bitfield(u128, debug, defmt_fields(feature = "defmt-log"), forbid_overlaps)]
 pub struct CsdV1 {
     /// CSD_STRUCTURE field.
     #[bits(126..=127, r)]
@@ -287,10 +287,10 @@ pub struct CsdV1 {
     #[bit(78, r)]
     write_block_misalignment: bool,
     /// READ_BLK_MISALIGN field.
-    #[bit(78, r)]
+    #[bit(77, r)]
     read_block_misalignment: bool,
     /// DSR_IMP field.
-    #[bit(77, r)]
+    #[bit(76, r)]
     dsr_implemented: bool,
     /// C_SIZE field.
     #[bits(62..=73, r)]
@@ -396,7 +396,7 @@ impl CsdV1 {
 }
 
 /// CSD V2 register structure.
-#[bitbybit::bitfield(u128, debug, defmt_fields(feature = "defmt-log"))]
+#[bitbybit::bitfield(u128, debug, defmt_fields(feature = "defmt-log"), forbid_overlaps)]
 pub struct CsdV2 {
     /// CSD_STRUCTURE field.
     #[bits(126..=127, r)]
@@ -423,10 +423,10 @@ pub struct CsdV2 {
     #[bit(78, r)]
     write_block_misalignment: bool,
     /// READ_BLK_MISALIGN field.
-    #[bit(78, r)]
+    #[bit(77, r)]
     read_block_misalignment: bool,
     /// DSR_IMP field.
-    #[bit(77, r)]
+    #[bit(76, r)]
     dsr_implemented: bool,
     /// C_SIZE field.
     #[bits(48..=69, r)]
@@ -500,7 +500,7 @@ impl CsdV2 {
 }
 
 /// CSD V3 register structure.
-#[bitbybit::bitfield(u128, debug, defmt_fields(feature = "defmt-log"))]
+#[bitbybit::bitfield(u128, debug, defmt_fields(feature = "defmt-log"), forbid_overlaps)]
 pub struct CsdV3 {
     /// CSD_STRUCTURE field.
     #[bits(126..=127, r)]
@@ -527,10 +527,10 @@ pub struct CsdV3 {
     #[bit(78, r)]
     write_block_misalignment: bool,
     /// READ_BLK_MISALIGN field.
-    #[bit(78, r)]
+    #[bit(77, r)]
     read_block_misalignment: bool,
     /// DSR_IMP field.
-    #[bit(77, r)]
+    #[bit(76, r)]
     dsr_implemented: bool,
     /// C_SIZE field.
     #[bits(48..=75, r)]
