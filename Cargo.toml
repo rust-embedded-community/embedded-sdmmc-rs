@@ -18,8 +18,12 @@ byteorder = {version = "1", default-features = false}
 defmt = {version = "1.0.1", optional = true}
 embedded-hal = "1.0.0"
 embedded-io = "0.6.1"
+bitbybit = "2"
+arbitrary-int = "2"
+bitflags = "2"
 heapless = "0.9.1"
 log = {version = "0.4", default-features = false, optional = true}
+thiserror = {version="2", default-features = false}
 
 [dev-dependencies]
 chrono = "0.4"
@@ -31,6 +35,6 @@ sha2 = "0.10"
 
 [features]
 default = ["log"]
-defmt-log = ["dep:defmt"]
+defmt-log = ["dep:defmt", "arbitrary-int/defmt"]
 log = ["dep:log"]
 

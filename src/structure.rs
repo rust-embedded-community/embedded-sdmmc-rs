@@ -1,14 +1,5 @@
 //! Useful macros for parsing SD/MMC structures.
 
-macro_rules! access_field {
-    ($self:expr, $offset:expr, $start_bit:expr, 1) => {
-        ($self.data[$offset] & (1 << $start_bit)) != 0
-    };
-    ($self:expr, $offset:expr, $start:expr, $num_bits:expr) => {
-        ($self.data[$offset] >> $start) & (((1u16 << $num_bits) - 1) as u8)
-    };
-}
-
 macro_rules! define_field {
     ($name:ident, bool, $offset:expr, $bit:expr) => {
         /// Get the value from the $name field

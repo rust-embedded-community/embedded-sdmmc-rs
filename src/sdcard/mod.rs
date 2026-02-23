@@ -278,6 +278,7 @@ where
         let num_blocks = match csd {
             Csd::V1(ref contents) => contents.card_capacity_blocks(),
             Csd::V2(ref contents) => contents.card_capacity_blocks(),
+            Csd::V3(ref contents) => contents.card_capacity_blocks(),
         };
         Ok(BlockCount(num_blocks))
     }
@@ -289,6 +290,7 @@ where
         match csd {
             Csd::V1(ref contents) => Ok(contents.card_capacity_bytes()),
             Csd::V2(ref contents) => Ok(contents.card_capacity_bytes()),
+            Csd::V3(ref contents) => Ok(contents.card_capacity_bytes()),
         }
     }
 
@@ -298,27 +300,27 @@ where
         match csd {
             Csd::V1(ref contents) => Ok(contents.erase_single_block_enabled()),
             Csd::V2(ref contents) => Ok(contents.erase_single_block_enabled()),
+            Csd::V3(ref contents) => Ok(contents.erase_single_block_enabled()),
         }
     }
 
     /// Read the 'card specific data' block.
     fn read_csd(&mut self) -> Result<Csd, Error> {
+        let mut csd_raw: [u8; 16] = [0; 16];
         match self.card_type {
             Some(CardType::SD1) => {
-                let mut csd = CsdV1::new();
                 if self.card_command(CMD9, 0)? != 0 {
                     return Err(Error::RegisterReadError);
                 }
-                self.read_data(&mut csd.data)?;
-                Ok(Csd::V1(csd))
+                self.read_data(&mut csd_raw)?;
+                Ok(Csd::V1(CsdV1::from_be_bytes(&csd_raw)))
             }
             Some(CardType::SD2 | CardType::SDHC) => {
-                let mut csd = CsdV2::new();
                 if self.card_command(CMD9, 0)? != 0 {
                     return Err(Error::RegisterReadError);
                 }
-                self.read_data(&mut csd.data)?;
-                Ok(Csd::V2(csd))
+                self.read_data(&mut csd_raw)?;
+                Ok(Csd::V2(CsdV2::from_be_bytes(&csd_raw)))
             }
             None => Err(Error::CardNotFound),
         }

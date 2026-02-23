@@ -16,6 +16,14 @@ The format is based on [Keep a Changelog] and this project adheres to [Semantic 
 - Renamed `delete_file_in_dir` to `delete_entry_in_dir` because it can now delete empty directories (breaking change)
 - Added `open_long_name_file_in_dir` API, to open files using their Long File Name
 - Updated directory iterator callback, to allow bailing out early (breaking change)
+- `crc7` function now returns the actual CRC7 value without left-shifting by and XOR-ing by/with 1.
+
+### Added
+
+- Added `CsdV3` data structure.
+- `Csd::new` constructor which creates the CSD from a raw `&[u8; 16]` and also performs a CRC7
+  check.
+- Added `verify_crc7` function on CSD structures.
 
 ## [Version 0.9.0] - 2025-06-08
 
