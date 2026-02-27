@@ -153,6 +153,11 @@ where
             .find_directory_entry(self.raw_directory, name)
     }
 
+    /// Check whether a directory entry exists.
+    pub fn directory_entry_exists<N: ToShortFileName>(&self, name: N) -> bool {
+        self.find_directory_entry(name).is_ok()
+    }
+
     /// Call a callback function for each directory entry in a directory.
     ///
     /// Long File Names will be ignored.
