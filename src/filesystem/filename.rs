@@ -5,7 +5,7 @@ use crate::trace;
 
 /// Various filename related errors that can occur.
 #[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FilenameError {
     /// Tried to create a file with an invalid character.
     InvalidCharacter,

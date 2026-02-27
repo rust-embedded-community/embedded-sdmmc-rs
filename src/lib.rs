@@ -158,7 +158,7 @@ macro_rules! warn {
 
 /// All the ways the functions in this crate can fail.
 #[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
-#[derive(Debug, Clone, thiserror::Error)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum Error<E>
 where
     E: core::error::Error,

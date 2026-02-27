@@ -5,7 +5,7 @@ use arbitrary_int::{u7, u12, u40};
 use crate::sdcard::crc7;
 
 /// Checksum is invalid.
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone, thiserror::Error)]
 #[error("checksum is invalid")]
 pub struct ChecksumInvalidError;
 
