@@ -40,27 +40,18 @@ use embedded_sdmmc::{Block, BlockCount, BlockDevice, BlockIdx};
 /// It will unpack to a Vec that is 1048576 * 512 = 512 MiB in size.
 pub static DISK_SOURCE: &[u8] = include_bytes!("../disk.img.gz");
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 #[allow(dead_code)]
 pub enum Error {
     /// Failed to read the source image
-    Io(std::io::Error),
+    #[error("I/O error: {0}")]
+    Io(#[from] std::io::Error),
     /// Failed to unzip the source image
-    Decode(flate2::DecompressError),
+    #[error("flate2 decode error: {0}")]
+    Decode(#[from] flate2::DecompressError),
     /// Asked for a block we don't have
+    #[error("out of bounds block index: {0:?}")]
     OutOfBounds(BlockIdx),
-}
-
-impl From<std::io::Error> for Error {
-    fn from(value: std::io::Error) -> Self {
-        Self::Io(value)
-    }
-}
-
-impl From<flate2::DecompressError> for Error {
-    fn from(value: flate2::DecompressError) -> Self {
-        Self::Decode(value)
-    }
 }
 
 /// Implements the block device traits for a chunk of bytes in RAM.
