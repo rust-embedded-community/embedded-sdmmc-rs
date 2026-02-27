@@ -17,7 +17,7 @@ rust-version = "1.87"
 byteorder = {version = "1", default-features = false}
 defmt = {version = "1.0.1", optional = true}
 embedded-hal = "1.0.0"
-embedded-io = "0.6.1"
+embedded-io = "0.7"
 bitbybit = "2"
 arbitrary-int = "2"
 bitflags = "2"

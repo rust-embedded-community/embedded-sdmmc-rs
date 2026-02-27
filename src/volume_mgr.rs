@@ -36,7 +36,6 @@ pub struct VolumeManager<
 > where
     D: BlockDevice,
     T: TimeSource,
-    <D as BlockDevice>::Error: core::fmt::Debug,
 {
     time_source: T,
     data: RefCell<VolumeManagerData<D, MAX_DIRS, MAX_FILES, MAX_VOLUMES>>,
@@ -46,7 +45,6 @@ impl<D, T> VolumeManager<D, T, 4, 4>
 where
     D: BlockDevice,
     T: TimeSource,
-    <D as BlockDevice>::Error: core::fmt::Debug,
 {
     /// Create a new Volume Manager using a generic `BlockDevice`. From this
     /// object we can open volumes (partitions) and with those we can open
@@ -67,7 +65,6 @@ impl<D, T, const MAX_DIRS: usize, const MAX_FILES: usize, const MAX_VOLUMES: usi
 where
     D: BlockDevice,
     T: TimeSource,
-    <D as BlockDevice>::Error: core::fmt::Debug,
 {
     /// Create a new Volume Manager using a generic `BlockDevice`. From this
     /// object we can open volumes (partitions) and with those we can open
@@ -1430,6 +1427,7 @@ impl<D, const MAX_DIRS: usize, const MAX_FILES: usize, const MAX_VOLUMES: usize>
     VolumeManagerData<D, MAX_DIRS, MAX_FILES, MAX_VOLUMES>
 where
     D: BlockDevice,
+    <D as BlockDevice>::Error: core::error::Error,
 {
     /// Check if a file is open
     ///
@@ -1446,10 +1444,10 @@ where
         false
     }
 
-    fn get_volume_by_id<E>(&self, raw_volume: RawVolume) -> Result<usize, Error<E>>
-    where
-        E: core::fmt::Debug,
-    {
+    fn get_volume_by_id<E: core::error::Error>(
+        &self,
+        raw_volume: RawVolume,
+    ) -> Result<usize, Error<E>> {
         for (idx, v) in self.open_volumes.iter().enumerate() {
             if v.raw_volume == raw_volume {
                 return Ok(idx);
@@ -1458,10 +1456,10 @@ where
         Err(Error::BadHandle)
     }
 
-    fn get_dir_by_id<E>(&self, raw_directory: RawDirectory) -> Result<usize, Error<E>>
-    where
-        E: core::fmt::Debug,
-    {
+    fn get_dir_by_id<E: core::error::Error>(
+        &self,
+        raw_directory: RawDirectory,
+    ) -> Result<usize, Error<E>> {
         for (idx, d) in self.open_dirs.iter().enumerate() {
             if d.raw_directory == raw_directory {
                 return Ok(idx);
@@ -1470,10 +1468,7 @@ where
         Err(Error::BadHandle)
     }
 
-    fn get_file_by_id<E>(&self, raw_file: RawFile) -> Result<usize, Error<E>>
-    where
-        E: core::fmt::Debug,
-    {
+    fn get_file_by_id<E: core::error::Error>(&self, raw_file: RawFile) -> Result<usize, Error<E>> {
         for (idx, f) in self.open_files.iter().enumerate() {
             if f.raw_file == raw_file {
                 return Ok(idx);
@@ -1570,8 +1565,9 @@ mod tests {
 
     struct Clock;
 
-    #[derive(Debug)]
+    #[derive(Debug, thiserror::Error)]
     enum Error {
+        #[error("unknown error")]
         Unknown,
     }
 

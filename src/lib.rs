@@ -158,77 +158,107 @@ macro_rules! warn {
 
 /// All the ways the functions in this crate can fail.
 #[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, thiserror::Error)]
 pub enum Error<E>
 where
-    E: core::fmt::Debug,
+    E: core::error::Error,
 {
     /// The underlying block device threw an error.
-    DeviceError(E),
+    #[error("error from underlying block device: {0}")]
+    DeviceError(#[from] E),
     /// The filesystem is badly formatted (or this code is buggy).
+    #[error("filesystem is badly formatted: {0}")]
     FormatError(&'static str),
     /// The given `VolumeIdx` was bad,
+    #[error("no such volume")]
     NoSuchVolume,
     /// The given filename was bad
+    #[error("bad filename")]
     FilenameError(FilenameError),
     /// Out of memory opening volumes
+    #[error("too many open volumes")]
     TooManyOpenVolumes,
     /// Out of memory opening directories
+    #[error("too many open directories")]
     TooManyOpenDirs,
     /// Out of memory opening files
+    #[error("too many open files")]
     TooManyOpenFiles,
     /// Bad handle given
+    #[error("bad handle")]
     BadHandle,
     /// That file or directory doesn't exist
+    #[error("file or directory does not exist")]
     NotFound,
     /// You can't open a file twice or delete an open file
+    #[error("file already open")]
     FileAlreadyOpen,
     /// You can't open a directory twice
+    #[error("directory already open")]
     DirAlreadyOpen,
     /// You can't open a directory as a file
+    #[error("cannot open directory as file")]
     OpenedDirAsFile,
     /// You can't open a file as a directory
+    #[error("cannot open file as directory")]
     OpenedFileAsDir,
     /// You can't delete a non-empty directory
+    #[error("cannot delete a non-empty directory")]
     DeleteNonEmptyDir,
     /// You can't close a volume with open files or directories
+    #[error("volume is still in use")]
     VolumeStillInUse,
     /// You can't open a volume twice
+    #[error("cannot open volume twice")]
     VolumeAlreadyOpen,
     /// We can't do that yet
+    #[error("unsupported operation")]
     Unsupported,
     /// Tried to read beyond end of file
+    #[error("end of file")]
     EndOfFile,
     /// Found a bad cluster
+    #[error("bad cluster")]
     BadCluster,
     /// Error while converting types
+    #[error("type conversion failed")]
     ConversionError,
     /// The device does not have enough space for the operation
+    #[error("not enough space on device")]
     NotEnoughSpace,
     /// Cluster was not properly allocated by the library
+    #[error("cluster not properly allocated")]
     AllocationError,
     /// Jumped to free space during FAT traversing
+    #[error("FAT chain unterminated")]
     UnterminatedFatChain,
     /// Tried to open Read-Only file with write mode
+    #[error("file is read-only")]
     ReadOnly,
     /// Tried to create an existing file
+    #[error("file already exists")]
     FileAlreadyExists,
     /// Bad block size - only 512 byte blocks supported
+    #[error("bad block size: {0} (only 512 byte blocks supported)")]
     BadBlockSize(u16),
     /// Bad offset given when seeking
+    #[error("invalid seek offset")]
     InvalidOffset,
     /// Disk is full
+    #[error("disk full")]
     DiskFull,
     /// A directory with that name already exists
+    #[error("directory already exists")]
     DirAlreadyExists,
     /// The filesystem tried to gain a lock whilst already locked.
     ///
     /// This is either a bug in the filesystem, or you tried to access the
     /// filesystem API from inside a directory iterator (that isn't allowed).
+    #[error("already locked")]
     LockError,
 }
 
-impl<E: Debug> embedded_io::Error for Error<E> {
+impl<E: core::error::Error + 'static> embedded_io::Error for Error<E> {
     fn kind(&self) -> ErrorKind {
         match self {
             Error::DeviceError(_)
@@ -262,59 +292,6 @@ impl<E: Debug> embedded_io::Error for Error<E> {
         }
     }
 }
-
-impl<E> From<E> for Error<E>
-where
-    E: core::fmt::Debug,
-{
-    fn from(value: E) -> Error<E> {
-        Error::DeviceError(value)
-    }
-}
-
-impl<E> core::fmt::Display for Error<E>
-where
-    E: core::fmt::Debug + core::fmt::Display,
-{
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-        match self {
-            Error::DeviceError(e) => write!(f, "error from underlying block device: {e}"),
-            Error::FormatError(s) => write!(f, "filesystem is badly formatted: {s}"),
-            Error::NoSuchVolume => write!(f, "no such volume"),
-            Error::FilenameError(_) => write!(f, "bad filename"),
-            Error::TooManyOpenVolumes => write!(f, "too many open volumes"),
-            Error::TooManyOpenDirs => write!(f, "too many open directories"),
-            Error::TooManyOpenFiles => write!(f, "too many open files"),
-            Error::BadHandle => write!(f, "bad handle"),
-            Error::NotFound => write!(f, "file or directory does not exist"),
-            Error::FileAlreadyOpen => write!(f, "file already open"),
-            Error::DirAlreadyOpen => write!(f, "directory already open"),
-            Error::OpenedDirAsFile => write!(f, "cannot open directory as file"),
-            Error::OpenedFileAsDir => write!(f, "cannot open file as directory"),
-            Error::DeleteNonEmptyDir => write!(f, "cannot delete a non-empty directory"),
-            Error::VolumeStillInUse => write!(f, "volume is still in use"),
-            Error::VolumeAlreadyOpen => write!(f, "cannot open volume twice"),
-            Error::Unsupported => write!(f, "unsupported operation"),
-            Error::EndOfFile => write!(f, "end of file"),
-            Error::BadCluster => write!(f, "bad cluster"),
-            Error::ConversionError => write!(f, "type conversion failed"),
-            Error::NotEnoughSpace => write!(f, "not enough space on device"),
-            Error::AllocationError => write!(f, "cluster not properly allocated"),
-            Error::UnterminatedFatChain => write!(f, "FAT chain unterminated"),
-            Error::ReadOnly => write!(f, "file is read-only"),
-            Error::FileAlreadyExists => write!(f, "file already exists"),
-            Error::BadBlockSize(size) => {
-                write!(f, "bad block size: {size} (only 512 byte blocks supported)")
-            }
-            Error::InvalidOffset => write!(f, "invalid seek offset"),
-            Error::DiskFull => write!(f, "disk full"),
-            Error::DirAlreadyExists => write!(f, "directory already exists"),
-            Error::LockError => write!(f, "already locked"),
-        }
-    }
-}
-
-impl<E> core::error::Error for Error<E> where E: core::fmt::Debug + core::fmt::Display {}
 
 /// A handle to a volume.
 ///

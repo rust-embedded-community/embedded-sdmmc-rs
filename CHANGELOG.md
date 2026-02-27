@@ -17,6 +17,7 @@ The format is based on [Keep a Changelog] and this project adheres to [Semantic 
 - Added `open_long_name_file_in_dir` API, to open files using their Long File Name
 - Updated directory iterator callback, to allow bailing out early (breaking change)
 - `crc7` function now returns the actual CRC7 value without left-shifting by and XOR-ing by/with 1.
+- Bumped `embedded-io` to 0.7
 
 ### Added
 
@@ -24,6 +25,7 @@ The format is based on [Keep a Changelog] and this project adheres to [Semantic 
 - `Csd::new` constructor which creates the CSD from a raw `&[u8; 16]` and also performs a CRC7
   check.
 - Added `verify_crc7` function on CSD structures.
+- Added `core::error::Error` bounds to device driver error type
 
 ## [Version 0.9.0] - 2025-06-08
 
