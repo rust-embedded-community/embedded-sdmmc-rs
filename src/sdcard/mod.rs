@@ -33,6 +33,24 @@ pub mod cid;
 pub mod csd;
 pub mod spi;
 
+/// The different types of card we support.
+#[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum CardType {
+    /// An standard-capacity SD Card supporting v1.x of the standard.
+    ///
+    /// Uses byte-addressing internally, so limited to 2GiB in size.
+    SD1,
+    /// An standard-capacity SD Card supporting v2.x of the standard.
+    ///
+    /// Uses byte-addressing internally, so limited to 2GiB in size.
+    SD2,
+    /// An high-capacity 'SDHC' Card or an extended-capacity 'SDXC' card.
+    ///
+    /// Uses block-addressing internally to support capacities above 2GiB.
+    SdhcSdxc,
+}
+
 // Possible errors the SD card can return
 /// Card indicates last operation was a success
 pub const ERROR_OK: u8 = 0x00;

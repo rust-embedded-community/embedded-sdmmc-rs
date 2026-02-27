@@ -203,7 +203,7 @@ where
     fn read(&mut self, blocks: &mut [Block], start_block_idx: BlockIdx) -> Result<(), Error> {
         let start_idx = match self.card_type {
             Some(CardType::SD1 | CardType::SD2) => start_block_idx.0 * 512,
-            Some(CardType::SDHC) => start_block_idx.0,
+            Some(CardType::SdhcSdxc) => start_block_idx.0,
             None => return Err(Error::CardNotFound),
         };
 
@@ -227,7 +227,7 @@ where
     fn write(&mut self, blocks: &[Block], start_block_idx: BlockIdx) -> Result<(), Error> {
         let start_idx = match self.card_type {
             Some(CardType::SD1 | CardType::SD2) => start_block_idx.0 * 512,
-            Some(CardType::SDHC) => start_block_idx.0,
+            Some(CardType::SdhcSdxc) => start_block_idx.0,
             None => return Err(Error::CardNotFound),
         };
         if blocks.len() == 1 {
@@ -293,7 +293,7 @@ where
                 self.read_data(&mut csd_raw)?;
                 Ok(csd::Csd::V1(csd::CsdV1::from_be_bytes(&csd_raw)))
             }
-            Some(CardType::SD2 | CardType::SDHC) => {
+            Some(CardType::SD2 | CardType::SdhcSdxc) => {
                 if self.card_command(CMD9, 0)? != 0 {
                     return Err(Error::RegisterReadError);
                 }
@@ -443,7 +443,7 @@ where
                 let mut buffer = [0xFF; 4];
                 s.transfer_bytes(&mut buffer)?;
                 if (buffer[0] & 0xC0) == 0xC0 {
-                    card_type = CardType::SDHC;
+                    card_type = CardType::SdhcSdxc;
                 }
                 // Ignore the other three bytes
             }
@@ -629,24 +629,6 @@ impl core::fmt::Display for Error {
 }
 
 impl core::error::Error for Error {}
-
-/// The different types of card we support.
-#[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum CardType {
-    /// An standard-capacity SD Card supporting v1.x of the standard.
-    ///
-    /// Uses byte-addressing internally, so limited to 2GiB in size.
-    SD1,
-    /// An standard-capacity SD Card supporting v2.x of the standard.
-    ///
-    /// Uses byte-addressing internally, so limited to 2GiB in size.
-    SD2,
-    /// An high-capacity 'SDHC' Card.
-    ///
-    /// Uses block-addressing internally to support capacities above 2GiB.
-    SDHC,
-}
 
 /// This an object you can use to busy-wait with a timeout.
 ///

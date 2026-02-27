@@ -6,6 +6,7 @@ use crate::sdcard::crc7;
 
 /// Checksum is invalid.
 #[derive(Debug, PartialEq, Eq, Copy, Clone, thiserror::Error)]
+#[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
 #[error("checksum is invalid")]
 pub struct ChecksumInvalidError;
 

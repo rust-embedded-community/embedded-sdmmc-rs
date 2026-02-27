@@ -16,6 +16,7 @@ pub enum Csd {
 
 /// The CSD structure field is invalid.
 #[derive(Debug, PartialEq, Eq, Copy, Clone, thiserror::Error)]
+#[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
 pub enum CsdCreationError {
     /// Invalid CSD structure field.
     #[error("invalid CSD structure field")]
