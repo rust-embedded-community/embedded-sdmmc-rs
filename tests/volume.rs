@@ -108,6 +108,37 @@ fn close_volume_too_early() {
     ));
 }
 
+#[test]
+fn has_open_handles_reports_open_dirs() {
+    let time_source = utils::make_time_source();
+    let disk = utils::make_block_device(utils::DISK_SOURCE).unwrap();
+    let volume_mgr = embedded_sdmmc::VolumeManager::new(disk, time_source);
+
+    // No handles open
+    assert!(!volume_mgr.has_open_handles());
+
+    let volume = volume_mgr
+        .open_raw_volume(embedded_sdmmc::VolumeIdx(0))
+        .expect("open volume 0");
+    let root_dir = volume_mgr.open_root_dir(volume).expect("open root dir");
+
+    // A directory is open but no files — should report true
+    assert!(volume_mgr.has_open_handles());
+
+    volume_mgr.close_dir(root_dir).unwrap();
+
+    // Nothing open again
+    assert!(!volume_mgr.has_open_handles());
+
+    let root_dir = volume_mgr.open_root_dir(volume).expect("open root dir");
+    let _file = volume_mgr
+        .open_file_in_dir(root_dir, "README.TXT", embedded_sdmmc::Mode::ReadOnly)
+        .expect("open file");
+
+    // Both a dir and a file are open
+    assert!(volume_mgr.has_open_handles());
+}
+
 // ****************************************************************************
 //
 // End Of File
