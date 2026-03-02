@@ -401,7 +401,7 @@ where
                     }
                     Ok(_r) => {
                         // Try again
-                        crate::warn!("Got response: {:x}, trying again..", _r);
+                        crate::trace!("Got response: {:x}, trying again..", _r);
                     }
                 }
 
