@@ -18,6 +18,8 @@ The format is based on [Keep a Changelog] and this project adheres to [Semantic 
 - Updated directory iterator callback, to allow bailing out early (breaking change)
 - `crc7` function now returns the actual CRC7 value without left-shifting by and XOR-ing by/with 1.
 - Bumped `embedded-io` to 0.7
+- `CardType::SDHC` renamed to `CardType::SdhcSdxc`
+- `CardType` is now inside the `sdcard` module
 
 ### Added
 
