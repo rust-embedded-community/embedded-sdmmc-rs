@@ -761,7 +761,7 @@ impl FatVolume {
             ClusterId::ROOT_DIR => Some(fat32_info.first_root_dir_cluster),
             _ => Some(dir_info.cluster),
         };
-        while let Some(cluster) = current_cluster {
+        'outer: while let Some(cluster) = current_cluster {
             let start_block_idx = self.cluster_to_block(cluster);
             for block_idx in start_block_idx.range(BlockCount(u32::from(self.blocks_per_cluster))) {
                 trace!("Reading FAT");
@@ -770,14 +770,14 @@ impl FatVolume {
                     let dir_entry = OnDiskDirEntry::new(dir_entry_bytes);
                     if dir_entry.is_end() {
                         // Can quit early
-                        break;
+                        break 'outer;
                     } else if dir_entry.is_valid() {
                         // Safe, since Block::LEN always fits on a u32
                         let start = (i * OnDiskDirEntry::LEN) as u32;
                         let entry = dir_entry.get_entry(FatType::Fat32, block_idx, start);
                         if let ControlFlow::Break(_) = func(&entry, &dir_entry) {
                             // Can quit early
-                            break;
+                            break 'outer;
                         }
                     }
                 }
