@@ -1236,7 +1236,7 @@ where
     /// Check if any files or folders are open.
     pub fn has_open_handles(&self) -> bool {
         let data = self.data.borrow();
-        !(data.open_dirs.is_empty() || data.open_files.is_empty())
+        !(data.open_dirs.is_empty() && data.open_files.is_empty())
     }
 
     /// Consume self and return BlockDevice and TimeSource
