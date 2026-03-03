@@ -14,5 +14,5 @@ check-fmt:
   cargo fmt --all -- --check
 
 test:
-  cargo test
-  cargo test --features "defmt-log" --no-default-features
+  cargo test --release
+  cargo test --release --features "defmt-log" --no-default-features
