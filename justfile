@@ -7,6 +7,9 @@ build:
 clippy:
   cargo clippy
 
+fmt:
+  cargo fmt --all
+
 check-fmt:
   cargo fmt --all -- --check
 
