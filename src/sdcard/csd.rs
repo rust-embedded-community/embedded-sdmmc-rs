@@ -3,7 +3,7 @@
 use arbitrary_int::{traits::Integer as _, u2, u3, u7, u12, u22, u28};
 
 /// Card Specific Data
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 #[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
 pub enum Csd {
     /// A version 1 CSD
