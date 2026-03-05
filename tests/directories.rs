@@ -644,6 +644,61 @@ fn delete_directory() {
     ));
 }
 
+/// Verify that `iterate_dir` on a FAT32 volume stops calling the callback
+/// after it returns `ControlFlow::Break`, even when directory entries span
+/// multiple 512-byte blocks (i.e. more than 16 on-disk entries).
+#[test]
+fn fat32_iterate_dir_break_stops_immediately() {
+    let time_source = utils::make_time_source();
+    let disk = utils::make_block_device(utils::DISK_SOURCE).unwrap();
+    let volume_mgr = embedded_sdmmc::VolumeManager::new(disk, time_source);
+
+    let fat32_volume = volume_mgr
+        .open_raw_volume(embedded_sdmmc::VolumeIdx(1))
+        .expect("open volume 1");
+    let root_dir = volume_mgr
+        .open_root_dir(fat32_volume)
+        .expect("open root dir");
+
+    // Create a fresh subdirectory to work in.
+    let dir_name = ShortFileName::create_from_str("BREAKDIR").unwrap();
+    volume_mgr
+        .make_dir_in_dir(root_dir, &dir_name)
+        .expect("make BREAKDIR");
+    let test_dir = volume_mgr
+        .open_dir(root_dir, &dir_name)
+        .expect("open BREAKDIR");
+
+    // The subdirectory already has "." and ".." (2 entries). Create 15 files
+    // so we have 17 on-disk entries total, which exceeds one 512-byte block
+    // (512 / 32 = 16 entries per block).
+    for i in 0..15 {
+        let name = format!("F{:07}.TXT", i);
+        let sfn = ShortFileName::create_from_str(&name).unwrap();
+        let f = volume_mgr
+            .open_file_in_dir(test_dir, &sfn, Mode::ReadWriteCreate)
+            .expect("create file");
+        volume_mgr.close_file(f).expect("close file");
+    }
+
+    // Now iterate with a callback that breaks immediately.
+    let mut call_count = 0u32;
+    volume_mgr
+        .iterate_dir(test_dir, |_entry| {
+            call_count += 1;
+            ControlFlow::Break(())
+        })
+        .expect("iterate dir");
+
+    assert_eq!(
+        call_count, 1,
+        "callback was invoked {call_count} times, expected exactly 1 after Break"
+    );
+
+    volume_mgr.close_dir(test_dir).expect("close BREAKDIR");
+    volume_mgr.close_dir(root_dir).expect("close root");
+}
+
 // ****************************************************************************
 //
 // End Of File
