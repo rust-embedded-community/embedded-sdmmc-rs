@@ -55,43 +55,63 @@ pub enum CardType {
 /// Card indicates last operation was a success
 pub const ERROR_OK: u8 = 0x00;
 
-//==============================================================================
+/// Raw command IDs.
+#[bitbybit::bitenum(u6, exhaustive = false)]
+#[derive(Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
+#[allow(non_camel_case_types)]
+#[repr(u8)]
+pub enum CmdId {
+    /// GO_IDLE_STATE - Send cards to IDLE state
+    CMD0_GoIdleState = 0,
+    /// ALL_SEND_CID - Request Card IDentification (CID)
+    CMD2_AllSendCid = 2,
+    /// SEND_RELATIVE_ADDR - Request relative card address (RCA)
+    CMD3_SendRelativeAddr = 3,
+    /// SEND_IF_COND - verify SD Memory Card interface operating condition
+    CMD8_SendIfCond = 8,
+    /// SELECT/DESELECT_CARD - Select the active card or deselect the active card
+    CMD7_SelectCard = 7,
+    /// SEND_CSD - read the Card Specific Data (CSD register)
+    CMD9_SendCsd = 9,
+    /// STOP_TRANSMISSION - Stop a multiple read or write transfer
+    CMD12_StopTransmission = 12,
+    /// SEND_STATUS / SEND_TASK_STATUS - Read card status register.
+    CMD13_SendStatus = 13,
+    /// READ_SINGLE_BLOCK - read a single data block from the card
+    CMD17_ReadSingleBlock = 17,
+    /// READ_MULTIPLE_BLOCK - read a multiple data blocks from the card
+    CMD18_ReadMultipleBlock = 18,
+    /// WRITE_BLOCK - write a single data block to the card
+    CMD24_WriteBlock = 24,
+    /// WRITE_MULTIPLE_BLOCK - write blocks of data until a STOP_TRANSMISSION
+    CMD25_WriteMultipleBlock = 25,
+    /// APP_CMD - escape for application specific command
+    CMD55_AppCmd = 55,
+    /// READ_OCR - read the OCR register of a card
+    CMD58_ReadOcr = 58,
+    /// CRC_ON_OFF - enable or disable CRC checking
+    CMD59_CrcOnOff = 59,
+}
 
-// SD Card Commands
-
-/// GO_IDLE_STATE - init card in spi mode if CS low
-pub const CMD0: u8 = 0x00;
-/// SEND_IF_COND - verify SD Memory Card interface operating condition.*/
-pub const CMD8: u8 = 0x08;
-/// SEND_CSD - read the Card Specific Data (CSD register)
-pub const CMD9: u8 = 0x09;
-/// STOP_TRANSMISSION - end multiple block read sequence
-pub const CMD12: u8 = 0x0C;
-/// SEND_STATUS - read the card status register
-pub const CMD13: u8 = 0x0D;
-/// READ_SINGLE_BLOCK - read a single data block from the card
-pub const CMD17: u8 = 0x11;
-/// READ_MULTIPLE_BLOCK - read a multiple data blocks from the card
-pub const CMD18: u8 = 0x12;
-/// WRITE_BLOCK - write a single data block to the card
-pub const CMD24: u8 = 0x18;
-/// WRITE_MULTIPLE_BLOCK - write blocks of data until a STOP_TRANSMISSION
-pub const CMD25: u8 = 0x19;
-/// APP_CMD - escape for application specific command
-pub const CMD55: u8 = 0x37;
-/// READ_OCR - read the OCR register of a card
-pub const CMD58: u8 = 0x3A;
-/// CRC_ON_OFF - enable or disable CRC checking
-pub const CMD59: u8 = 0x3B;
-/// Pre-erased before writing
-///
-/// > It is recommended using this command preceding CMD25, some of the cards will be faster for Multiple
-/// > Write Blocks operation. Note that the host should send ACMD23 just before WRITE command if the host
-/// > wants to use the pre-erased feature
-pub const ACMD23: u8 = 0x17;
-/// SD_SEND_OP_COMD - Sends host capacity support information and activates
-/// the card's initialization process
-pub const ACMD41: u8 = 0x29;
+/// Raw application specific IDs ACMD.
+#[bitbybit::bitenum(u6, exhaustive = false)]
+#[derive(Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
+#[allow(non_camel_case_types)]
+pub enum AcmdId {
+    /// SET_BUS_WIDTH
+    ACMD6_SetBusWidth = 6,
+    /// SET_WR_BLK_ERASE_COUNT. Pre-erased before writing
+    ///
+    /// > It is recommended using this command preceding CMD25, some of the cards will be faster for Multiple
+    /// > Write Blocks operation. Note that the host should send ACMD23 just before WRITE command if the host
+    /// > wants to use the pre-erased feature
+    ACMD23_PreErase = 23,
+    /// SD_SEND_OP_COND - Sends host capacity support information and activates
+    /// the card's initialization process
+    ACMD41_SdSendOpCond = 41,
+}
 
 //==============================================================================
 

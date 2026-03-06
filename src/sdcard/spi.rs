@@ -209,16 +209,16 @@ where
 
         if blocks.len() == 1 {
             // Start a single-block read
-            self.card_command(CMD17, start_idx)?;
+            self.card_command(CmdId::CMD17_ReadSingleBlock, start_idx)?;
             self.read_data(&mut blocks[0].contents)?;
         } else {
             // Start a multi-block read
-            self.card_command(CMD18, start_idx)?;
+            self.card_command(CmdId::CMD18_ReadMultipleBlock, start_idx)?;
             for block in blocks.iter_mut() {
                 self.read_data(&mut block.contents)?;
             }
             // Stop the read
-            self.card_command(super::CMD12, 0)?;
+            self.card_command(CmdId::CMD12_StopTransmission, 0)?;
         }
         Ok(())
     }
@@ -232,10 +232,10 @@ where
         };
         if blocks.len() == 1 {
             // Start a single-block write
-            self.card_command(CMD24, start_idx)?;
+            self.card_command(CmdId::CMD24_WriteBlock, start_idx)?;
             self.write_data(DATA_START_BLOCK, &blocks[0].contents)?;
             self.wait_not_busy(Delay::new_write())?;
-            if self.card_command(CMD13, 0)? != 0x00 {
+            if self.card_command(CmdId::CMD13_SendStatus, 0)? != 0x00 {
                 return Err(Error::WriteError);
             }
             if self.read_byte()? != 0x00 {
@@ -245,12 +245,12 @@ where
             // > It is recommended using this command preceding CMD25, some of the cards will be faster for Multiple
             // > Write Blocks operation. Note that the host should send ACMD23 just before WRITE command if the host
             // > wants to use the pre-erased feature
-            self.card_acmd(ACMD23, blocks.len() as u32)?;
+            self.card_acmd(AcmdId::ACMD23_PreErase, blocks.len() as u32)?;
             // wait for card to be ready before sending the next command
             self.wait_not_busy(Delay::new_write())?;
 
             // Start a multi-block write
-            self.card_command(CMD25, start_idx)?;
+            self.card_command(CmdId::CMD25_WriteMultipleBlock, start_idx)?;
             for block in blocks.iter() {
                 self.wait_not_busy(Delay::new_write())?;
                 self.write_data(WRITE_MULTIPLE_TOKEN, &block.contents)?;
@@ -287,14 +287,14 @@ where
         let mut csd_raw: [u8; 16] = [0; 16];
         match self.card_type {
             Some(CardType::SD1) => {
-                if self.card_command(CMD9, 0)? != 0 {
+                if self.card_command(CmdId::CMD9_SendCsd, 0)? != 0 {
                     return Err(Error::RegisterReadError);
                 }
                 self.read_data(&mut csd_raw)?;
                 Ok(csd::Csd::V1(csd::CsdV1::from_be_bytes(&csd_raw)))
             }
             Some(CardType::SD2 | CardType::SdhcSdxc) => {
-                if self.card_command(CMD9, 0)? != 0 {
+                if self.card_command(CmdId::CMD9_SendCsd, 0)? != 0 {
                     return Err(Error::RegisterReadError);
                 }
                 self.read_data(&mut csd_raw)?;
@@ -383,8 +383,8 @@ where
             let mut delay = Delay::new(s.options.acquire_retries);
             for _attempts in 1.. {
                 crate::trace!("Enter SPI mode, attempt: {}..", _attempts);
-                match s.card_command(CMD0, 0) {
-                    Err(Error::TimeoutCommand(0)) => {
+                match s.card_command(CmdId::CMD0_GoIdleState, 0) {
+                    Err(Error::TimeoutCommand(CmdId::CMD0_GoIdleState)) => {
                         // Try again?
                         crate::warn!("Timed out, trying again..");
                         // Try flushing the card as done here: https://github.com/greiman/SdFat/blob/master/src/SdCard/SdSpiCard.cpp#L170,
@@ -411,13 +411,15 @@ where
             crate::debug!("Enable CRC: {}", s.options.use_crc);
             // "The SPI interface is initialized in the CRC OFF mode in default"
             // -- SD Part 1 Physical Layer Specification v9.00, Section 7.2.2 Bus Transfer Protection
-            if s.options.use_crc && s.card_command(CMD59, 1)? != R1_IDLE_STATE {
+            if s.options.use_crc && s.card_command(CmdId::CMD59_CrcOnOff, 1)? != R1_IDLE_STATE {
                 return Err(Error::CantEnableCRC);
             }
             // Check card version
             let mut delay = Delay::new_command();
             let arg = loop {
-                if s.card_command(CMD8, 0x1AA)? == (R1_ILLEGAL_COMMAND | R1_IDLE_STATE) {
+                if s.card_command(CmdId::CMD8_SendIfCond, 0x1AA)?
+                    == (R1_ILLEGAL_COMMAND | R1_IDLE_STATE)
+                {
                     card_type = CardType::SD1;
                     break 0;
                 }
@@ -428,16 +430,22 @@ where
                     card_type = CardType::SD2;
                     break 0x4000_0000;
                 }
-                delay.delay(&mut s.delayer, Error::TimeoutCommand(CMD8))?;
+                delay.delay(
+                    &mut s.delayer,
+                    Error::TimeoutCommand(CmdId::CMD8_SendIfCond),
+                )?;
             };
 
             let mut delay = Delay::new_command();
-            while s.card_acmd(ACMD41, arg)? != R1_READY_STATE {
-                delay.delay(&mut s.delayer, Error::TimeoutACommand(ACMD41))?;
+            while s.card_acmd(AcmdId::ACMD41_SdSendOpCond, arg)? != R1_READY_STATE {
+                delay.delay(
+                    &mut s.delayer,
+                    Error::TimeoutACommand(AcmdId::ACMD41_SdSendOpCond),
+                )?;
             }
 
             if card_type == CardType::SD2 {
-                if s.card_command(CMD58, 0)? != 0 {
+                if s.card_command(CmdId::CMD58_ReadOcr, 0)? != 0 {
                     return Err(Error::Cmd58Error);
                 }
                 let mut buffer = [0xFF; 4];
@@ -457,19 +465,42 @@ where
     }
 
     /// Perform an application-specific command.
-    fn card_acmd(&mut self, command: u8, arg: u32) -> Result<u8, Error> {
-        self.card_command(CMD55, 0)?;
-        self.card_command(command, arg)
+    fn card_acmd(&mut self, command: AcmdId, arg: u32) -> Result<u8, Error> {
+        self.card_command(CmdId::CMD55_AppCmd, 0)?;
+        self.card_acmd_after_escape(command, arg)
+    }
+
+    fn card_acmd_after_escape(&mut self, command: AcmdId, arg: u32) -> Result<u8, Error> {
+        let mut buf = [
+            0x40 | command as u8,
+            (arg >> 24) as u8,
+            (arg >> 16) as u8,
+            (arg >> 8) as u8,
+            arg as u8,
+            0,
+        ];
+        buf[5] = crc7(&buf[0..5]);
+
+        self.write_bytes(&buf)?;
+
+        let mut delay = Delay::new_command();
+        loop {
+            let result = self.read_byte()?;
+            if (result & 0x80) == ERROR_OK {
+                return Ok(result);
+            }
+            delay.delay(&mut self.delayer, Error::TimeoutACommand(command))?;
+        }
     }
 
     /// Perform a command.
-    fn card_command(&mut self, command: u8, arg: u32) -> Result<u8, Error> {
-        if command != CMD0 && command != CMD12 {
+    fn card_command(&mut self, command: CmdId, arg: u32) -> Result<u8, Error> {
+        if command != CmdId::CMD0_GoIdleState && command != CmdId::CMD12_StopTransmission {
             self.wait_not_busy(Delay::new_command())?;
         }
 
         let mut buf = [
-            0x40 | command,
+            0x40 | command as u8,
             (arg >> 24) as u8,
             (arg >> 16) as u8,
             (arg >> 8) as u8,
@@ -481,7 +512,7 @@ where
         self.write_bytes(&buf)?;
 
         // skip stuff byte for stop read
-        if command == CMD12 {
+        if command == CmdId::CMD12_StopTransmission {
             let _result = self.read_byte()?;
         }
 
@@ -583,9 +614,9 @@ pub enum Error {
     /// We didn't get a response when waiting for the card to not be busy
     TimeoutWaitNotBusy,
     /// We didn't get a response when executing this command
-    TimeoutCommand(u8),
+    TimeoutCommand(CmdId),
     /// We didn't get a response when executing this application-specific command
-    TimeoutACommand(u8),
+    TimeoutACommand(AcmdId),
     /// We got a bad response from Command 58
     Cmd58Error,
     /// We failed to read the Card Specific Data register
@@ -611,10 +642,12 @@ impl core::fmt::Display for Error {
             Error::CantEnableCRC => write!(f, "failed to enable CRC checking"),
             Error::TimeoutReadBuffer => write!(f, "timeout when reading data"),
             Error::TimeoutWaitNotBusy => write!(f, "timeout when waiting for card to not be busy"),
-            Error::TimeoutCommand(command) => write!(f, "timeout when executing command {command}"),
+            Error::TimeoutCommand(command) => {
+                write!(f, "timeout when executing command {command:?}")
+            }
             Error::TimeoutACommand(command) => write!(
                 f,
-                "timeout when executing application-specific command {command}"
+                "timeout when executing application-specific command {command:?}"
             ),
             Error::Cmd58Error => write!(f, "bad response from command 58"),
             Error::RegisterReadError => write!(f, "failed to read Card Specific Data register"),
