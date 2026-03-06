@@ -63,35 +63,35 @@ pub const ERROR_OK: u8 = 0x00;
 #[repr(u8)]
 pub enum CmdId {
     /// GO_IDLE_STATE - Send cards to IDLE state
-    _0_GoIdleState = 0,
+    CMD0_GoIdleState = 0,
     /// ALL_SEND_CID - Request Card IDentification (CID)
-    _2_AllSendCid = 2,
+    CMD2_AllSendCid = 2,
     /// SEND_RELATIVE_ADDR - Request relative card address (RCA)
-    _3_SendRelativeAddr = 3,
+    CMD3_SendRelativeAddr = 3,
     /// SEND_IF_COND - verify SD Memory Card interface operating condition
-    _8_SendIfCond = 8,
+    CMD8_SendIfCond = 8,
     /// SELECT/DESELECT_CARD - Select the active card or deselect the active card
-    _7_SelectCard = 7,
+    CMD7_SelectCard = 7,
     /// SEND_CSD - read the Card Specific Data (CSD register)
-    _9_SendCsd = 9,
+    CMD9_SendCsd = 9,
     /// STOP_TRANSMISSION - Stop a multiple read or write transfer
-    _12_StopTransmission = 12,
+    CMD12_StopTransmission = 12,
     /// SEND_STATUS / SEND_TASK_STATUS - Read card status register.
-    _13_SendStatus = 13,
+    CMD13_SendStatus = 13,
     /// READ_SINGLE_BLOCK - read a single data block from the card
-    _17_ReadSingleBlock = 17,
+    CMD17_ReadSingleBlock = 17,
     /// READ_MULTIPLE_BLOCK - read a multiple data blocks from the card
-    _18_ReadMultipleBlock = 18,
+    CMD18_ReadMultipleBlock = 18,
     /// WRITE_BLOCK - write a single data block to the card
-    _24_WriteBlock = 24,
+    CMD24_WriteBlock = 24,
     /// WRITE_MULTIPLE_BLOCK - write blocks of data until a STOP_TRANSMISSION
-    _25_WriteMultipleBlock = 25,
+    CMD25_WriteMultipleBlock = 25,
     /// APP_CMD - escape for application specific command
-    _55_AppCmd = 55,
+    CMD55_AppCmd = 55,
     /// READ_OCR - read the OCR register of a card
-    _58_ReadOcr = 58,
+    CMD58_ReadOcr = 58,
     /// CRC_ON_OFF - enable or disable CRC checking
-    _59_CrcOnOff = 59,
+    CMD59_CrcOnOff = 59,
 }
 
 /// Raw application specific IDs ACMD.
@@ -101,16 +101,16 @@ pub enum CmdId {
 #[allow(non_camel_case_types)]
 pub enum AcmdId {
     /// SET_BUS_WIDTH
-    _6_SetBusWidth = 6,
+    ACMD6_SetBusWidth = 6,
     /// SET_WR_BLK_ERASE_COUNT. Pre-erased before writing
     ///
     /// > It is recommended using this command preceding CMD25, some of the cards will be faster for Multiple
     /// > Write Blocks operation. Note that the host should send ACMD23 just before WRITE command if the host
     /// > wants to use the pre-erased feature
-    _23_PreErase = 23,
+    ACMD23_PreErase = 23,
     /// SD_SEND_OP_COND - Sends host capacity support information and activates
     /// the card's initialization process
-    _41_SdSendOpCond = 41,
+    ACMD41_SdSendOpCond = 41,
 }
 
 //==============================================================================

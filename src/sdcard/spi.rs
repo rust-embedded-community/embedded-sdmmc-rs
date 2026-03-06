@@ -209,16 +209,16 @@ where
 
         if blocks.len() == 1 {
             // Start a single-block read
-            self.card_command(super::CmdId::_17_ReadSingleBlock, start_idx)?;
+            self.card_command(CmdId::CMD17_ReadSingleBlock, start_idx)?;
             self.read_data(&mut blocks[0].contents)?;
         } else {
             // Start a multi-block read
-            self.card_command(super::CmdId::_18_ReadMultipleBlock, start_idx)?;
+            self.card_command(CmdId::CMD18_ReadMultipleBlock, start_idx)?;
             for block in blocks.iter_mut() {
                 self.read_data(&mut block.contents)?;
             }
             // Stop the read
-            self.card_command(super::CmdId::_12_StopTransmission, 0)?;
+            self.card_command(CmdId::CMD12_StopTransmission, 0)?;
         }
         Ok(())
     }
@@ -232,10 +232,10 @@ where
         };
         if blocks.len() == 1 {
             // Start a single-block write
-            self.card_command(super::CmdId::_24_WriteBlock, start_idx)?;
+            self.card_command(CmdId::CMD24_WriteBlock, start_idx)?;
             self.write_data(DATA_START_BLOCK, &blocks[0].contents)?;
             self.wait_not_busy(Delay::new_write())?;
-            if self.card_command(super::CmdId::_13_SendStatus, 0)? != 0x00 {
+            if self.card_command(CmdId::CMD13_SendStatus, 0)? != 0x00 {
                 return Err(Error::WriteError);
             }
             if self.read_byte()? != 0x00 {
@@ -245,12 +245,12 @@ where
             // > It is recommended using this command preceding CMD25, some of the cards will be faster for Multiple
             // > Write Blocks operation. Note that the host should send ACMD23 just before WRITE command if the host
             // > wants to use the pre-erased feature
-            self.card_acmd(super::AcmdId::_23_PreErase, blocks.len() as u32)?;
+            self.card_acmd(AcmdId::ACMD23_PreErase, blocks.len() as u32)?;
             // wait for card to be ready before sending the next command
             self.wait_not_busy(Delay::new_write())?;
 
             // Start a multi-block write
-            self.card_command(super::CmdId::_25_WriteMultipleBlock, start_idx)?;
+            self.card_command(CmdId::CMD25_WriteMultipleBlock, start_idx)?;
             for block in blocks.iter() {
                 self.wait_not_busy(Delay::new_write())?;
                 self.write_data(WRITE_MULTIPLE_TOKEN, &block.contents)?;
@@ -287,14 +287,14 @@ where
         let mut csd_raw: [u8; 16] = [0; 16];
         match self.card_type {
             Some(CardType::SD1) => {
-                if self.card_command(super::CmdId::_9_SendCsd, 0)? != 0 {
+                if self.card_command(CmdId::CMD9_SendCsd, 0)? != 0 {
                     return Err(Error::RegisterReadError);
                 }
                 self.read_data(&mut csd_raw)?;
                 Ok(csd::Csd::V1(csd::CsdV1::from_be_bytes(&csd_raw)))
             }
             Some(CardType::SD2 | CardType::SdhcSdxc) => {
-                if self.card_command(CmdId::_9_SendCsd, 0)? != 0 {
+                if self.card_command(CmdId::CMD9_SendCsd, 0)? != 0 {
                     return Err(Error::RegisterReadError);
                 }
                 self.read_data(&mut csd_raw)?;
@@ -383,8 +383,8 @@ where
             let mut delay = Delay::new(s.options.acquire_retries);
             for _attempts in 1.. {
                 crate::trace!("Enter SPI mode, attempt: {}..", _attempts);
-                match s.card_command(super::CmdId::_0_GoIdleState, 0) {
-                    Err(Error::TimeoutCommand(super::CmdId::_0_GoIdleState)) => {
+                match s.card_command(CmdId::CMD0_GoIdleState, 0) {
+                    Err(Error::TimeoutCommand(CmdId::CMD0_GoIdleState)) => {
                         // Try again?
                         crate::warn!("Timed out, trying again..");
                         // Try flushing the card as done here: https://github.com/greiman/SdFat/blob/master/src/SdCard/SdSpiCard.cpp#L170,
@@ -411,14 +411,13 @@ where
             crate::debug!("Enable CRC: {}", s.options.use_crc);
             // "The SPI interface is initialized in the CRC OFF mode in default"
             // -- SD Part 1 Physical Layer Specification v9.00, Section 7.2.2 Bus Transfer Protection
-            if s.options.use_crc && s.card_command(super::CmdId::_59_CrcOnOff, 1)? != R1_IDLE_STATE
-            {
+            if s.options.use_crc && s.card_command(CmdId::CMD59_CrcOnOff, 1)? != R1_IDLE_STATE {
                 return Err(Error::CantEnableCRC);
             }
             // Check card version
             let mut delay = Delay::new_command();
             let arg = loop {
-                if s.card_command(super::CmdId::_8_SendIfCond, 0x1AA)?
+                if s.card_command(CmdId::CMD8_SendIfCond, 0x1AA)?
                     == (R1_ILLEGAL_COMMAND | R1_IDLE_STATE)
                 {
                     card_type = CardType::SD1;
@@ -433,20 +432,20 @@ where
                 }
                 delay.delay(
                     &mut s.delayer,
-                    Error::TimeoutCommand(super::CmdId::_8_SendIfCond),
+                    Error::TimeoutCommand(CmdId::CMD8_SendIfCond),
                 )?;
             };
 
             let mut delay = Delay::new_command();
-            while s.card_acmd(super::AcmdId::_41_SdSendOpCond, arg)? != R1_READY_STATE {
+            while s.card_acmd(AcmdId::ACMD41_SdSendOpCond, arg)? != R1_READY_STATE {
                 delay.delay(
                     &mut s.delayer,
-                    Error::TimeoutACommand(super::AcmdId::_41_SdSendOpCond),
+                    Error::TimeoutACommand(AcmdId::ACMD41_SdSendOpCond),
                 )?;
             }
 
             if card_type == CardType::SD2 {
-                if s.card_command(super::CmdId::_58_ReadOcr, 0)? != 0 {
+                if s.card_command(CmdId::CMD58_ReadOcr, 0)? != 0 {
                     return Err(Error::Cmd58Error);
                 }
                 let mut buffer = [0xFF; 4];
@@ -467,7 +466,7 @@ where
 
     /// Perform an application-specific command.
     fn card_acmd(&mut self, command: AcmdId, arg: u32) -> Result<u8, Error> {
-        self.card_command(super::CmdId::_55_AppCmd, 0)?;
+        self.card_command(CmdId::CMD55_AppCmd, 0)?;
         self.card_acmd_after_escape(command, arg)
     }
 
@@ -496,8 +495,7 @@ where
 
     /// Perform a command.
     fn card_command(&mut self, command: CmdId, arg: u32) -> Result<u8, Error> {
-        if command != super::CmdId::_0_GoIdleState && command != super::CmdId::_12_StopTransmission
-        {
+        if command != CmdId::CMD0_GoIdleState && command != CmdId::CMD12_StopTransmission {
             self.wait_not_busy(Delay::new_command())?;
         }
 
@@ -514,7 +512,7 @@ where
         self.write_bytes(&buf)?;
 
         // skip stuff byte for stop read
-        if command == super::CmdId::_12_StopTransmission {
+        if command == CmdId::CMD12_StopTransmission {
             let _result = self.read_byte()?;
         }
 
