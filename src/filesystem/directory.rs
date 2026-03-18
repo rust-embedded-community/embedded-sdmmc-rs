@@ -120,7 +120,7 @@ where
     pub fn open_dir<N>(
         &self,
         name: N,
-    ) -> Result<Directory<'_, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>, Error<D::Error>>
+    ) -> Result<Directory<'a, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>, Error<D::Error>>
     where
         N: ToShortFileName,
     {
@@ -196,7 +196,7 @@ where
         &self,
         name: N,
         mode: crate::Mode,
-    ) -> Result<crate::File<'_, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>, crate::Error<D::Error>>
+    ) -> Result<crate::File<'a, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>, crate::Error<D::Error>>
     where
         N: super::ToShortFileName,
     {
@@ -214,7 +214,7 @@ where
         &self,
         name: &str,
         mode: crate::Mode,
-    ) -> Result<crate::File<'_, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>, crate::Error<D::Error>>
+    ) -> Result<crate::File<'a, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>, crate::Error<D::Error>>
     {
         let f = self
             .volume_mgr
