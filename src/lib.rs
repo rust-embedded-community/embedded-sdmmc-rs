@@ -367,7 +367,7 @@ where
     /// use `open_file_in_dir`.
     pub fn open_root_dir(
         &self,
-    ) -> Result<crate::Directory<'_, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>, Error<D::Error>> {
+    ) -> Result<crate::Directory<'a, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>, Error<D::Error>> {
         let d = self.volume_mgr.open_root_dir(self.raw_volume)?;
         Ok(d.to_directory(self.volume_mgr))
     }
