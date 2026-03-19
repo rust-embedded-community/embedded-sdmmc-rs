@@ -53,7 +53,7 @@ where
     /// This creates a `VolumeManager` with default values
     /// MAX_DIRS = 4, MAX_FILES = 4, MAX_VOLUMES = 1. Call `VolumeManager::new_with_limits(block_device, time_source)`
     /// if you need different limits.
-    pub fn new(block_device: D, time_source: T) -> VolumeManager<D, T, 4, 4, 1> {
+    pub fn new(block_device: D, time_source: T) -> Self {
         // Pick a random starting point for the IDs that's not zero, because
         // zero doesn't stand out in the logs.
         Self::new_with_limits(block_device, time_source, 5000)
@@ -73,11 +73,7 @@ where
     /// You can also give an offset for all the IDs this volume manager
     /// generates, which might help you find the IDs in your logs when
     /// debugging.
-    pub fn new_with_limits(
-        block_device: D,
-        time_source: T,
-        id_offset: u32,
-    ) -> VolumeManager<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES> {
+    pub fn new_with_limits(block_device: D, time_source: T, id_offset: u32) -> Self {
         debug!("Creating new embedded-sdmmc::VolumeManager");
         VolumeManager {
             time_source,

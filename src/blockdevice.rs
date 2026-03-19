@@ -101,7 +101,7 @@ where
     D: BlockDevice,
 {
     /// Create a new block cache
-    pub fn new(block_device: D) -> BlockCache<D> {
+    pub fn new(block_device: D) -> Self {
         BlockCache {
             block_device,
             block: [Block::new()],

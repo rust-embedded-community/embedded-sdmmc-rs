@@ -237,7 +237,7 @@ pub struct LfnBuffer<'a> {
 
 impl<'a> LfnBuffer<'a> {
     /// Create a new, empty, LFN Buffer using the given mutable slice as its storage.
-    pub fn new(storage: &'a mut [u8]) -> LfnBuffer<'a> {
+    pub fn new(storage: &'a mut [u8]) -> Self {
         // Because `free` is a `u16`, we keep at most `u16::MAX` bytes of the buffer.
         // It is enough to hold all LFN because a LFN has at most 255 characters.
         // A UTF-8 character takes at most 3 bytes.

@@ -45,7 +45,7 @@ where
     /// deferred until a method is called on the object.
     ///
     /// Uses the default options.
-    pub fn new(spi: SPI, delayer: DELAYER) -> SdCard<SPI, DELAYER> {
+    pub fn new(spi: SPI, delayer: DELAYER) -> Self {
         Self::new_with_options(spi, delayer, AcquireOpts::default())
     }
 
@@ -56,11 +56,7 @@ where
     ///
     /// The card will not be initialised at this time. Initialisation is
     /// deferred until a method is called on the object.
-    pub fn new_with_options(
-        spi: SPI,
-        delayer: DELAYER,
-        options: AcquireOpts,
-    ) -> SdCard<SPI, DELAYER> {
+    pub fn new_with_options(spi: SPI, delayer: DELAYER, options: AcquireOpts) -> Self {
         SdCard {
             inner: RefCell::new(SdCardInner {
                 spi,

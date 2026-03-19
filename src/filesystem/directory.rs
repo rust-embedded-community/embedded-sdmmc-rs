@@ -104,7 +104,7 @@ where
     pub fn new(
         raw_directory: RawDirectory,
         volume_mgr: &'a VolumeManager<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>,
-    ) -> Directory<'a, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES> {
+    ) -> Self {
         Directory {
             raw_directory,
             volume_mgr,
@@ -117,10 +117,7 @@ where
     ///
     /// See [`VolumeManager::open_dir`] for details, except the directory
     /// given is this directory.
-    pub fn open_dir<N>(
-        &self,
-        name: N,
-    ) -> Result<Directory<'a, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>, Error<D::Error>>
+    pub fn open_dir<N>(&self, name: N) -> Result<Self, Error<D::Error>>
     where
         N: ToShortFileName,
     {

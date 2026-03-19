@@ -354,7 +354,7 @@ where
     pub fn new(
         raw_volume: RawVolume,
         volume_mgr: &'a VolumeManager<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>,
-    ) -> Volume<'a, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES> {
+    ) -> Self {
         Volume {
             raw_volume,
             volume_mgr,
