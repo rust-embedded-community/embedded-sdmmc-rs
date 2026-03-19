@@ -68,7 +68,7 @@ where
     pub fn new(
         raw_file: RawFile,
         volume_mgr: &'a VolumeManager<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>,
-    ) -> File<'a, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES> {
+    ) -> Self {
         File {
             raw_file,
             volume_mgr,
