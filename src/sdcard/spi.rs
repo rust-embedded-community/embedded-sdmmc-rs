@@ -475,7 +475,7 @@ where
             arg as u8,
             0,
         ];
-        buf[5] = crc7(&buf[0..5]);
+        buf[5] = (crc7(&buf[0..5]) << 1) | 1;
 
         self.write_bytes(&buf)?;
 
@@ -503,7 +503,7 @@ where
             arg as u8,
             0,
         ];
-        buf[5] = crc7(&buf[0..5]);
+        buf[5] = (crc7(&buf[0..5]) << 1) | 1;
 
         self.write_bytes(&buf)?;
 
