@@ -14,13 +14,19 @@ pub enum Csd {
     V3(CsdV3),
 }
 
+/// The CSD structure, which is the first 2 bits in the raw CSD field, is invalid.
+#[derive(Debug, PartialEq, Eq, Copy, Clone, thiserror::Error)]
+#[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
+#[error("invalid CSD structure field")]
+pub struct InvalidCsdStructureFieldError;
+
 /// The CSD structure field is invalid.
 #[derive(Debug, PartialEq, Eq, Copy, Clone, thiserror::Error)]
 #[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
 pub enum CsdCreationError {
     /// Invalid CSD structure field.
     #[error("invalid CSD structure field")]
-    InvalidCsdStructureField,
+    InvalidCsdStructureField(#[from] InvalidCsdStructureFieldError),
     /// Invalid CRC7 checksum.
     #[error("invalid CRC7 checksum")]
     Checksum,
@@ -29,20 +35,24 @@ pub enum CsdCreationError {
 impl Csd {
     /// Construct a [Csd] from a raw byte slice with 16 bytes.
     pub fn new(raw: &[u8; 16]) -> Result<Csd, CsdCreationError> {
-        let csd_structure_raw = (raw[0] >> 6) & 0b11;
-
-        let csd = if csd_structure_raw == CsdStructure::CsdV1 as u8 {
-            Csd::V1(CsdV1::from_be_bytes(raw))
-        } else if csd_structure_raw == CsdStructure::CsdV2 as u8 {
-            Csd::V2(CsdV2::from_be_bytes(raw))
-        } else if csd_structure_raw == CsdStructure::CsdV3 as u8 {
-            Csd::V3(CsdV3::from_be_bytes(raw))
-        } else {
-            return Err(CsdCreationError::InvalidCsdStructureField);
-        };
-        if !csd.verify_crc7() {
+        let unchecked = Self::new_unchecked(raw)?;
+        if !unchecked.verify_crc7() {
             return Err(CsdCreationError::Checksum);
         }
+        Ok(unchecked)
+    }
+
+    /// Construct a [Csd] without verifying the checksum.
+    pub fn new_unchecked(raw: &[u8; 16]) -> Result<Self, InvalidCsdStructureFieldError> {
+        let csd_structure_raw = (raw[0] >> 6) & 0b11;
+
+        let csd = match csd_structure_raw {
+            0 => Csd::V1(CsdV1::from_be_bytes(raw)),
+            1 => Csd::V2(CsdV2::from_be_bytes(raw)),
+            2 => Csd::V3(CsdV3::from_be_bytes(raw)),
+            _ => return Err(InvalidCsdStructureFieldError),
+        };
+
         Ok(csd)
     }
 
