@@ -26,10 +26,16 @@ pub struct InvalidCsdStructureFieldError;
 pub enum CsdCreationError {
     /// Invalid CSD structure field.
     #[error("invalid CSD structure field")]
-    InvalidCsdStructureField(#[from] InvalidCsdStructureFieldError),
+    InvalidCsdStructureField,
     /// Invalid CRC7 checksum.
     #[error("invalid CRC7 checksum")]
     Checksum,
+}
+
+impl From<InvalidCsdStructureFieldError> for CsdCreationError {
+    fn from(_value: InvalidCsdStructureFieldError) -> Self {
+        Self::InvalidCsdStructureField
+    }
 }
 
 impl Csd {
