@@ -365,7 +365,10 @@ mod test {
     fn test_csd_invalid_leading_field() {
         const EXAMPLE_HEX: [u8; 16] = hex!("FF 26 00 32 5F 59 83 C8 AD DB CF FF D2 40 40 A4");
         let csd = Csd::new(&EXAMPLE_HEX);
-        assert_eq!(csd.unwrap_err(), CsdCreationError::InvalidCsdStructureField)
+        assert!(matches!(
+            csd.unwrap_err(),
+            CsdCreationError::InvalidCsdStructureField { .. }
+        ));
     }
 
     #[test]
