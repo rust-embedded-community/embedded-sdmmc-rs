@@ -1044,6 +1044,124 @@ where
         Ok(read)
     }
 
+    /// Read from an open file using multi-block reads for better performance.
+    ///
+    /// This is optimized for reading large contiguous portions of files.
+    /// It reads multiple blocks at once using CMD18 (multi-block read),
+    /// which significantly reduces SPI transaction overhead.
+    ///
+    /// Returns the number of bytes read, or an error.
+    pub fn read_multi<const BLOCKS: usize>(
+        &self,
+        file: RawFile,
+        buffer: &mut [u8],
+    ) -> Result<usize, Error<D::Error>> {
+        let mut data = self.data.try_borrow_mut().map_err(|_| Error::LockError)?;
+        let data = data.deref_mut();
+
+        let file_idx = data.get_file_by_id(file)?;
+        let volume_idx = data.get_volume_by_id(data.open_files[file_idx].raw_volume)?;
+
+        let bytes_per_cluster = match &data.open_volumes[volume_idx].volume_type {
+            VolumeType::Fat(fat) => fat.bytes_per_cluster(),
+        };
+        let _blocks_per_cluster = match &data.open_volumes[volume_idx].volume_type {
+            VolumeType::Fat(fat) => fat.blocks_per_cluster as u32,
+        };
+
+        let mut space = buffer.len();
+        let mut read = 0;
+
+        while space > 0 && !data.open_files[file_idx].eof() {
+            let mut current_cluster = data.open_files[file_idx].current_cluster;
+            let (block_idx, block_offset, _block_avail) = data.find_data_on_disk(
+                volume_idx,
+                &mut current_cluster,
+                data.open_files[file_idx].entry.cluster,
+                data.open_files[file_idx].current_offset,
+            )?;
+            data.open_files[file_idx].current_cluster = current_cluster;
+
+            // If we're not at a block boundary, read single block first
+            if block_offset != 0 {
+                let block = data
+                    .block_cache
+                    .read(block_idx)
+                    .map_err(Error::DeviceError)?;
+                let available = Block::LEN - block_offset;
+                let to_copy = available
+                    .min(space)
+                    .min(data.open_files[file_idx].left() as usize);
+                buffer[read..read + to_copy]
+                    .copy_from_slice(&block[block_offset..block_offset + to_copy]);
+                read += to_copy;
+                space -= to_copy;
+                data.open_files[file_idx]
+                    .seek_from_current(to_copy as i32)
+                    .unwrap();
+                continue;
+            }
+
+            // Calculate how many contiguous blocks we can read in this cluster
+            let current_offset_in_cluster =
+                data.open_files[file_idx].current_offset % bytes_per_cluster;
+            let blocks_remaining_in_cluster =
+                (bytes_per_cluster - current_offset_in_cluster) / Block::LEN_U32;
+
+            // Calculate how many blocks we want to read
+            let bytes_to_read = space.min(data.open_files[file_idx].left() as usize);
+            let blocks_wanted = (bytes_to_read + Block::LEN - 1) / Block::LEN;
+            let blocks_to_read = blocks_wanted
+                .min(blocks_remaining_in_cluster as usize)
+                .min(BLOCKS);
+
+            if blocks_to_read <= 1 {
+                // Fall back to single block read
+                let block = data
+                    .block_cache
+                    .read(block_idx)
+                    .map_err(Error::DeviceError)?;
+                let to_copy = Block::LEN
+                    .min(space)
+                    .min(data.open_files[file_idx].left() as usize);
+                buffer[read..read + to_copy].copy_from_slice(&block[..to_copy]);
+                read += to_copy;
+                space -= to_copy;
+                data.open_files[file_idx]
+                    .seek_from_current(to_copy as i32)
+                    .unwrap();
+            } else {
+                // Multi-block read
+                let mut blocks: [Block; BLOCKS] = core::array::from_fn(|_| Block::new());
+                data.block_cache
+                    .block_device()
+                    .read(&mut blocks[..blocks_to_read], block_idx)
+                    .map_err(Error::DeviceError)?;
+
+                // Copy to user buffer
+                let bytes_read = (blocks_to_read * Block::LEN)
+                    .min(space)
+                    .min(data.open_files[file_idx].left() as usize);
+                let mut copied = 0;
+                for block in blocks[..blocks_to_read].iter() {
+                    let to_copy = Block::LEN.min(bytes_read - copied);
+                    if to_copy == 0 {
+                        break;
+                    }
+                    buffer[read + copied..read + copied + to_copy]
+                        .copy_from_slice(&block[..to_copy]);
+                    copied += to_copy;
+                }
+                read += bytes_read;
+                space -= bytes_read;
+                data.open_files[file_idx]
+                    .seek_from_current(bytes_read as i32)
+                    .unwrap();
+            }
+        }
+        Ok(read)
+    }
+
     /// Write to a open file.
     ///
     /// Endeavours to write the entire contents of the slice, stopping only if

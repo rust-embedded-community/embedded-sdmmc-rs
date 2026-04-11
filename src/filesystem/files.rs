@@ -85,6 +85,22 @@ where
         self.volume_mgr.read(self.raw_file, buffer)
     }
 
+    /// Read from the file using multi-block reads for better performance.
+    ///
+    /// This is optimized for reading large contiguous portions of files.
+    /// The const generic BLOCKS specifies how many blocks (512 bytes each)
+    /// to read at once. Higher values use more stack but reduce SPI overhead.
+    ///
+    /// Recommended values: 32 (16KB), 64 (32KB), or 128 (64KB).
+    ///
+    /// Returns how many bytes were read, or an error.
+    pub fn read_multi<const BLOCKS: usize>(
+        &self,
+        buffer: &mut [u8],
+    ) -> Result<usize, crate::Error<D::Error>> {
+        self.volume_mgr.read_multi::<BLOCKS>(self.raw_file, buffer)
+    }
+
     /// Write to the file
     ///
     /// See [`VolumeManager::write`] for details, except the file given is this
