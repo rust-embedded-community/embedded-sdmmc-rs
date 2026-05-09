@@ -5,7 +5,7 @@
 
 use crate::sdcard::{
     AcmdId,
-    argument::{Acmd6, BusWidth, Cmd7, Cmd8, Cmd9, Cmd13},
+    argument::{Acmd6, Acmd41, BusWidth, Cmd7, Cmd8, Cmd9, Cmd13, HostCapacitySupport},
     response::{R1, R3, R6, R7},
 };
 
@@ -29,9 +29,27 @@ pub enum IdleSubState {
     ///
     /// This allows for the initialization to take multiple polling calls.
     InitializingSelf {
+        /// The raw ACMD41 argument initially sent, which is relevant for capability negotiation.
+        acmd41_raw: u32,
         /// Step counter. When a threshold is reached, initialization is complete.
         step: u8,
     },
+}
+
+/// Every CMD or ACMD returns this command status.
+///
+/// Real hardware might also provide status bits like CRC errors.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct CommandStatus {
+    /// Timeout for sent command.
+    timeout: bool,
+}
+
+impl CommandStatus {
+    /// Whether the command has timed out.
+    pub fn timeout(&self) -> bool {
+        self.timeout
+    }
 }
 
 /// SD card mock states.
@@ -82,8 +100,8 @@ impl From<State> for super::response::State {
 /// state is reached, it does not implement / mock file operations yet.
 #[derive(Debug, PartialEq, Eq)]
 pub struct SdCardMock {
+    card_type: super::CardType,
     state: State,
-    //mode: Mode,
     rca: u16,
     csd: [u8; 16],
     cid: [u8; 16],
@@ -94,8 +112,9 @@ pub struct SdCardMock {
 
 impl SdCardMock {
     /// Create a new SD card mock in the idle state.
-    pub fn new(relative_card_addr: u16) -> Self {
+    pub fn new(card_type: super::CardType, relative_card_addr: u16) -> Self {
         Self {
+            card_type,
             state: State::Idle(IdleSubState::Idle),
             rca: relative_card_addr,
             csd: [0; 16],
@@ -111,18 +130,17 @@ impl SdCardMock {
     /// Normally, this would involve sending a [super::CmdId::CMD55_AppCmd] first, but this
     /// function simplifies the process and allows inserting the ACMD directly.
     /// In a real implementation, it might be useful to implement a similar function.
-    pub fn insert_acmd(&mut self, acmd_id: super::AcmdId, argument: u32) {
+    pub fn insert_acmd(&mut self, acmd_id: super::AcmdId, argument: u32) -> CommandStatus {
         match acmd_id {
-            AcmdId::ACMD41_SdSendOpCond => {
-                self.handle_amcd41(argument);
-            }
+            AcmdId::ACMD41_SdSendOpCond => self.handle_amcd41(argument),
             AcmdId::ACMD6_SetBusWidth => {
                 let argument = Acmd6::new_with_raw_value(argument);
                 if let Ok(bus_width) = argument.bus_width() {
                     self.bus_width = bus_width;
                 }
+                CommandStatus { timeout: false }
             }
-            _ => {}
+            _ => CommandStatus { timeout: true },
         }
     }
 
@@ -130,14 +148,19 @@ impl SdCardMock {
     ///
     /// In a real implementation, it might be useful to implement a similar function which uses
     /// the controller hardware to trasnsfer [super::CmdId] to the SD card.
-    pub fn insert_command(&mut self, cmd_id: super::CmdId, argument: u32) {
+    pub fn insert_command(&mut self, cmd_id: super::CmdId, argument: u32) -> CommandStatus {
         match cmd_id {
-            super::CmdId::CMD0_GoIdleState => self.state = State::Idle(IdleSubState::Idle),
+            super::CmdId::CMD0_GoIdleState => {
+                self.state = State::Idle(IdleSubState::Idle);
+                CommandStatus { timeout: false }
+            }
             super::CmdId::CMD2_AllSendCid => {
                 if self.state == State::Ready {
                     self.reply_buf.copy_from_slice(&TEST_CID);
-                    self.state = State::Ident
+                    self.state = State::Ident;
+                    return CommandStatus { timeout: false };
                 }
+                CommandStatus { timeout: true }
             }
             super::CmdId::CMD3_SendRelativeAddr => {
                 if self.state == State::Ident {
@@ -154,7 +177,9 @@ impl SdCardMock {
                         .build();
                     self.write_u32_reply(response.raw_value());
                     self.state = State::Stby;
+                    return CommandStatus { timeout: false };
                 }
+                CommandStatus { timeout: true }
             }
             super::CmdId::CMD7_SelectCard => {
                 let argument = Cmd7::new_with_raw_value(argument);
@@ -162,23 +187,14 @@ impl SdCardMock {
                     let response = R1::ZERO.with_state(super::response::State::Stby);
                     self.write_u32_reply(response.raw_value());
                     self.state = State::Tran;
+                    return CommandStatus { timeout: false };
                 }
-            }
-            super::CmdId::CMD13_SendStatus => {
-                let argument = Cmd13::new_with_raw_value(argument);
-                if argument.rca() == self.rca {
-                    let response = R1::ZERO.with_state(self.state.into());
-                    self.write_u32_reply(response.raw_value());
-                    self.state = State::Tran;
-                }
-            }
-            super::CmdId::CMD9_SendCsd => {
-                let argument = Cmd9::new_with_raw_value(argument);
-                if argument.rca() == self.rca {
-                    self.reply_buf.copy_from_slice(&TEST_CSD);
-                }
+                CommandStatus { timeout: true }
             }
             super::CmdId::CMD8_SendIfCond => {
+                if self.card_type == super::CardType::SD1 {
+                    return CommandStatus { timeout: true };
+                }
                 let argument = Cmd8::new_with_raw_value(argument);
                 if matches!(self.state, State::Idle { .. }) {
                     self.state = State::Idle(IdleSubState::ReceivedIfCond);
@@ -189,10 +205,30 @@ impl SdCardMock {
                         .with_voltage_accepted(super::argument::VoltageSuppliedSelect::_2_7To3_6V)
                         .build();
                     self.write_u32_reply(reply.raw_value());
+                    return CommandStatus { timeout: false };
                 }
+                CommandStatus { timeout: true }
+            }
+            super::CmdId::CMD9_SendCsd => {
+                let argument = Cmd9::new_with_raw_value(argument);
+                if argument.rca() == self.rca {
+                    self.reply_buf.copy_from_slice(&TEST_CSD);
+                    return CommandStatus { timeout: false };
+                }
+                CommandStatus { timeout: true }
+            }
+            super::CmdId::CMD13_SendStatus => {
+                let argument = Cmd13::new_with_raw_value(argument);
+                if argument.rca() == self.rca {
+                    let response = R1::ZERO.with_state(self.state.into());
+                    self.write_u32_reply(response.raw_value());
+                    self.state = State::Tran;
+                    return CommandStatus { timeout: false };
+                }
+                CommandStatus { timeout: true }
             }
 
-            _ => (),
+            _ => CommandStatus { timeout: true },
         }
     }
 
@@ -206,59 +242,75 @@ impl SdCardMock {
         u128::from_be_bytes(self.reply_buf)
     }
 
-    fn handle_amcd41(&mut self, argument: u32) {
+    fn handle_amcd41(&mut self, argument: u32) -> CommandStatus {
         let argument = super::argument::Acmd41::new_with_raw_value(argument);
-        // If any OCR bits are set,
-        let ocr_bits_set = argument.ocr().raw_value().value() != 0;
         if let State::Idle(substate) = self.state {
             match substate {
-                // We ignore this if we have not received CMD8 before.
-                IdleSubState::Idle => (),
-                IdleSubState::ReceivedIfCond => {
-                    if ocr_bits_set {
-                        let response = R3::ZERO;
-                        self.write_u32_reply(response.raw_value());
-                        self.state = State::Idle(IdleSubState::InitializingSelf { step: 1 });
+                IdleSubState::Idle => {
+                    if self.card_type == super::CardType::SD1 {
+                        return self.handle_acmd41_negotation_init(argument);
                     }
+                    CommandStatus { timeout: true }
                 }
-                IdleSubState::InitializingSelf { step } => {
-                    if ocr_bits_set {
-                        // I have no idea what a SD casrd does for this. It might start
-                        // the initialization again. We just expect users to use the polling
-                        // mode properly.
-                        let response = R3::ZERO;
-                        self.write_u32_reply(response.raw_value());
-                        self.state = State::Idle(IdleSubState::InitializingSelf { step: 1 });
-                    } else {
-                        if step == self.polling_calls_card_init {
-                            let response = R3::builder()
-                                .with__2_7_to_2_8v(false)
-                                .with__2_8_to_2_9v(false)
-                                .with__2_9_to_3_0v(false)
-                                .with__3_0_to_3_1v(false)
-                                .with__3_1_to_3_2v(false)
-                                .with__3_2_to_3_3v(true)
-                                .with__3_3_to_3_4v(true)
-                                .with__3_4_to_3_5v(false)
-                                .with__3_5_to_3_6v(false)
-                                .with_reserved_low_voltage(false)
-                                .with_uhs_2_card_status(false)
-                                // Initialization is completed immediately for the mock. We could configure
-                                // the mock to simulate the initailization taking multiple polling calls.
-                                .with_initialization_complete(true)
-                                .with_card_capacity_status(true)
-                                .with_over_2_tb_support_status(false)
-                                .with_s18a(argument.s18r())
-                                .build();
-                            self.write_u32_reply(response.raw_value());
-                            self.state = State::Ready;
-                        } else {
-                            self.state =
-                                State::Idle(IdleSubState::InitializingSelf { step: step + 1 });
-                        }
+                IdleSubState::ReceivedIfCond => self.handle_acmd41_negotation_init(argument),
+                IdleSubState::InitializingSelf { acmd41_raw, step } => {
+                    if argument.ocr().raw_value().value() != 0 {
+                        return self.handle_acmd41_negotation_init(argument);
                     }
+                    if step < self.polling_calls_card_init {
+                        self.write_u32_reply(R3::ZERO.raw_value());
+                        self.state = State::Idle(IdleSubState::InitializingSelf {
+                            acmd41_raw,
+                            step: step + 1,
+                        });
+                        return CommandStatus { timeout: false };
+                    }
+                    let acmd41 = Acmd41::new_with_raw_value(acmd41_raw);
+                    let response = R3::builder()
+                        .with__2_7_to_2_8v(false)
+                        .with__2_8_to_2_9v(false)
+                        .with__2_9_to_3_0v(false)
+                        .with__3_0_to_3_1v(false)
+                        .with__3_1_to_3_2v(false)
+                        .with__3_2_to_3_3v(true)
+                        .with__3_3_to_3_4v(true)
+                        .with__3_4_to_3_5v(false)
+                        .with__3_5_to_3_6v(false)
+                        .with_reserved_low_voltage(false)
+                        .with_uhs_2_card_status(false)
+                        // Initialization is completed immediately for the mock. We could configure
+                        // the mock to simulate the initailization taking multiple polling calls.
+                        .with_initialization_complete(true)
+                        .with_card_capacity_status(
+                            self.card_type == super::CardType::SdhcSdxc
+                                && acmd41.host_capacity_support()
+                                    == HostCapacitySupport::SdhcOrSdxc,
+                        )
+                        .with_over_2_tb_support_status(false)
+                        .with_s18a(acmd41.s18r())
+                        .build();
+                    self.write_u32_reply(response.raw_value());
+                    self.state = State::Ready;
+                    CommandStatus { timeout: false }
                 }
             }
+        } else {
+            CommandStatus { timeout: true }
+        }
+    }
+
+    fn handle_acmd41_negotation_init(&mut self, argument: Acmd41) -> CommandStatus {
+        let ocr_bits_set = argument.ocr().raw_value().value() != 0;
+        if ocr_bits_set {
+            let response = R3::ZERO;
+            self.write_u32_reply(response.raw_value());
+            self.state = State::Idle(IdleSubState::InitializingSelf {
+                acmd41_raw: argument.raw_value(),
+                step: 1,
+            });
+            CommandStatus { timeout: false }
+        } else {
+            CommandStatus { timeout: true }
         }
     }
 

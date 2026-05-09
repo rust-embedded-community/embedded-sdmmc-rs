@@ -2,7 +2,7 @@ use anyhow::{Context as _, bail};
 use embedded_sdmmc::sdcard::argument::{Acmd6, Cmd7, Cmd9, Cmd13, OcrLower, VoltageSuppliedSelect};
 use embedded_sdmmc::sdcard::mock::SdCardMock;
 use embedded_sdmmc::sdcard::response::{self, R1, R3, R6, R7};
-use embedded_sdmmc::sdcard::{AcmdId, CmdId, argument};
+use embedded_sdmmc::sdcard::{AcmdId, CardType, CmdId, argument};
 use embedded_sdmmc::sdcard::{cid::Cid, csd::Csd};
 
 /// Negotiated as part of ACMD41 during SD card initialization.
@@ -35,7 +35,7 @@ impl SdCardUninitialized {
         self.0.insert_command(CmdId::CMD0_GoIdleState, 0);
 
         // Voltage level negotiation. Send CMD8 first.
-        self.0.insert_command(
+        let status = self.0.insert_command(
             CmdId::CMD8_SendIfCond,
             argument::Cmd8::ZERO
                 .with_voltage_supplied(
@@ -44,25 +44,29 @@ impl SdCardUninitialized {
                 .with_check_pattern(0xAA)
                 .raw_value(),
         );
+        let responded_to_cmd8 = !status.timeout();
 
-        let r7 = R7::new_with_raw_value(self.0.read_reply_u32());
-        if r7
-            .voltage_accepted()
-            .is_ok_and(|val| val != VoltageSuppliedSelect::_2_7To3_6V)
-        {
-            bail!("CMD8 reply R7: Voltage not accepted");
-        }
-        if r7.echo_check_pattern() != 0xAA {
-            bail!("CMD8 reply R7: Check pattern missmatch");
-        }
+        let hcs = if responded_to_cmd8 {
+            let r7 = R7::new_with_raw_value(self.0.read_reply_u32());
+            if r7
+                .voltage_accepted()
+                .is_ok_and(|val| val != VoltageSuppliedSelect::_2_7To3_6V)
+            {
+                bail!("CMD8 reply R7: Voltage not accepted");
+            }
+            if r7.echo_check_pattern() != 0xAA {
+                bail!("CMD8 reply R7: Check pattern missmatch");
+            }
+            embedded_sdmmc::sdcard::argument::HostCapacitySupport::SdhcOrSdxc
+        } else {
+            embedded_sdmmc::sdcard::argument::HostCapacitySupport::SdscOnly
+        };
 
         // Now send ACMD41.
         self.0.insert_acmd(
             AcmdId::ACMD41_SdSendOpCond,
             argument::Acmd41::builder()
-                .with_host_capacity_support(
-                    embedded_sdmmc::sdcard::argument::HostCapacitySupport::SdhcOrSdxc,
-                )
+                .with_host_capacity_support(hcs)
                 .with_fast_boot(false)
                 .with_xpc(embedded_sdmmc::sdcard::argument::PowerControl::MaximumPerformance)
                 .with_s18r(false)
@@ -70,15 +74,26 @@ impl SdCardUninitialized {
                 .build()
                 .raw_value(),
         );
+        let mut r3;
         loop {
             // Now poll until the card initialization is complete. In real driver code, timeout
             // handling or an upper polling limit might be a good idea.
             self.0.insert_acmd(AcmdId::ACMD41_SdSendOpCond, 0);
-            let r3 = R3::new_with_raw_value(self.0.read_reply_u32());
+            r3 = R3::new_with_raw_value(self.0.read_reply_u32());
             if r3.initialization_complete() {
                 break;
             }
         }
+
+        let card_type = if responded_to_cmd8 {
+            if r3.card_capacity_status() {
+                CardType::SdhcSdxc
+            } else {
+                CardType::SD2
+            }
+        } else {
+            CardType::SD1
+        };
 
         // Retrieve and cache the CID. This puts it into identification mode.
         self.0.insert_command(CmdId::CMD2_AllSendCid, 0);
@@ -123,6 +138,7 @@ impl SdCardUninitialized {
         );
 
         Ok(SdCard {
+            card_type,
             cid,
             csd,
             rca,
@@ -133,6 +149,7 @@ impl SdCardUninitialized {
 
 #[derive(Debug)]
 pub struct SdCard {
+    card_type: CardType,
     cid: Cid,
     csd: Csd,
     rca: u16,
@@ -143,12 +160,14 @@ pub struct SdCard {
 const MOCK_SD_RCA: u16 = 1;
 
 fn main() -> Result<(), anyhow::Error> {
-    let sd_mock = SdCardMock::new(MOCK_SD_RCA);
+    let sd_mock = SdCardMock::new(CardType::SdhcSdxc, MOCK_SD_RCA);
     let sd_card_uninit = SdCardUninitialized::new(sd_mock);
     let sd_card = sd_card_uninit
         .initialize()
         .context("failed to initialize SD card")?;
     println!("SD card initialized successfully",);
+    println!("--------");
+    println!("Card Type: {:?}", sd_card.card_type);
     println!("--------");
     println!("Relative Card Address: {}", sd_card.rca);
     println!("--------");
