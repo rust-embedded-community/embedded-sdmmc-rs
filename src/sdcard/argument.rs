@@ -45,7 +45,7 @@ pub enum PowerControl {
     MaximumPerformance = 1,
 }
 
-/// HPC.
+/// Host Capacity Support (HCS).
 #[bitbybit::bitenum(u1, exhaustive = true)]
 #[derive(Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
@@ -125,7 +125,7 @@ pub struct Acmd6 {
     forbid_overlaps
 )]
 pub struct Acmd41 {
-    /// HPC.
+    /// HCS.
     #[bit(30, rw)]
     host_capacity_support: HostCapacitySupport,
     /// FB.
