@@ -1,4 +1,7 @@
 //! # Card response module
+//!
+//! You can use the `sd_card_init` example to see how these data structures can be used during a
+//! SD card initialization process.
 
 use super::argument::VoltageSuppliedSelect;
 

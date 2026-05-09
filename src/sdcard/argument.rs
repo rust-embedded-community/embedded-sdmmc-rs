@@ -1,6 +1,7 @@
 //! # Argument module
 //!
-//! Arguments are additional command parameters.
+//! Arguments are additional command parameters. You can use the `sd_card_init` example to see
+//! how these data structures can be used during a SD card initialization process.
 
 use arbitrary_int::u24;
 
