@@ -29,8 +29,11 @@
 
 //==============================================================================
 
+pub mod argument;
 pub mod cid;
 pub mod csd;
+pub mod mock;
+pub mod response;
 pub mod spi;
 
 /// The different types of card we support.
