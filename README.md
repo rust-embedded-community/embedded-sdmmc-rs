@@ -81,6 +81,7 @@ This repository houses no examples for no-std usage, however you can check out t
 * [STM32H7XX](https://github.com/stm32-rs/stm32h7xx-hal/blob/master/examples/sdmmc_fat.rs)
 * [atsamd(pygamer)](https://github.com/atsamd-rs/atsamd/blob/master/boards/pygamer/examples/sd_card.rs)
 * [ESP32 (esp-hal + Embassy)](https://github.com/zpg6/esp32-sdcard)
+* [Zynq7000 SD card driver](https://github.com/us-irs/zynq7000-rs/blob/main/firmware/zynq7000-hal/src/sd/mod.rs)
 
 ## Todo List (PRs welcome!)
 
