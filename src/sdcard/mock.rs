@@ -9,11 +9,11 @@ use crate::sdcard::{
     response::{R1, R3, R6, R7},
 };
 
-/// CID retreived from a real SD card, will be returned by the mock object.
+/// CID retrieved from a real SD card, will be returned by the mock object.
 pub const TEST_CID: [u8; 16] = [
     0x12, 0x34, 0x56, 0x41, 0x53, 0x54, 0x43, 0x0, 0x20, 0x0, 0x0, 0xc, 0xef, 0x1, 0x65, 0xef,
 ];
-/// CSD retreived from a real SD card, will be returned by the mock object.
+/// CSD retrieved from a real SD card, will be returned by the mock object.
 pub const TEST_CSD: [u8; 16] = [
     0x40, 0x0E, 0x00, 0x32, 0x5B, 0x59, 0x00, 0x00, 0x1D, 0x69, 0x7F, 0x80, 0x0A, 0x40, 0x00, 0x8B,
 ];
@@ -27,12 +27,13 @@ pub enum IdleSubState {
     ReceivedIfCond,
     /// Received ACMD41 with OCR bit, initializing itself now.
     ///
-    /// This allows for the intialization to take multiple polling calls.
+    /// This allows for the initialization to take multiple polling calls.
     InitializingSelf {
-        /// Step counter. When a treshold is reached, initialization is complete.
+        /// Step counter. When a threshold is reached, initialization is complete.
         step: u8,
     },
 }
+
 /// SD card mock states.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum State {
@@ -107,7 +108,7 @@ impl SdCardMock {
 
     /// Insert a [super::AcmdId] command into the SD card.
     ///
-    /// Normall, this would involve sending a [super::CmdId::CMD55_AppCmd] first, but this
+    /// Normally, this would involve sending a [super::CmdId::CMD55_AppCmd] first, but this
     /// function simplifies the process and allows inserting the ACMD directly.
     /// In a real implementation, it might be useful to implement a similar function.
     pub fn insert_acmd(&mut self, acmd_id: super::AcmdId, argument: u32) {
