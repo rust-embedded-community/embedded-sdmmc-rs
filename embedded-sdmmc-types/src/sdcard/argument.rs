@@ -8,7 +8,7 @@ use arbitrary_int::u24;
 /// Voltage settings supplied in CMD8.
 #[bitbybit::bitenum(u4, exhaustive = false)]
 #[derive(Debug, Default, PartialEq, Eq)]
-#[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum VoltageSuppliedSelect {
     /// Regular voltage range.
     #[default]
@@ -18,7 +18,7 @@ pub enum VoltageSuppliedSelect {
 }
 
 /// CMD8 argument.
-#[bitbybit::bitfield(u32, default = 0x0, debug, defmt_fields(feature = "defmt-log"))]
+#[bitbybit::bitfield(u32, default = 0x0, debug, defmt_fields(feature = "defmt"))]
 pub struct Cmd8 {
     /// PCIe v1.2 support.
     #[bit(13, rw)]
@@ -37,7 +37,7 @@ pub struct Cmd8 {
 /// Power control (XPC) settings.
 #[bitbybit::bitenum(u1, exhaustive = true)]
 #[derive(Debug, PartialEq, Eq)]
-#[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum PowerControl {
     /// Power saving.
     PowerSaving = 0,
@@ -48,7 +48,7 @@ pub enum PowerControl {
 /// Host Capacity Support (HCS).
 #[bitbybit::bitenum(u1, exhaustive = true)]
 #[derive(Debug, PartialEq, Eq)]
-#[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum HostCapacitySupport {
     /// SDSC only.
     SdscOnly = 0,
@@ -57,7 +57,7 @@ pub enum HostCapacitySupport {
 }
 
 /// Lower OCR bits used to negotiate voltage capabilities.
-#[bitbybit::bitfield(u24, default = 0x0, debug, defmt_fields(feature = "defmt-log"))]
+#[bitbybit::bitfield(u24, default = 0x0, debug, defmt_fields(feature = "defmt"))]
 pub struct OcrLower {
     /// 3.5 to 3.6V
     #[bit(23, rw)]
@@ -94,7 +94,7 @@ pub struct OcrLower {
 /// Bus width setting.
 #[bitbybit::bitenum(u2, exhaustive = false)]
 #[derive(Debug, PartialEq, Eq)]
-#[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum BusWidth {
     /// 1 bit bus.
     _1bit = 0b00,
@@ -107,7 +107,7 @@ pub enum BusWidth {
     u32,
     default = 0x0,
     debug,
-    defmt_fields(feature = "defmt-log"),
+    defmt_fields(feature = "defmt"),
     forbid_overlaps
 )]
 pub struct Acmd6 {
@@ -121,7 +121,7 @@ pub struct Acmd6 {
     u32,
     default = 0x0,
     debug,
-    defmt_fields(feature = "defmt-log"),
+    defmt_fields(feature = "defmt"),
     forbid_overlaps
 )]
 pub struct Acmd41 {
@@ -148,7 +148,7 @@ pub struct Acmd41 {
     u32,
     default = 0x0,
     debug,
-    defmt_bitfields(feature = "defmt-log"),
+    defmt_bitfields(feature = "defmt"),
     forbid_overlaps
 )]
 pub struct RcaSelect {
@@ -167,7 +167,7 @@ pub type Cmd7 = RcaSelect;
     u32,
     default = 0x0,
     debug,
-    defmt_bitfields(feature = "defmt-log"),
+    defmt_bitfields(feature = "defmt"),
     forbid_overlaps
 )]
 pub struct Cmd13 {

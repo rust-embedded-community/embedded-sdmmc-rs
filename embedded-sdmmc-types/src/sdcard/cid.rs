@@ -6,12 +6,12 @@ use crate::sdcard::crc7;
 
 /// Checksum is invalid.
 #[derive(Debug, PartialEq, Eq, Copy, Clone, thiserror::Error)]
-#[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[error("checksum is invalid")]
 pub struct ChecksumInvalidError;
 
 /// Card IDentification (CID) register structure.
-#[bitbybit::bitfield(u128, debug, defmt_fields(feature = "defmt-log"))]
+#[bitbybit::bitfield(u128, debug, defmt_fields(feature = "defmt"))]
 pub struct Cid {
     /// MID.
     #[bits(120..=127, rw)]

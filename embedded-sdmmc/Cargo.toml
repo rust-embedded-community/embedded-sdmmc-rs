@@ -1,0 +1,43 @@
+[package]
+authors = ["Jonathan 'theJPster' Pallant <github@thejpster.org.uk>", "Rust Embedded Community Developers"]
+categories = ["embedded", "no-std"]
+description = "A basic SD/MMC driver for Embedded Rust."
+edition = "2024"
+keywords = ["sdcard", "mmc", "embedded", "fat32"]
+license = "MIT OR Apache-2.0"
+name = "embedded-sdmmc"
+readme = "README.md"
+repository = "https://github.com/rust-embedded-community/embedded-sdmmc-rs"
+version = "0.9.0"
+
+# Make sure to update the CI too!
+rust-version = "1.87"
+
+[dependencies]
+byteorder = {version = "1", default-features = false}
+defmt = { workspace = true, optional = true }
+embedded-hal = "1.0.0"
+embedded-io = "0.7"
+bitbybit.workspace = true
+arbitrary-int.workspace = true
+bitflags = "2"
+heapless = "0.9.1"
+log = { version = "0.4", default-features = false, optional = true }
+thiserror.workspace = true
+embedded-sdmmc-types = { version = "0.1", path = "../embedded-sdmmc-types" }
+hex-literal = "1"
+
+[dev-dependencies]
+chrono = "0.4"
+embedded-hal-bus = "0.3.0"
+env_logger = "0.11.8"
+flate2 = "1.0"
+sha2 = "0.11"
+anyhow = "1"
+hex-literal.workspace = true
+
+[features]
+default = ["log"]
+defmt-log = ["dep:defmt", "arbitrary-int/defmt", "embedded-sdmmc-types/defmt"]
+log = ["dep:log"]
+

@@ -8,7 +8,7 @@ use super::argument::VoltageSuppliedSelect;
 /// SD card state.
 #[bitbybit::bitenum(u4, exhaustive = false)]
 #[derive(Debug, PartialEq, Eq)]
-#[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum State {
     /// Idle state.
     Idle = 0,
@@ -37,7 +37,7 @@ pub enum State {
     u32,
     default = 0x0,
     debug,
-    defmt_fields(feature = "defmt-log"),
+    defmt_fields(feature = "defmt"),
     forbid_overlaps
 )]
 pub struct CardStatus {
@@ -125,7 +125,7 @@ pub struct CardStatus {
     u32,
     default = 0x0,
     debug,
-    defmt_fields(feature = "defmt-log"),
+    defmt_fields(feature = "defmt"),
     forbid_overlaps
 )]
 pub struct Ocr {
@@ -187,7 +187,7 @@ pub type R3 = Ocr;
     u32,
     default = 0x0,
     debug,
-    defmt_fields(feature = "defmt-log"),
+    defmt_fields(feature = "defmt"),
     forbid_overlaps
 )]
 pub struct R6 {
@@ -228,7 +228,7 @@ pub struct R6 {
     u32,
     default = 0x0,
     debug,
-    defmt_fields(feature = "defmt-log"),
+    defmt_fields(feature = "defmt"),
     forbid_overlaps
 )]
 pub struct R7 {

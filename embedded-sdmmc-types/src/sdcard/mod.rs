@@ -1,43 +1,12 @@
-//! # Low level SD card access module
-//!
-//! Contains constants from the SD Specifications.
-//!
-//! Based on SdFat, under the following terms:
-//!
-//! > Copyright (c) 2011-2018 Bill Greiman
-//! > This file is part of the SdFat library for SD memory cards.
-//! >
-//! > MIT License
-//! >
-//! > Permission is hereby granted, free of charge, to any person obtaining a
-//! > copy of this software and associated documentation files (the "Software"),
-//! > to deal in the Software without restriction, including without limitation
-//! > the rights to use, copy, modify, merge, publish, distribute, sublicense,
-//! > and/or sell copies of the Software, and to permit persons to whom the
-//! > Software is furnished to do so, subject to the following conditions:
-//! >
-//! > The above copyright notice and this permission notice shall be included
-//! > in all copies or substantial portions of the Software.
-//! >
-//! > THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
-//! > OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//! > FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-//! > AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-//! > LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
-//! > FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
-//! > DEALINGS IN THE SOFTWARE.
-
-//==============================================================================
-
+//! SD card support module.
 pub mod argument;
 pub mod cid;
 pub mod csd;
 pub mod mock;
 pub mod response;
-pub mod spi;
 
 /// The different types of card we support.
-#[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum CardType {
     /// An standard-capacity SD Card supporting v1.x of the standard.
@@ -61,7 +30,7 @@ pub const ERROR_OK: u8 = 0x00;
 /// Raw command IDs.
 #[bitbybit::bitenum(u6, exhaustive = false)]
 #[derive(Debug, PartialEq, Eq)]
-#[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[allow(non_camel_case_types)]
 #[repr(u8)]
 pub enum CmdId {
@@ -100,7 +69,7 @@ pub enum CmdId {
 /// Raw application specific IDs ACMD.
 #[bitbybit::bitenum(u6, exhaustive = false)]
 #[derive(Debug, PartialEq, Eq)]
-#[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[allow(non_camel_case_types)]
 pub enum AcmdId {
     /// SET_BUS_WIDTH
@@ -178,6 +147,8 @@ pub fn crc16(data: &[u8]) -> u16 {
 
 #[cfg(test)]
 mod test {
+    use hex_literal::hex;
+
     use super::*;
     use crate::sdcard::csd::*;
 

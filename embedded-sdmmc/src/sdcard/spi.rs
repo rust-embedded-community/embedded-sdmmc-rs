@@ -3,8 +3,8 @@
 //! Implements the BlockDevice trait for an SD/MMC Protocol over SPI.
 use core::cell::RefCell;
 
-use super::*;
 use crate::{Block, BlockCount, BlockDevice, BlockIdx};
+use embedded_sdmmc_types::sdcard::*;
 
 // ****************************************************************************
 // Types and Implementations

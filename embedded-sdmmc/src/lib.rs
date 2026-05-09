@@ -79,15 +79,12 @@
 // Imports
 //
 // ****************************************************************************
-
-#[cfg(test)]
-#[macro_use]
-extern crate hex_literal;
-
 #[macro_use]
 mod structure;
 
-pub mod blockdevice;
+/// Re-export the tyoes library.
+pub use embedded_sdmmc_types;
+pub use embedded_sdmmc_types::blockdevice;
 pub mod fat;
 pub mod filesystem;
 pub mod sdcard;

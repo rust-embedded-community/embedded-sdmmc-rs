@@ -33,6 +33,8 @@ pub use volume::{FatVolume, VolumeName, parse_volume};
 #[cfg(test)]
 mod test {
 
+    use hex_literal::hex;
+
     use super::*;
     use crate::{Attributes, BlockIdx, ClusterId, DirEntry, ShortFileName, Timestamp};
 

@@ -1,0 +1,15 @@
+[package]
+name = "embedded-sdmmc-types"
+version = "0.1.0"
+description = "Fundamental types and traits for embedded-sdmmc support"
+edition = "2024"
+
+[dependencies]
+bitbybit.workspace = true
+arbitrary-int.workspace = true
+defmt = { workspace = true, optional = true }
+thiserror.workspace = true
+bitflags.workspace = true
+
+[dev-dependencies]
+hex-literal.workspace = true
