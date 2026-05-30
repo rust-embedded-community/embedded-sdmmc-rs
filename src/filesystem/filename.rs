@@ -540,6 +540,27 @@ mod test {
         ]);
         assert_eq!(buf.as_str(), "😀0123456789😀.txt");
     }
+
+    #[test]
+    fn lfn_buffer_boundary_and_overflow() {
+        let mut storage = [0u8; 4];
+        let mut buf: LfnBuffer = LfnBuffer::new(&mut storage);
+        
+        buf.push(&[
+            0x0041, 0x0042, 0x0043, 0x0044, 0x0045, 0x0000, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF,
+            0xFFFF, 0xFFFF,
+        ]);
+        assert_eq!(buf.as_str(), "");
+        
+        buf.clear();
+        assert_eq!(buf.as_str(), "");
+        
+        buf.push(&[
+            0x0041, 0x0042, 0x0000, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF,
+            0xFFFF, 0xFFFF,
+        ]);
+        assert_eq!(buf.as_str(), "AB");
+    }
 }
 
 // ****************************************************************************
