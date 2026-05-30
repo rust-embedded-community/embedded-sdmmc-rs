@@ -44,14 +44,10 @@ impl<'a> Bpb<'a> {
         } else {
             bpb.fat_type = FatType::Fat32;
         }
-
-        match bpb.fat_type {
-            FatType::Fat16 => Ok(bpb),
-            FatType::Fat32 if bpb.fs_ver() == 0 => {
-                // Only support FAT32 version 0.0
-                Ok(bpb)
-            }
-            _ => Err("Invalid FAT format"),
+        if bpb.fat_type == FatType::Fat16 || (bpb.fat_type == FatType::Fat32 && bpb.fs_ver() == 0) {
+            Ok(bpb)
+        } else {
+            Err("Invalid FAT format")
         }
     }
 
