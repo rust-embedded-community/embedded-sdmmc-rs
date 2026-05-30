@@ -301,7 +301,7 @@ impl FatVolume {
             FatSpecificInfo::Fat16(_fat16_info) => {
                 let fat_offset = cluster.0 * 2;
                 let this_fat_block_num = self.lba_start + self.fat_start.offset_bytes(fat_offset);
-                let this_fat_ent_offset = (fat_offset % Block::LEN_U32) as usize;
+                let this_fat_ent_offset = (fat_offset & (Block::LEN_U32 - 1)) as usize;
                 trace!("Walking FAT");
                 let block = block_cache.read(this_fat_block_num)?;
                 let fat_entry =
