@@ -1492,6 +1492,35 @@ mod tests {
         };
         assert_eq!(sfn, VolumeName::create_from_str("Hello £99").unwrap())
     }
+
+    #[test]
+    fn test_cluster_to_block_saturating() {
+        let volume = FatVolume {
+            lba_start: BlockIdx(0),
+            num_blocks: BlockCount(1000),
+            name: VolumeName {
+                contents: *b"TEST       ",
+            },
+            blocks_per_cluster: 8,
+            first_data_block: BlockCount(100),
+            fat_start: BlockCount(1),
+            second_fat_start: None,
+            free_clusters_count: None,
+            next_free_cluster: None,
+            cluster_count: 500,
+            fat_specific_info: FatSpecificInfo::Fat16(Fat16Info {
+                root_entries_count: 512,
+                first_root_dir_block: BlockCount(20),
+            }),
+        };
+
+        let block_for_0 = volume.cluster_to_block(ClusterId(0));
+        let block_for_1 = volume.cluster_to_block(ClusterId(1));
+        let block_for_2 = volume.cluster_to_block(ClusterId(2));
+
+        assert_eq!(block_for_0, block_for_2);
+        assert_eq!(block_for_1, block_for_2);
+    }
 }
 
 // ****************************************************************************
