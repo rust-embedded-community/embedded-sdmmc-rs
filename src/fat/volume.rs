@@ -1155,7 +1155,21 @@ impl FatVolume {
         Err(Error::NotEnoughSpace)
     }
 
-    /// Tries to allocate a cluster
+    /// Tries to allocate a cluster.
+    ///
+    /// # Architecture & FAT Traversal
+    /// Cluster allocation scans the File Allocation Table (FAT) on-disk structures
+    /// to locate an unassigned (empty) entry. The allocation proceeds as follows:
+    ///
+    /// 1. Determines the search bounds starting from the last known free cluster (`next_free_cluster`)
+    ///    up to the total cluster capacity of the volume.
+    /// 2. If no free clusters are found in the suffix region, it wraps around to scan from the first
+    ///    allocatable cluster index (`RESERVED_ENTRIES`).
+    /// 3. Upon finding a free cluster, it updates the block cache by marking the allocated entry as
+    ///    `ClusterId::END_OF_FILE`.
+    /// 4. If a `prev_cluster` is provided, it bridges the cluster chain by updating the prior cluster's
+    ///    FAT entry to point to the newly allocated cluster.
+    /// 5. Optionally zeroes the entire cluster block data (if `zero` is true) to prevent dirty reads.
     pub(crate) fn alloc_cluster<D>(
         &mut self,
         block_cache: &mut BlockCache<D>,
