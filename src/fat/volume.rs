@@ -1104,8 +1104,7 @@ impl FatVolume {
                     let this_fat_block_num =
                         self.lba_start + self.fat_start.offset_bytes(fat_offset);
                     trace!("this_fat_block_num = {:?}", this_fat_block_num);
-                    let mut this_fat_ent_offset = usize::try_from(fat_offset % Block::LEN_U32)
-                        .map_err(|_| Error::ConversionError)?;
+                    let mut this_fat_ent_offset = (fat_offset & (Block::LEN_U32 - 1)) as usize;
                     trace!("Reading block {:?}", this_fat_block_num);
                     let block = block_cache
                         .read(this_fat_block_num)
@@ -1133,8 +1132,7 @@ impl FatVolume {
                     let this_fat_block_num =
                         self.lba_start + self.fat_start.offset_bytes(fat_offset);
                     trace!("this_fat_block_num = {:?}", this_fat_block_num);
-                    let mut this_fat_ent_offset = usize::try_from(fat_offset % Block::LEN_U32)
-                        .map_err(|_| Error::ConversionError)?;
+                    let mut this_fat_ent_offset = (fat_offset & (Block::LEN_U32 - 1)) as usize;
                     trace!("Reading block {:?}", this_fat_block_num);
                     let block = block_cache
                         .read(this_fat_block_num)
