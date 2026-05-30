@@ -330,12 +330,16 @@ impl CsdV1 {
 
     /// Returns the card capacity in 512-byte blocks
     pub fn card_capacity_blocks(&self) -> u32 {
-        let multiplier = self.device_size_multiplier() as u32
-            + self
-                .read_block_length()
-                .map_or_else(|err| err.as_u32(), |v| v as u32)
-            - 7;
-        (self.device_size().as_u32() + 1) << multiplier
+        let block_len = self
+            .read_block_length()
+            .map_or_else(|err| err.as_u32(), |v| v as u32);
+        let sum = (self.device_size_multiplier() as u32).saturating_add(block_len);
+        let multiplier = sum.saturating_sub(7);
+        if multiplier >= 32 {
+            0
+        } else {
+            (self.device_size().as_u32() + 1).checked_shl(multiplier).unwrap_or(0)
+        }
     }
 
     /// Verify CRC7 checksum.
