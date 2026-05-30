@@ -359,9 +359,6 @@ impl FatVolume {
             .unwrap_or(0)
     }
 
-    /// Converts a cluster number (or `Cluster`) to a block number (or
-    /// `BlockIdx`). Gives an absolute `BlockIdx` you can pass to the
-    /// volume manager.
     pub(crate) fn cluster_to_block(&self, cluster: ClusterId) -> BlockIdx {
         match &self.fat_specific_info {
             FatSpecificInfo::Fat16(fat16_info) => {
@@ -369,8 +366,9 @@ impl FatVolume {
                     ClusterId::ROOT_DIR => fat16_info.first_root_dir_block,
                     ClusterId(c) => {
                         // FirstSectorofCluster = ((N – 2) * BPB_SecPerClus) + FirstDataSector;
+                        let cluster_index = c.saturating_sub(2);
                         let first_block_of_cluster =
-                            BlockCount((c - 2) * u32::from(self.blocks_per_cluster));
+                            BlockCount(cluster_index * u32::from(self.blocks_per_cluster));
                         self.first_data_block + first_block_of_cluster
                     }
                 };
@@ -382,8 +380,9 @@ impl FatVolume {
                     c => c.0,
                 };
                 // FirstSectorofCluster = ((N – 2) * BPB_SecPerClus) + FirstDataSector;
+                let cluster_index = cluster_num.saturating_sub(2);
                 let first_block_of_cluster =
-                    BlockCount((cluster_num - 2) * u32::from(self.blocks_per_cluster));
+                    BlockCount(cluster_index * u32::from(self.blocks_per_cluster));
                 self.lba_start + self.first_data_block + first_block_of_cluster
             }
         }
