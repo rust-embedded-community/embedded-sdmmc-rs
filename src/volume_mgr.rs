@@ -26,6 +26,17 @@ use crate::{
 ///
 /// Tracks which files and directories are open, to prevent you from deleting
 /// a file or directory you currently have open.
+/// # Concurrency, Performance, and Memory Safety
+/// `VolumeManager` is engineered for embedded system runtimes:
+///
+/// * **Borrowing and State Locking:** Uses a `RefCell` internally to guard access to mutable state
+///   (`VolumeManagerData`). This enables a shareable immutable reference style, but prohibits accessing
+///   or mutating handles recursively from within directory iterators or callbacks.
+/// * **Memory Footprint:** The memory footprint is static and stack-allocated, controlled by the const generics
+///   `MAX_DIRS`, `MAX_FILES`, and `MAX_VOLUMES`. No dynamic allocation (`alloc`) is utilized.
+/// * **Micro-Optimized Traversals:** Accesses to disk blocks are optimized with bitwise masking operations
+///   instead of division and modulus, significantly boosting execution speeds on hardware that lacks
+///   integer division units.
 #[derive(Debug)]
 pub struct VolumeManager<
     D,
