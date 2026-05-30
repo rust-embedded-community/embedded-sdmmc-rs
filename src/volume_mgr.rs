@@ -635,9 +635,7 @@ where
                 };
 
                 // Remember this open file - can't be full as we checked already
-                unsafe {
-                    data.open_files.push_unchecked(file);
-                }
+                data.open_files.push(file).ok().unwrap();
 
                 Ok(file_id)
             }
@@ -715,9 +713,7 @@ where
                 };
 
                 // Remember this open file - can't be full as we checked already
-                unsafe {
-                    data.open_files.push_unchecked(file);
-                }
+                data.open_files.push(file).ok().unwrap();
 
                 Ok(raw_file)
             }
@@ -865,9 +861,7 @@ where
                 };
 
                 // Remember this open file - can't be full as we checked already
-                unsafe {
-                    data.open_files.push_unchecked(file);
-                }
+                data.open_files.push(file).ok().unwrap();
 
                 Ok(raw_file)
             }
