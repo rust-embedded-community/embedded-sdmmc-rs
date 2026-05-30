@@ -230,7 +230,7 @@ impl FatVolume {
                     second_fat_block_num =
                         Some(self.lba_start + second_fat_start.offset_bytes(fat_offset));
                 }
-                let this_fat_ent_offset = (fat_offset % Block::LEN_U32) as usize;
+                let this_fat_ent_offset = (fat_offset & (Block::LEN_U32 - 1)) as usize;
                 trace!("Reading FAT for update");
                 let block = block_cache
                     .read_mut(this_fat_block_num)
@@ -256,7 +256,7 @@ impl FatVolume {
                     second_fat_block_num =
                         Some(self.lba_start + second_fat_start.offset_bytes(fat_offset));
                 }
-                let this_fat_ent_offset = (fat_offset % Block::LEN_U32) as usize;
+                let this_fat_ent_offset = (fat_offset & (Block::LEN_U32 - 1)) as usize;
                 trace!("Reading FAT for update");
                 let block = block_cache
                     .read_mut(this_fat_block_num)
