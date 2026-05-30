@@ -35,8 +35,12 @@ impl<'a> Bpb<'a> {
         let non_data_blocks = u32::from(bpb.reserved_block_count())
             + (u32::from(bpb.num_fats()) * bpb.fat_size())
             + root_dir_blocks;
-        let data_blocks = bpb.total_blocks() - non_data_blocks;
-        bpb.cluster_count = data_blocks / u32::from(bpb.blocks_per_cluster());
+        let data_blocks = bpb.total_blocks().saturating_sub(non_data_blocks);
+        let blocks_per_cluster = bpb.blocks_per_cluster();
+        if blocks_per_cluster == 0 {
+            return Err("Invalid blocks per cluster");
+        }
+        bpb.cluster_count = data_blocks / u32::from(blocks_per_cluster);
         if bpb.cluster_count < 4085 {
             return Err("FAT12 is unsupported");
         } else if bpb.cluster_count < 65525 {
