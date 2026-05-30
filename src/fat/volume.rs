@@ -39,15 +39,11 @@ impl VolumeName {
 
     /// Get name
     pub fn name(&self) -> &[u8] {
-        let mut bytes = &self.contents[..];
-        while let [rest @ .., last] = bytes {
-            if last.is_ascii_whitespace() {
-                bytes = rest;
-            } else {
-                break;
-            }
+        let mut len = self.contents.len();
+        while len > 0 && self.contents[len - 1].is_ascii_whitespace() {
+            len -= 1;
         }
-        bytes
+        &self.contents[..len]
     }
 
     /// Create a new MS-DOS volume label.
