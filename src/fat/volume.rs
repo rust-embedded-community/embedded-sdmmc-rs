@@ -354,7 +354,9 @@ impl FatVolume {
 
     /// Number of bytes in a cluster.
     pub(crate) fn bytes_per_cluster(&self) -> u32 {
-        u32::from(self.blocks_per_cluster) * Block::LEN_U32
+        u32::from(self.blocks_per_cluster)
+            .checked_mul(Block::LEN_U32)
+            .unwrap_or(0)
     }
 
     /// Converts a cluster number (or `Cluster`) to a block number (or
