@@ -357,7 +357,7 @@ impl<'a> LfnBuffer<'a> {
             ""
         } else {
             // we always only put UTF-8 encoded data in here
-            unsafe { core::str::from_utf8_unchecked(&self.inner[self.free()..]) }
+            core::str::from_utf8(&self.inner[self.free()..]).unwrap_or("")
         }
     }
 }
