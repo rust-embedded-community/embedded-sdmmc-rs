@@ -338,7 +338,9 @@ impl CsdV1 {
         if multiplier >= 32 {
             0
         } else {
-            (self.device_size().as_u32() + 1).checked_shl(multiplier).unwrap_or(0)
+            (self.device_size().as_u32() + 1)
+                .checked_shl(multiplier)
+                .unwrap_or(0)
         }
     }
 
