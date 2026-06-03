@@ -280,24 +280,19 @@ where
 
     /// Read the 'card specific data' block.
     fn read_csd(&mut self) -> Result<csd::Csd, Error> {
-        let mut csd_raw: [u8; 16] = [0; 16];
-        match self.card_type {
-            Some(CardType::SD1) => {
-                if self.card_command(CmdId::CMD9_SendCsd, 0)? != 0 {
-                    return Err(Error::RegisterReadError);
-                }
-                self.read_data(&mut csd_raw)?;
-                Ok(csd::Csd::V1(csd::CsdV1::from_be_bytes(&csd_raw)))
-            }
-            Some(CardType::SD2 | CardType::SdhcSdxc) => {
-                if self.card_command(CmdId::CMD9_SendCsd, 0)? != 0 {
-                    return Err(Error::RegisterReadError);
-                }
-                self.read_data(&mut csd_raw)?;
-                Ok(csd::Csd::V2(csd::CsdV2::from_be_bytes(&csd_raw)))
-            }
-            None => Err(Error::CardNotFound),
+        if self.card_type.is_none() {
+            return Err(Error::CardNotFound);
         }
+
+        if self.card_command(CmdId::CMD9_SendCsd, 0)? != 0 {
+            return Err(Error::RegisterReadError);
+        }
+        let mut csd_raw: [u8; 16] = [0; 16];
+        self.read_data(&mut csd_raw)?;
+
+        // Select the CSD layout from the CSD_STRUCTURE field (bits 127:126);
+        // note that it is independent from the Physical Layer v2.00+ (`card_type`).
+        csd::Csd::new(&csd_raw).map_err(|_| Error::RegisterReadError)
     }
 
     /// Read an arbitrary number of bytes from the card using the SD Card
