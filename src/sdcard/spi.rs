@@ -462,6 +462,9 @@ where
     }
 
     fn card_acmd_after_escape(&mut self, command: AcmdId, arg: u32) -> Result<u8, Error> {
+        // Wait for the required idle gap (Ncc) after the CMD55 escape response
+        // before clocking out the application command.
+        self.wait_not_busy(Delay::new_command())?;
         let mut buf = [
             0x40 | command as u8,
             (arg >> 24) as u8,
