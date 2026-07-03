@@ -94,7 +94,7 @@ impl From<State> for super::response::State {
 
 /// SD card mock.
 ///
-/// This basically behaves like a virtual SD card controller with a connected virtual SD card.s
+/// This basically behaves like a virtual SD card controller with a connected virtual SD card.
 /// Currently, this mock simulates a Ver2.00 or later
 /// SDHC memory card. As such, it responds to the CMD8 command as well. Furthermore, while this
 /// mock is capable of performing a transition until the [super::response::State::Tran] transmission

@@ -1,7 +1,6 @@
-# Embedded SD/MMC [![crates.io](https://img.shields.io/crates/v/embedded-sdmmc-types.svg)](https://crates.io/crates/embedded-sdmmc-types) [![Documentation](https://docs.rs/embedded-sdmmc-types/badge.svg)](https://docs.rs/embedded-sdmmc-types)
+[![crates.io](https://img.shields.io/crates/v/embedded-sdmmc-types.svg)](https://crates.io/crates/embedded-sdmmc-types) [![Documentation](https://docs.rs/embedded-sdmmc-types/badge.svg)](https://docs.rs/embedded-sdmmc-types)
 
-Embedded SD/MMC Types Library
-=======
+# Embedded SD/MMC Types Library
 
 This library contains some common types and abstractions required for implementing
 support for `embedded-sdmmc` inside your hardware abstraction layer library.
