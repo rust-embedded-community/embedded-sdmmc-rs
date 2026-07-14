@@ -94,7 +94,7 @@ use embedded_io::ErrorKind;
 use filesystem::Handle;
 
 #[doc(inline)]
-pub use crate::blockdevice::{Block, BlockCache, BlockCount, BlockDevice, BlockIdx};
+pub use crate::blockdevice::{Block, BlockCount, BlockDevice, BlockIdx};
 
 #[doc(inline)]
 pub use crate::fat::{FatVolume, VolumeName};
@@ -321,6 +321,90 @@ impl RawVolume {
         T: crate::TimeSource,
     {
         Volume::new(self, volume_mgr)
+    }
+}
+
+/// A caching layer for block devices
+///
+/// Caches a single block.
+#[derive(Debug)]
+pub struct BlockCache<D> {
+    block_device: D,
+    block: [Block; 1],
+    block_idx: Option<BlockIdx>,
+}
+
+impl<D> BlockCache<D>
+where
+    D: BlockDevice,
+{
+    /// Create a new block cache
+    pub fn new(block_device: D) -> Self {
+        BlockCache {
+            block_device,
+            block: [Block::new()],
+            block_idx: None,
+        }
+    }
+
+    /// Read a block, and return a reference to it.
+    pub fn read(&mut self, block_idx: BlockIdx) -> Result<&Block, D::Error> {
+        if self.block_idx != Some(block_idx) {
+            self.block_idx = None;
+            self.block_device.read(&mut self.block, block_idx)?;
+            self.block_idx = Some(block_idx);
+        }
+        Ok(&self.block[0])
+    }
+
+    /// Read a block, and return a reference to it.
+    pub fn read_mut(&mut self, block_idx: BlockIdx) -> Result<&mut Block, D::Error> {
+        if self.block_idx != Some(block_idx) {
+            self.block_idx = None;
+            self.block_device.read(&mut self.block, block_idx)?;
+            self.block_idx = Some(block_idx);
+        }
+        Ok(&mut self.block[0])
+    }
+
+    /// Write back a block you read with [`Self::read_mut`] and then modified.
+    pub fn write_back(&mut self) -> Result<(), D::Error> {
+        self.block_device.write(
+            &self.block,
+            self.block_idx.expect("write_back with no read"),
+        )
+    }
+
+    /// Write back a block you read with [`Self::read_mut`] and then modified, but to two locations.
+    ///
+    /// This is useful for updating two File Allocation Tables.
+    pub fn write_back_with_duplicate(&mut self, duplicate: BlockIdx) -> Result<(), D::Error> {
+        self.block_device.write(
+            &self.block,
+            self.block_idx.expect("write_back with no read"),
+        )?;
+        self.block_device.write(&self.block, duplicate)?;
+        Ok(())
+    }
+
+    /// Access a blank sector
+    pub fn blank_mut(&mut self, block_idx: BlockIdx) -> &mut Block {
+        self.block_idx = Some(block_idx);
+        self.block[0].fill(0);
+        &mut self.block[0]
+    }
+
+    /// Access the block device
+    pub fn block_device(&mut self) -> &mut D {
+        // invalidate the cache
+        self.block_idx = None;
+        // give them the block device
+        &mut self.block_device
+    }
+
+    /// Get the block device back
+    pub fn free(self) -> D {
+        self.block_device
     }
 }
 
