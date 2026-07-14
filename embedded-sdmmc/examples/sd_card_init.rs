@@ -1,9 +1,17 @@
+//! This example shows how to a SD card implementation could look like uisng a virtual SD card
+//! implementation provided by the [embedded_sdmmc_types] crate.
+//!
+//! It should be noted that you only have to depend on [embedded_sdmmc_types] to add
+//! [embedded_sdmmc] support to your project.
 use anyhow::{Context as _, bail};
-use embedded_sdmmc::sdcard::argument::{Acmd6, Cmd7, Cmd9, Cmd13, OcrLower, VoltageSuppliedSelect};
-use embedded_sdmmc::sdcard::mock::SdCardMock;
-use embedded_sdmmc::sdcard::response::{self, R1, R3, R6, R7};
-use embedded_sdmmc::sdcard::{AcmdId, CardType, CmdId, argument};
-use embedded_sdmmc::sdcard::{cid::Cid, csd::Csd};
+use embedded_sdmmc_types::sdcard::argument::{
+    Acmd6, Acmd41, Cmd7, Cmd8, Cmd9, Cmd13, OcrLower, VoltageSuppliedSelect,
+};
+use embedded_sdmmc_types::sdcard::mock::SdCardMock;
+use embedded_sdmmc_types::sdcard::response::{self, R1, R3, R6, R7};
+use embedded_sdmmc_types::sdcard::{self, AcmdId, CardType, CmdId};
+use embedded_sdmmc_types::sdcard::{cid::Cid, csd::Csd};
+use embedded_sdmmc_types::{Block, BlockCount, BlockDevice, BlockIdx};
 
 /// Negotiated as part of ACMD41 during SD card initialization.
 pub const VOLTAGE_LEVEL_CAPABILITIES: OcrLower = OcrLower::builder()
@@ -19,9 +27,9 @@ pub const VOLTAGE_LEVEL_CAPABILITIES: OcrLower = OcrLower::builder()
     .with_reserved_low_voltage(false)
     .build();
 
-pub struct SdCardUninitialized(SdCardMock);
+pub struct SdCardUninit(SdCardMock);
 
-impl SdCardUninitialized {
+impl SdCardUninit {
     pub fn new(sd_mock: SdCardMock) -> Self {
         Self(sd_mock)
     }
@@ -37,10 +45,8 @@ impl SdCardUninitialized {
         // Voltage level negotiation. Send CMD8 first.
         let status = self.0.insert_command(
             CmdId::CMD8_SendIfCond,
-            argument::Cmd8::ZERO
-                .with_voltage_supplied(
-                    embedded_sdmmc::sdcard::argument::VoltageSuppliedSelect::_2_7To3_6V,
-                )
+            Cmd8::ZERO
+                .with_voltage_supplied(VoltageSuppliedSelect::_2_7To3_6V)
                 .with_check_pattern(0xAA)
                 .raw_value(),
         );
@@ -57,18 +63,18 @@ impl SdCardUninitialized {
             if r7.echo_check_pattern() != 0xAA {
                 bail!("CMD8 reply R7: Check pattern missmatch");
             }
-            embedded_sdmmc::sdcard::argument::HostCapacitySupport::SdhcOrSdxc
+            sdcard::argument::HostCapacitySupport::SdhcOrSdxc
         } else {
-            embedded_sdmmc::sdcard::argument::HostCapacitySupport::SdscOnly
+            sdcard::argument::HostCapacitySupport::SdscOnly
         };
 
         // Now send ACMD41.
         self.0.insert_acmd(
             AcmdId::ACMD41_SdSendOpCond,
-            argument::Acmd41::builder()
+            Acmd41::builder()
                 .with_host_capacity_support(hcs)
                 .with_fast_boot(false)
-                .with_xpc(embedded_sdmmc::sdcard::argument::PowerControl::MaximumPerformance)
+                .with_xpc(sdcard::argument::PowerControl::MaximumPerformance)
                 .with_s18r(false)
                 .with_ocr(VOLTAGE_LEVEL_CAPABILITIES)
                 .build()
@@ -98,7 +104,7 @@ impl SdCardUninitialized {
         // Retrieve and cache the CID. This puts it into identification mode.
         self.0.insert_command(CmdId::CMD2_AllSendCid, 0);
         let cid_raw = self.0.read_reply_u128();
-        let cid = embedded_sdmmc::sdcard::cid::Cid::new_with_raw_value(cid_raw);
+        let cid = sdcard::cid::Cid::new_with_raw_value(cid_raw);
 
         // Send CMD3 to retrieve RCA required for card addressing, as well as put the card
         // into standby mode.
@@ -132,7 +138,7 @@ impl SdCardUninitialized {
         self.0.insert_acmd(
             AcmdId::ACMD6_SetBusWidth,
             Acmd6::builder()
-                .with_bus_width(argument::BusWidth::_4bits)
+                .with_bus_width(sdcard::argument::BusWidth::_4bits)
                 .build()
                 .raw_value(),
         );
@@ -142,7 +148,7 @@ impl SdCardUninitialized {
             cid,
             csd,
             rca,
-            sd_mock: self.0,
+            sd_mock: core::cell::RefCell::new(self.0),
         })
     }
 }
@@ -154,14 +160,99 @@ pub struct SdCard {
     csd: Csd,
     rca: u16,
     #[allow(unused)]
-    sd_mock: SdCardMock,
+    sd_mock: core::cell::RefCell<SdCardMock>,
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum TransferError {
+    #[error("SD card is not in transfer state")]
+    InvalidState,
+    #[error("invalid buffer size")]
+    InvalidBufferSize,
+}
+
+pub const BLOCK_LEN: usize = 512;
+
+impl SdCard {
+    pub fn read_single_block(&self, buf: &mut [u8], addr: u32) -> Result<(), TransferError> {
+        if self.sd_mock.borrow().read_current_state() != sdcard::mock::State::Tran {
+            return Err(TransferError::InvalidState);
+        }
+        if buf.len() != BLOCK_LEN {
+            return Err(TransferError::InvalidBufferSize);
+        }
+        let mut sd_mock = self.sd_mock.borrow_mut();
+        sd_mock.insert_command(CmdId::CMD17_ReadSingleBlock, addr);
+        sd_mock.wait_until_data_transfer_done();
+        let mut bytes_read = 0;
+        while bytes_read < BLOCK_LEN {
+            let word = sd_mock.read_data_word();
+            buf[bytes_read..bytes_read + 4].copy_from_slice(&word.to_ne_bytes());
+            bytes_read += 4;
+        }
+        Ok(())
+    }
+
+    pub fn write_single_block(&self, buf: &[u8], addr: u32) -> Result<(), TransferError> {
+        if self.sd_mock.borrow().read_current_state() != sdcard::mock::State::Tran {
+            return Err(TransferError::InvalidState);
+        }
+        if buf.len() != BLOCK_LEN {
+            return Err(TransferError::InvalidBufferSize);
+        }
+        let mut sd_mock = self.sd_mock.borrow_mut();
+        sd_mock.insert_command(CmdId::CMD24_WriteBlock, addr);
+        let mut bytes_written = 0;
+        while bytes_written < BLOCK_LEN {
+            sd_mock.write_data_word(u32::from_ne_bytes(
+                buf[bytes_written..bytes_written + 4].try_into().unwrap(),
+            ));
+            bytes_written += 4;
+        }
+        sd_mock.wait_until_data_transfer_done();
+
+        // On some SD card, even after the data transfer is done, you might need to wait until the
+        // SD card goes from the programming state back to the transfer state.
+        while sd_mock.read_current_state() != sdcard::mock::State::Tran {}
+        Ok(())
+    }
+}
+
+impl BlockDevice for SdCard {
+    type Error = TransferError;
+
+    fn read(&self, blocks: &mut [Block], block_idx: BlockIdx) -> Result<(), Self::Error> {
+        let addr = match self.card_type {
+            CardType::SD1 | CardType::SD2 => block_idx.0 * BLOCK_LEN as u32,
+            CardType::SdhcSdxc => block_idx.0,
+        };
+        for block in blocks.iter_mut() {
+            self.read_single_block(block.as_mut_slice(), addr)?;
+        }
+        Ok(())
+    }
+
+    fn write(&self, blocks: &[Block], block_idx: BlockIdx) -> Result<(), Self::Error> {
+        let addr = match self.card_type {
+            CardType::SD1 | CardType::SD2 => block_idx.0 * BLOCK_LEN as u32,
+            CardType::SdhcSdxc => block_idx.0,
+        };
+        for block in blocks.iter() {
+            self.write_single_block(block.as_slice(), addr)?;
+        }
+        Ok(())
+    }
+
+    fn num_blocks(&self) -> Result<BlockCount, Self::Error> {
+        Ok(embedded_sdmmc::BlockCount(self.csd.card_capacity_blocks()))
+    }
 }
 
 const MOCK_SD_RCA: u16 = 1;
 
 fn main() -> Result<(), anyhow::Error> {
     let sd_mock = SdCardMock::new(CardType::SdhcSdxc, MOCK_SD_RCA);
-    let sd_card_uninit = SdCardUninitialized::new(sd_mock);
+    let sd_card_uninit = SdCardUninit::new(sd_mock);
     let sd_card = sd_card_uninit
         .initialize()
         .context("failed to initialize SD card")?;
@@ -174,5 +265,7 @@ fn main() -> Result<(), anyhow::Error> {
     println!("CSD: {:?}", sd_card.csd);
     println!("--------");
     println!("CID: {:?}", sd_card.cid);
+
+    // The intialized SD card structure can now be used to write or read blocks.
     Ok(())
 }

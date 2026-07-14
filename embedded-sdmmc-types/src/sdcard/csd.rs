@@ -4,7 +4,7 @@ use arbitrary_int::{traits::Integer as _, u2, u3, u7, u12, u22, u28};
 
 /// Card Specific Data
 #[derive(Debug, Clone)]
-#[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Csd {
     /// A version 1 CSD
     V1(CsdV1),
@@ -16,13 +16,13 @@ pub enum Csd {
 
 /// The CSD structure, which is the first 2 bits in the raw CSD field, is invalid.
 #[derive(Debug, PartialEq, Eq, Copy, Clone, thiserror::Error)]
-#[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[error("invalid CSD structure field")]
 pub struct InvalidCsdStructureFieldError;
 
 /// The CSD structure field is invalid.
 #[derive(Debug, PartialEq, Eq, Copy, Clone, thiserror::Error)]
-#[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum CsdCreationError {
     /// Invalid CSD structure field.
     #[error("invalid CSD structure field")]
@@ -105,7 +105,7 @@ impl Csd {
 /// CSD_STRUCTURE field according to SD spec 5.3.1.
 #[bitbybit::bitenum(u2, exhaustive = false)]
 #[derive(Debug, PartialEq, Eq)]
-#[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum CsdStructure {
     /// CSD Version 1.0, Standard Capacity Card.
     CsdV1 = 0,
@@ -118,7 +118,7 @@ pub enum CsdStructure {
 /// READ_BL_LEN field for CSD version 1 according to SD spec 5.3.3.
 #[bitbybit::bitenum(u4, exhaustive = false)]
 #[derive(Debug, PartialEq, Eq)]
-#[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum BlockLengthSelectV1 {
     /// 512 bytes.
     _512 = 9,
@@ -131,7 +131,7 @@ pub enum BlockLengthSelectV1 {
 /// READ_BL_LEN field for CSD version 2 and 3 according to SD spec.
 #[bitbybit::bitenum(u4, exhaustive = false)]
 #[derive(Debug, PartialEq, Eq)]
-#[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum BlockLengthSelectV2AndV3 {
     /// 512 bytes.
     _512 = 9,
@@ -140,7 +140,7 @@ pub enum BlockLengthSelectV2AndV3 {
 /// C_SIZE_MULT field according to SD spec 5.3.5.
 #[bitbybit::bitenum(u3, exhaustive = true)]
 #[derive(Debug, PartialEq, Eq)]
-#[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum SizeMultiplierSelect {
     /// Multiplier of 4.
     _4 = 0,
@@ -211,7 +211,7 @@ bitflags::bitflags! {
 }
 
 /// CSD V1 register structure.
-#[bitbybit::bitfield(u128, debug, defmt_fields(feature = "defmt-log"), forbid_overlaps)]
+#[bitbybit::bitfield(u128, debug, defmt_fields(feature = "defmt"), forbid_overlaps)]
 pub struct CsdV1 {
     /// CSD_STRUCTURE field.
     #[bits(126..=127, r)]
@@ -347,7 +347,7 @@ impl CsdV1 {
 }
 
 /// CSD V2 register structure.
-#[bitbybit::bitfield(u128, debug, defmt_fields(feature = "defmt-log"), forbid_overlaps)]
+#[bitbybit::bitfield(u128, debug, defmt_fields(feature = "defmt"), forbid_overlaps)]
 pub struct CsdV2 {
     /// CSD_STRUCTURE field.
     #[bits(126..=127, r)]
@@ -451,7 +451,7 @@ impl CsdV2 {
 }
 
 /// CSD V3 register structure.
-#[bitbybit::bitfield(u128, debug, defmt_fields(feature = "defmt-log"), forbid_overlaps)]
+#[bitbybit::bitfield(u128, debug, defmt_fields(feature = "defmt"), forbid_overlaps)]
 pub struct CsdV3 {
     /// CSD_STRUCTURE field.
     #[bits(126..=127, r)]
@@ -556,6 +556,8 @@ impl CsdV3 {
 
 #[cfg(test)]
 mod tests {
+    use hex_literal::hex;
+
     use super::*;
 
     #[test]

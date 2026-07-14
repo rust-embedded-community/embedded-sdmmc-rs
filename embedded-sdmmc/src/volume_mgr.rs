@@ -1553,6 +1553,8 @@ fn solve_mode_variant(mode: Mode, dir_entry_is_some: bool) -> Mode {
 
 #[cfg(test)]
 mod tests {
+    use hex_literal::hex;
+
     use super::*;
     use crate::Timestamp;
     use crate::filesystem::Handle;

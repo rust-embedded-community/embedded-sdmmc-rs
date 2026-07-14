@@ -86,95 +86,11 @@ pub trait BlockDevice {
     fn num_blocks(&self) -> Result<BlockCount, Self::Error>;
 }
 
-/// A caching layer for block devices
-///
-/// Caches a single block.
-#[derive(Debug)]
-pub struct BlockCache<D> {
-    block_device: D,
-    block: [Block; 1],
-    block_idx: Option<BlockIdx>,
-}
-
-impl<D> BlockCache<D>
-where
-    D: BlockDevice,
-{
-    /// Create a new block cache
-    pub fn new(block_device: D) -> Self {
-        BlockCache {
-            block_device,
-            block: [Block::new()],
-            block_idx: None,
-        }
-    }
-
-    /// Read a block, and return a reference to it.
-    pub fn read(&mut self, block_idx: BlockIdx) -> Result<&Block, D::Error> {
-        if self.block_idx != Some(block_idx) {
-            self.block_idx = None;
-            self.block_device.read(&mut self.block, block_idx)?;
-            self.block_idx = Some(block_idx);
-        }
-        Ok(&self.block[0])
-    }
-
-    /// Read a block, and return a reference to it.
-    pub fn read_mut(&mut self, block_idx: BlockIdx) -> Result<&mut Block, D::Error> {
-        if self.block_idx != Some(block_idx) {
-            self.block_idx = None;
-            self.block_device.read(&mut self.block, block_idx)?;
-            self.block_idx = Some(block_idx);
-        }
-        Ok(&mut self.block[0])
-    }
-
-    /// Write back a block you read with [`Self::read_mut`] and then modified.
-    pub fn write_back(&mut self) -> Result<(), D::Error> {
-        self.block_device.write(
-            &self.block,
-            self.block_idx.expect("write_back with no read"),
-        )
-    }
-
-    /// Write back a block you read with [`Self::read_mut`] and then modified, but to two locations.
-    ///
-    /// This is useful for updating two File Allocation Tables.
-    pub fn write_back_with_duplicate(&mut self, duplicate: BlockIdx) -> Result<(), D::Error> {
-        self.block_device.write(
-            &self.block,
-            self.block_idx.expect("write_back with no read"),
-        )?;
-        self.block_device.write(&self.block, duplicate)?;
-        Ok(())
-    }
-
-    /// Access a blank sector
-    pub fn blank_mut(&mut self, block_idx: BlockIdx) -> &mut Block {
-        self.block_idx = Some(block_idx);
-        self.block[0].fill(0);
-        &mut self.block[0]
-    }
-
-    /// Access the block device
-    pub fn block_device(&mut self) -> &mut D {
-        // invalidate the cache
-        self.block_idx = None;
-        // give them the block device
-        &mut self.block_device
-    }
-
-    /// Get the block device back
-    pub fn free(self) -> D {
-        self.block_device
-    }
-}
-
 /// The linear numeric address of a block (or sector).
 ///
 /// The first block on a disk gets `BlockIdx(0)` (which usually contains the
 /// Master Boot Record).
-#[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct BlockIdx(pub u32);
 
@@ -222,7 +138,7 @@ impl core::ops::SubAssign<BlockCount> for BlockIdx {
 /// The a number of blocks (or sectors).
 ///
 /// Add this to a `BlockIdx` to get an actual address on disk.
-#[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct BlockCount(pub u32);
 
@@ -256,7 +172,7 @@ impl BlockCount {
     /// How many blocks are required to hold this many bytes.
     ///
     /// ```
-    /// # use embedded_sdmmc::BlockCount;
+    /// # use embedded_sdmmc_types::blockdevice::BlockCount;
     /// assert_eq!(BlockCount::from_bytes(511), BlockCount(1));
     /// assert_eq!(BlockCount::from_bytes(512), BlockCount(1));
     /// assert_eq!(BlockCount::from_bytes(513), BlockCount(2));

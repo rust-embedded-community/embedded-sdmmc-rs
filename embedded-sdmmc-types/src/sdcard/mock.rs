@@ -94,7 +94,8 @@ impl From<State> for super::response::State {
 
 /// SD card mock.
 ///
-/// This basically behaves like a virtual SD card. Currently, this mock simulates a Ver2.00 or later
+/// This basically behaves like a virtual SD card controller with a connected virtual SD card.
+/// Currently, this mock simulates a Ver2.00 or later
 /// SDHC memory card. As such, it responds to the CMD8 command as well. Furthermore, while this
 /// mock is capable of performing a transition until the [super::response::State::Tran] transmission
 /// state is reached, it does not implement / mock file operations yet.
@@ -231,6 +232,35 @@ impl SdCardMock {
             _ => CommandStatus { timeout: true },
         }
     }
+
+    /// Current state of the SD card. A library implementation of this function would send CMD13 to
+    /// retrieve the card status, which contains the current SD card state.
+    pub fn read_current_state(&self) -> State {
+        self.state
+    }
+
+    /// Hypotehtical function to write a word of data, assuming that the controller hardware has
+    /// something like a FIFO.
+    ///
+    /// Other hardware implementations might also use DMA.
+    pub fn write_data_word(&mut self, _word: u32) {}
+
+    /// Hypotehtical function to read a word of data, assuming that the controller hardware has
+    /// something like a FIFO.
+    ///
+    /// Other hardware implementations might also use DMA.
+    pub fn read_data_word(&mut self) -> u32 {
+        0
+    }
+
+    /// Hypothetical function which  retruns whether a RX word can be read.
+    pub fn word_available(&self) -> bool {
+        true
+    }
+
+    /// Hypothetical function which waits for the SD casrd controller to complete the TX data
+    /// transfer.
+    pub fn wait_until_data_transfer_done(&self) {}
 
     /// Read [u32] reply from the SD card mock.
     pub fn read_reply_u32(&self) -> u32 {
