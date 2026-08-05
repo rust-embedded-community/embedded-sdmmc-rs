@@ -2,7 +2,11 @@
 name = "embedded-sdmmc-types"
 version = "0.1.0"
 description = "Fundamental types and traits for embedded-sdmmc support"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/rust-embedded-community/embedded-sdmmc-rs"
 edition = "2024"
+# Same MSRV as the embedded-sdmmc crate.
+rust-version = "1.87"
 
 [dependencies]
 bitbybit.workspace = true

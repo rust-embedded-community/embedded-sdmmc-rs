@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog] and this project adheres to [Semantic 
 
 ## [Unreleased]
 
+## [Version 0.10.0] - 2026-07-24
+
 ### Changed
 
 - Moved a lot of fundamental SD card traits and types into a separate `embedded-sdmmc-types` crate.
@@ -215,7 +217,8 @@ The format is based on [Keep a Changelog] and this project adheres to [Semantic 
 
 [Keep a Changelog]: http://keepachangelog.com/en/1.0.0/
 [Semantic Versioning]: http://semver.org/spec/v2.0.0.html
-[Unreleased]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/compare/v0.9.0...develop
+[Unreleased]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/compare/embedded-sdmmc-v0.10.0...develop
+[Version 0.10.0]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/compare/v0.9.0...embedded-sdmmc-v0.10.0
 [Version 0.9.0]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/compare/v0.8.2...v0.9.0
 [Version 0.8.2]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/compare/v0.8.1...v0.8.2
 [Version 0.8.1]: https://github.com/rust-embedded-community/embedded-sdmmc-rs/compare/v0.8.0...v0.8.1
