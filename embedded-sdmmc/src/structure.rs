@@ -1,0 +1,55 @@
+//! Useful macros for parsing SD/MMC structures.
+
+macro_rules! define_field {
+    ($name:ident, bool, $offset:expr, $bit:expr) => {
+        /// Get the value from the $name field
+        pub fn $name(&self) -> bool {
+            access_field!(self, $offset, $bit, 1)
+        }
+    };
+    ($name:ident, u8, $offset:expr, $start_bit:expr, $num_bits:expr) => {
+        /// Get the value from the $name field
+        pub fn $name(&self) -> u8 {
+            access_field!(self, $offset, $start_bit, $num_bits)
+        }
+    };
+    ($name:ident, $type:ty, [ $( ( $offset:expr, $start_bit:expr, $num_bits:expr ) ),+ ]) => {
+        /// Gets the value from the $name field
+        pub fn $name(&self) -> $type {
+            let mut result = 0;
+            $(
+                    result <<= $num_bits;
+                    let part = access_field!(self, $offset, $start_bit, $num_bits) as $type;
+                    result |=  part;
+            )+
+            result
+        }
+    };
+
+    ($name:ident, u8, $offset:expr) => {
+        /// Get the value from the $name field
+        pub fn $name(&self) -> u8 {
+            self.data[$offset]
+        }
+    };
+
+    ($name:ident, u16, $offset:expr) => {
+        /// Get the value from the $name field
+        pub fn $name(&self) -> u16 {
+            LittleEndian::read_u16(&self.data[$offset..$offset+2])
+        }
+    };
+
+    ($name:ident, u32, $offset:expr) => {
+        /// Get the $name field
+        pub fn $name(&self) -> u32 {
+            LittleEndian::read_u32(&self.data[$offset..$offset+4])
+        }
+    };
+}
+
+// ****************************************************************************
+//
+// End Of File
+//
+// ****************************************************************************

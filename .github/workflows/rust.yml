@@ -18,7 +18,7 @@ jobs:
     strategy:
       matrix:
         # Always run MSRV too!
-        rust: ["stable", "1.76"]
+        rust: ["stable", "1.87"]
         features: ['log', 'defmt-log', '""']
     steps:
     - uses: actions/checkout@v4
