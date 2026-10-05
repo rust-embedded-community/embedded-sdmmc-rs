@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog] and this project adheres to [Semantic 
 ### Changed
 
 - Fixed writing to a nearly full volume allocating clusters past the end of the volume, which overwrote whatever followed it on the disk (such as the next partition)
+- Fixed the last free cluster of a volume being impossible to write: allocating it failed with `Error::DiskFull`, left it linked past the end of the file, and left the free cluster count one too high
 
 ## [Version 0.10.0] - 2026-07-24
 

@@ -207,6 +207,43 @@ fn full_volume_stays_inside_its_partition() {
     );
 }
 
+#[test]
+fn full_volume_uses_its_last_cluster() {
+    use embedded_sdmmc::{Block, BlockDevice, BlockIdx};
+    // The FAT32 partition's FSInfo sector, with its free cluster count at
+    // byte 488 (accurate on the test disk)
+    const FSINFO: BlockIdx = BlockIdx(264192 + 1);
+    let disk = utils::make_block_device(utils::DISK_SOURCE).unwrap();
+    let mut block = [Block::new()];
+    disk.read(&mut block, FSINFO).unwrap();
+    let free = u32::from_le_bytes(block[0].contents[488..492].try_into().unwrap());
+    let volume_mgr: VolumeManager<utils::RamDisk<Vec<u8>>, utils::TestTimeSource, 4, 2, 1> =
+        VolumeManager::new_with_limits(disk, utils::make_time_source(), 0xAA00_0000);
+    let volume = volume_mgr
+        .open_raw_volume(VolumeIdx(1))
+        .expect("open volume");
+    let root_dir = volume_mgr.open_root_dir(volume).expect("open root dir");
+    let f = volume_mgr
+        .open_file_in_dir(root_dir, "FULL.DAT", Mode::ReadWriteCreateOrTruncate)
+        .expect("open file");
+    // One 4 KiB cluster per write, until the volume is full
+    let cluster = vec![0xCC; 4096];
+    let mut written = 0;
+    while volume_mgr.write(f, &cluster).is_ok() {
+        written += 1;
+    }
+    let length = volume_mgr.file_length(f).expect("file length");
+    volume_mgr.close_file(f).expect("close file");
+    volume_mgr.close_dir(root_dir).expect("close dir");
+    volume_mgr.close_volume(volume).expect("close volume");
+    // Every free cluster was used, and none is counted as free
+    assert_eq!(written, free);
+    assert_eq!(length, free * 4096);
+    let disk = volume_mgr.free().0;
+    disk.read(&mut block, FSINFO).unwrap();
+    assert_eq!(block[0].contents[488..492], 0u32.to_le_bytes());
+}
+
 // ****************************************************************************
 //
 // End Of File
