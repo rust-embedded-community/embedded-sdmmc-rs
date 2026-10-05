@@ -194,9 +194,9 @@ impl FatVolume {
                 let block = block_cache
                     .read_mut(fat32_info.info_location)
                     .map_err(Error::DeviceError)?;
-                if let Some(count) = self.free_clusters_count {
-                    block[488..492].copy_from_slice(&count.to_le_bytes());
-                }
+                // 0xFFFF_FFFF is the "unknown" value of the spec
+                let count = self.free_clusters_count.unwrap_or(0xFFFF_FFFF);
+                block[488..492].copy_from_slice(&count.to_le_bytes());
                 if let Some(next_free_cluster) = self.next_free_cluster {
                     block[492..496].copy_from_slice(&next_free_cluster.0.to_le_bytes());
                 }
@@ -1230,8 +1230,10 @@ impl FatVolume {
             };
         debug!("Next free cluster is {:?}", self.next_free_cluster);
         // Record that we've allocated a cluster
-        if let Some(ref mut number_free_cluster) = self.free_clusters_count {
-            *number_free_cluster -= 1;
+        if let Some(number_free_cluster) = self.free_clusters_count {
+            // The count is only a hint: one that would go below zero is
+            // wrong, so it becomes unknown
+            self.free_clusters_count = number_free_cluster.checked_sub(1);
         };
         if zero {
             let start_block_idx = self.cluster_to_block(new_cluster);
@@ -1292,8 +1294,13 @@ impl FatVolume {
                 Err(e) => return Err(e),
             };
             self.update_fat(block_cache, next, ClusterId::EMPTY)?;
-            if let Some(ref mut number_free_cluster) = self.free_clusters_count {
-                *number_free_cluster += 1;
+            // Record that we've freed a cluster
+            if let Some(number_free_cluster) = self.free_clusters_count {
+                // The count is only a hint: one that would go above the number
+                // of clusters is wrong, so it becomes unknown
+                self.free_clusters_count = number_free_cluster
+                    .checked_add(1)
+                    .filter(|n| *n <= self.cluster_count);
             };
             match link {
                 Some(n) if self.is_data_cluster(n) => next = n,
@@ -1528,7 +1535,11 @@ where
                 .map_err(Error::DeviceError)?;
             let info_sector =
                 InfoSector::create_from_bytes(info_block).map_err(Error::FormatError)?;
-            volume.free_clusters_count = info_sector.free_clusters_count();
+            // The count is only a hint: one above the number of clusters is
+            // wrong, so it is unknown
+            volume.free_clusters_count = info_sector
+                .free_clusters_count()
+                .filter(|n| *n <= volume.cluster_count);
             volume.next_free_cluster = info_sector.next_free_cluster();
 
             Ok(VolumeType::Fat(volume))

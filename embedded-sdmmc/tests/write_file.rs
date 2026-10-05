@@ -588,6 +588,112 @@ fn truncate_rejects_a_first_link_outside_the_volume() {
     assert_eq!(block[0].contents[at..at + 2], 1u16.to_le_bytes());
 }
 
+/// Set the FAT32 partition's saved free cluster count
+fn set_saved_free_count(disk: &utils::RamDisk<Vec<u8>>, count: u32) {
+    use embedded_sdmmc::{Block, BlockDevice};
+    let mut block = [Block::new()];
+    disk.read(&mut block, FAT32_FSINFO).unwrap();
+    block[0].contents[488..492].copy_from_slice(&count.to_le_bytes());
+    disk.write(&block, FAT32_FSINFO).unwrap();
+}
+
+#[test]
+fn free_count_too_low_becomes_unknown() {
+    let disk = utils::make_block_device(utils::DISK_SOURCE).unwrap();
+    set_saved_free_count(&disk, 1);
+    let volume_mgr: TestVolumeManager =
+        VolumeManager::new_with_limits(disk, utils::make_time_source(), 0xAA00_0000);
+    let volume = volume_mgr
+        .open_raw_volume(VolumeIdx(1))
+        .expect("open volume");
+    let root_dir = volume_mgr.open_root_dir(volume).expect("open root dir");
+    let f = volume_mgr
+        .open_file_in_dir(root_dir, "LOW.DAT", Mode::ReadWriteCreateOrTruncate)
+        .expect("open file");
+    volume_mgr
+        .write(f, &vec![0xCC; 1024 * 1024])
+        .expect("file write");
+    volume_mgr.close_file(f).expect("close file");
+    volume_mgr.close_dir(root_dir).expect("close dir");
+    volume_mgr.close_volume(volume).expect("close volume");
+    // 0xFFFF_FFFF is the "unknown" value of the spec
+    assert_eq!(saved_free_count(&volume_mgr.free().0), 0xFFFF_FFFF);
+}
+
+#[test]
+fn free_count_too_high_becomes_unknown() {
+    use embedded_sdmmc::{Block, BlockDevice, BlockIdx};
+    let volume_mgr = make_volume_manager();
+    let volume = volume_mgr
+        .open_raw_volume(VolumeIdx(1))
+        .expect("open volume");
+    let root_dir = volume_mgr.open_root_dir(volume).expect("open root dir");
+    let f = volume_mgr
+        .open_file_in_dir(root_dir, "HIGH.DAT", Mode::ReadWriteCreateOrTruncate)
+        .expect("open file");
+    volume_mgr
+        .write(f, &vec![0xCC; 1024 * 1024])
+        .expect("file write");
+    volume_mgr.close_file(f).expect("close file");
+    volume_mgr.close_dir(root_dir).expect("close dir");
+    volume_mgr.close_volume(volume).expect("close volume");
+    let (disk, time_source) = volume_mgr.free();
+    // The partition's cluster count, from its boot sector
+    let mut boot = [Block::new()];
+    disk.read(&mut boot, BlockIdx(264192)).unwrap();
+    let b = &boot[0].contents;
+    let total = u32::from_le_bytes(b[32..36].try_into().unwrap());
+    let reserved = u32::from(u16::from_le_bytes([b[14], b[15]]));
+    let fat_size = u32::from_le_bytes(b[36..40].try_into().unwrap());
+    let clusters = (total - reserved - u32::from(b[16]) * fat_size) / u32::from(b[13]);
+    // Claim every cluster is free, though the file still has some
+    set_saved_free_count(&disk, clusters);
+
+    let volume_mgr: TestVolumeManager =
+        VolumeManager::new_with_limits(disk, time_source, 0xAA00_0000);
+    let volume = volume_mgr
+        .open_raw_volume(VolumeIdx(1))
+        .expect("open volume");
+    let root_dir = volume_mgr.open_root_dir(volume).expect("open root dir");
+    volume_mgr
+        .delete_entry_in_dir(root_dir, "HIGH.DAT")
+        .expect("delete file");
+    volume_mgr.close_dir(root_dir).expect("close dir");
+    volume_mgr.close_volume(volume).expect("close volume");
+    assert_eq!(saved_free_count(&volume_mgr.free().0), 0xFFFF_FFFF);
+}
+
+#[test]
+fn free_count_above_the_cluster_count_becomes_unknown() {
+    use embedded_sdmmc::{Block, BlockDevice, BlockIdx};
+    let disk = utils::make_block_device(utils::DISK_SOURCE).unwrap();
+    // The partition's cluster count, from its boot sector
+    let mut boot = [Block::new()];
+    disk.read(&mut boot, BlockIdx(264192)).unwrap();
+    let b = &boot[0].contents;
+    let total = u32::from_le_bytes(b[32..36].try_into().unwrap());
+    let reserved = u32::from(u16::from_le_bytes([b[14], b[15]]));
+    let fat_size = u32::from_le_bytes(b[36..40].try_into().unwrap());
+    let clusters = (total - reserved - u32::from(b[16]) * fat_size) / u32::from(b[13]);
+    set_saved_free_count(&disk, clusters + 1000);
+    let volume_mgr: TestVolumeManager =
+        VolumeManager::new_with_limits(disk, utils::make_time_source(), 0xAA00_0000);
+    let volume = volume_mgr
+        .open_raw_volume(VolumeIdx(1))
+        .expect("open volume");
+    let root_dir = volume_mgr.open_root_dir(volume).expect("open root dir");
+    let f = volume_mgr
+        .open_file_in_dir(root_dir, "HIGH.DAT", Mode::ReadWriteCreateOrTruncate)
+        .expect("open file");
+    volume_mgr
+        .write(f, &vec![0xCC; 64 * 1024])
+        .expect("file write");
+    volume_mgr.close_file(f).expect("close file");
+    volume_mgr.close_dir(root_dir).expect("close dir");
+    volume_mgr.close_volume(volume).expect("close volume");
+    assert_eq!(saved_free_count(&volume_mgr.free().0), 0xFFFF_FFFF);
+}
+
 // ****************************************************************************
 //
 // End Of File
