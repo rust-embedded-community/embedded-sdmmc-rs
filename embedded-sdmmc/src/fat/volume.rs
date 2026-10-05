@@ -1246,6 +1246,64 @@ impl FatVolume {
         Ok(new_cluster)
     }
 
+    /// Is `cluster` one of this volume's data clusters?
+    fn is_data_cluster(&self, cluster: ClusterId) -> bool {
+        cluster.0 >= RESERVED_ENTRIES && cluster.0 < self.cluster_count + RESERVED_ENTRIES
+    }
+
+    /// Can a chain start at `cluster`: none (an empty file), or one of this
+    /// volume's data clusters?
+    pub(crate) fn is_chain_start(&self, cluster: ClusterId) -> bool {
+        cluster.0 < RESERVED_ENTRIES || self.is_data_cluster(cluster)
+    }
+
+    /// Marks every cluster in the chain starting at `first_cluster` as free
+    ///
+    /// Stops with an error at a link outside the volume (a corrupt chain),
+    /// once the cluster holding that link is freed
+    pub(crate) fn free_cluster_chain<D>(
+        &mut self,
+        block_cache: &mut BlockCache<D>,
+        first_cluster: ClusterId,
+    ) -> Result<(), Error<D::Error>>
+    where
+        D: BlockDevice,
+    {
+        if first_cluster.0 < RESERVED_ENTRIES {
+            // file doesn't have any valid cluster allocated, there is nothing to do
+            return Ok(());
+        }
+        if !self.is_data_cluster(first_cluster) {
+            return Err(Error::FormatError("cluster chain leaves the volume"));
+        }
+        if let Some(ref mut next_free_cluster) = self.next_free_cluster {
+            if next_free_cluster.0 > first_cluster.0 {
+                *next_free_cluster = first_cluster;
+            }
+        } else {
+            self.next_free_cluster = Some(first_cluster);
+        }
+        let mut next = first_cluster;
+        loop {
+            // Read the link before the entry holding it is freed
+            let link = match self.next_cluster(block_cache, next) {
+                Ok(n) => Some(n),
+                Err(Error::EndOfFile) => None,
+                Err(e) => return Err(e),
+            };
+            self.update_fat(block_cache, next, ClusterId::EMPTY)?;
+            if let Some(ref mut number_free_cluster) = self.free_clusters_count {
+                *number_free_cluster += 1;
+            };
+            match link {
+                Some(n) if self.is_data_cluster(n) => next = n,
+                Some(_) => return Err(Error::FormatError("cluster chain leaves the volume")),
+                None => break,
+            }
+        }
+        Ok(())
+    }
+
     /// Marks the input cluster as an EOF and all the subsequent clusters in the chain as free
     pub(crate) fn truncate_cluster_chain<D>(
         &mut self,
