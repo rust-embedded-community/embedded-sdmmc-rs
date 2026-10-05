@@ -161,6 +161,52 @@ fn random_access_write_file() {
     volume_mgr.close_dir(root_dir).expect("close dir");
     volume_mgr.close_volume(volume).expect("close volume");
 }
+
+#[test]
+fn full_volume_stays_inside_its_partition() {
+    use embedded_sdmmc::{Block, BlockDevice, BlockIdx};
+    // The FAT16 partition is followed by the FAT32 partition, whose boot
+    // sector is at block 264192.
+    const NEXT_PARTITION: BlockIdx = BlockIdx(264192);
+    let time_source = utils::make_time_source();
+    let disk = utils::make_block_device(utils::DISK_SOURCE).unwrap();
+    let mut before = [Block::new()];
+    disk.read(&mut before, NEXT_PARTITION).unwrap();
+    let volume_mgr: VolumeManager<utils::RamDisk<Vec<u8>>, utils::TestTimeSource, 4, 2, 1> =
+        VolumeManager::new_with_limits(disk, time_source, 0xAA00_0000);
+    let volume = volume_mgr
+        .open_raw_volume(VolumeIdx(0))
+        .expect("open volume");
+    let root_dir = volume_mgr.open_root_dir(volume).expect("open root dir");
+    let f = volume_mgr
+        .open_file_in_dir(root_dir, "FULL.DAT", Mode::ReadWriteCreateOrTruncate)
+        .expect("open file");
+    // About 64 MiB is free: write until the volume is full
+    let chunk = vec![0xCC; 1024 * 1024];
+    let mut written = 0;
+    while volume_mgr.write(f, &chunk).is_ok() {
+        written += 1;
+        assert!(written < 100, "the volume never filled");
+    }
+    assert!(matches!(
+        volume_mgr.write(f, &chunk),
+        Err(embedded_sdmmc::Error::DiskFull)
+    ));
+    volume_mgr.close_file(f).expect("close file");
+    volume_mgr.close_dir(root_dir).expect("close dir");
+    volume_mgr.close_volume(volume).expect("close volume");
+    let mut after = [Block::new()];
+    volume_mgr
+        .free()
+        .0
+        .read(&mut after, NEXT_PARTITION)
+        .unwrap();
+    assert!(
+        after[0].contents == before[0].contents,
+        "the next partition's boot sector was overwritten"
+    );
+}
+
 // ****************************************************************************
 //
 // End Of File
