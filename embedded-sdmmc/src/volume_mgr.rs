@@ -939,9 +939,17 @@ where
         }
 
         let volume_idx = data.get_volume_by_id(parent_dir_info.raw_volume)?;
-        match &data.open_volumes[volume_idx].volume_type {
+        match &mut data.open_volumes[volume_idx].volume_type {
             VolumeType::Fat(fat) => {
-                fat.delete_directory_entry(&mut data.block_cache, parent_dir_info, &sfn)?
+                // A corrupt entry is refused before anything changes
+                if !fat.is_chain_start(dir_entry.cluster) {
+                    return Err(Error::FormatError("cluster chain leaves the volume"));
+                }
+                fat.delete_directory_entry(&mut data.block_cache, parent_dir_info, &sfn)?;
+                // Free the clusters only once the entry no longer points at
+                // them: a failure in between leaves them allocated but unused,
+                // never handed out again while an entry still uses them
+                fat.free_cluster_chain(&mut data.block_cache, dir_entry.cluster)?;
             }
         }
 
