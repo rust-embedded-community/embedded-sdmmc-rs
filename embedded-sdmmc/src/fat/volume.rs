@@ -1304,51 +1304,37 @@ impl FatVolume {
         Ok(())
     }
 
-    /// Marks the input cluster as an EOF and all the subsequent clusters in the chain as free
-    pub(crate) fn truncate_cluster_chain<D>(
+    /// Marks the input cluster as an EOF, and returns the rest of the chain
+    /// (for `free_cluster_chain`), if there is any
+    ///
+    /// Nothing is written if the chain is corrupt
+    pub(crate) fn cut_cluster_chain<D>(
         &mut self,
         block_cache: &mut BlockCache<D>,
         cluster: ClusterId,
-    ) -> Result<(), Error<D::Error>>
+    ) -> Result<Option<ClusterId>, Error<D::Error>>
     where
         D: BlockDevice,
     {
         if cluster.0 < RESERVED_ENTRIES {
             // file doesn't have any valid cluster allocated, there is nothing to do
-            return Ok(());
+            return Ok(None);
         }
-        let mut next = {
+        if !self.is_data_cluster(cluster) {
+            return Err(Error::FormatError("cluster chain leaves the volume"));
+        }
+        let next = {
             match self.next_cluster(block_cache, cluster) {
                 Ok(n) => n,
-                Err(Error::EndOfFile) => return Ok(()),
+                Err(Error::EndOfFile) => return Ok(None),
                 Err(e) => return Err(e),
             }
         };
-        if let Some(ref mut next_free_cluster) = self.next_free_cluster {
-            if next_free_cluster.0 > next.0 {
-                *next_free_cluster = next;
-            }
-        } else {
-            self.next_free_cluster = Some(next);
+        if !self.is_data_cluster(next) {
+            return Err(Error::FormatError("cluster chain leaves the volume"));
         }
         self.update_fat(block_cache, cluster, ClusterId::END_OF_FILE)?;
-        loop {
-            match self.next_cluster(block_cache, next) {
-                Ok(n) => {
-                    self.update_fat(block_cache, next, ClusterId::EMPTY)?;
-                    next = n;
-                }
-                Err(Error::EndOfFile) => {
-                    self.update_fat(block_cache, next, ClusterId::EMPTY)?;
-                    break;
-                }
-                Err(e) => return Err(e),
-            }
-            if let Some(ref mut number_free_cluster) = self.free_clusters_count {
-                *number_free_cluster += 1;
-            };
-        }
-        Ok(())
+        Ok(Some(next))
     }
 
     /// Writes a Directory Entry to the disk

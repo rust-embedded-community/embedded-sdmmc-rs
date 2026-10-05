@@ -429,6 +429,165 @@ fn delete_rejects_a_first_cluster_outside_the_volume() {
     assert_eq!(block[0].contents[at..at + 2], [0xFF, 0xFF]);
 }
 
+#[test]
+fn truncate_counts_every_freed_cluster() {
+    let volume_mgr = make_volume_manager();
+    let volume = volume_mgr
+        .open_raw_volume(VolumeIdx(1))
+        .expect("open volume");
+    let root_dir = volume_mgr.open_root_dir(volume).expect("open root dir");
+    let f = volume_mgr
+        .open_file_in_dir(root_dir, "TRUNC.DAT", Mode::ReadWriteCreateOrTruncate)
+        .expect("open file");
+    volume_mgr
+        .write(f, &vec![0xCC; 1024 * 1024])
+        .expect("file write");
+    volume_mgr.close_file(f).expect("close file");
+    volume_mgr.close_dir(root_dir).expect("close dir");
+    volume_mgr.close_volume(volume).expect("close volume");
+    let (disk, time_source) = volume_mgr.free();
+    let before = saved_free_count(&disk);
+
+    let volume_mgr: TestVolumeManager =
+        VolumeManager::new_with_limits(disk, time_source, 0xAA00_0000);
+    let volume = volume_mgr
+        .open_raw_volume(VolumeIdx(1))
+        .expect("open volume");
+    let root_dir = volume_mgr.open_root_dir(volume).expect("open root dir");
+    let f = volume_mgr
+        .open_file_in_dir(root_dir, "TRUNC.DAT", Mode::ReadWriteTruncate)
+        .expect("open file");
+    volume_mgr.close_file(f).expect("close file");
+    volume_mgr.close_dir(root_dir).expect("close dir");
+    volume_mgr.close_volume(volume).expect("close volume");
+    // 1 MiB is 256 clusters of 4 KiB; a truncated file keeps its first one
+    assert_eq!(saved_free_count(&volume_mgr.free().0), before + 255);
+}
+
+/// Open `name` in the FAT16 partition's root directory of `disk` with
+/// `ReadWriteTruncate`
+fn fat16_truncate(
+    disk: utils::RamDisk<Vec<u8>>,
+    name: &str,
+) -> (
+    Result<(), embedded_sdmmc::Error<utils::Error>>,
+    utils::RamDisk<Vec<u8>>,
+) {
+    let volume_mgr: TestVolumeManager =
+        VolumeManager::new_with_limits(disk, utils::make_time_source(), 0xAA00_0000);
+    let volume = volume_mgr
+        .open_raw_volume(VolumeIdx(0))
+        .expect("open volume");
+    let root_dir = volume_mgr.open_root_dir(volume).expect("open root dir");
+    let result = volume_mgr
+        .open_file_in_dir(root_dir, name, Mode::ReadWriteTruncate)
+        .map(|f| volume_mgr.close_file(f).expect("close file"));
+    volume_mgr.close_dir(root_dir).expect("close dir");
+    volume_mgr.close_volume(volume).expect("close volume");
+    (result, volume_mgr.free().0)
+}
+
+#[test]
+fn truncate_stops_at_a_link_outside_the_volume() {
+    use embedded_sdmmc::{Block, BlockDevice};
+    let (disk, entry) = fat16_file("BROKEN.DAT", 64 * 1024);
+    let mut block = [Block::new()];
+    disk.read(&mut block, entry.entry_block).unwrap();
+    let e = &block[0].contents[entry.entry_offset as usize..];
+    let first = u32::from(u16::from_le_bytes([e[26], e[27]]));
+    // The second cluster links to cluster 0
+    let (fat_block, at) = fat16_entry(&disk, first);
+    disk.read(&mut block, fat_block).unwrap();
+    let second = u32::from(u16::from_le_bytes([
+        block[0].contents[at],
+        block[0].contents[at + 1],
+    ]));
+    let (fat_block, at) = fat16_entry(&disk, second);
+    disk.read(&mut block, fat_block).unwrap();
+    block[0].contents[at..at + 2].copy_from_slice(&0u16.to_le_bytes());
+    disk.write(&block, fat_block).unwrap();
+    let reserved = fat16_reserved_entries(&disk);
+
+    let (result, disk) = fat16_truncate(disk, "BROKEN.DAT");
+    assert!(matches!(result, Err(embedded_sdmmc::Error::FormatError(_))));
+    assert_eq!(fat16_reserved_entries(&disk), reserved);
+    // The file is left empty, its first cluster the end of its chain
+    disk.read(&mut block, entry.entry_block).unwrap();
+    let e = &block[0].contents[entry.entry_offset as usize..];
+    assert_eq!(u32::from_le_bytes([e[28], e[29], e[30], e[31]]), 0);
+    let (fat_block, at) = fat16_entry(&disk, first);
+    disk.read(&mut block, fat_block).unwrap();
+    assert!(u16::from_le_bytes([block[0].contents[at], block[0].contents[at + 1]]) >= 0xFFF8);
+}
+
+/// The size and first cluster in a FAT16 directory entry
+fn fat16_entry_size_and_cluster(
+    disk: &utils::RamDisk<Vec<u8>>,
+    entry: &embedded_sdmmc::DirEntry,
+) -> (u32, u16) {
+    use embedded_sdmmc::{Block, BlockDevice};
+    let mut block = [Block::new()];
+    disk.read(&mut block, entry.entry_block).unwrap();
+    let e = &block[0].contents[entry.entry_offset as usize..];
+    (
+        u32::from_le_bytes([e[28], e[29], e[30], e[31]]),
+        u16::from_le_bytes([e[26], e[27]]),
+    )
+}
+
+#[test]
+fn truncate_rejects_a_first_cluster_outside_the_volume() {
+    use embedded_sdmmc::{Block, BlockDevice};
+    let (disk, entry) = fat16_file("BROKEN.DAT", 64 * 1024);
+    // Point the entry at 0xFFF0, past the last cluster (65400), whose FAT
+    // entry is in the padding at the end of the FAT's last block. Mark that
+    // entry, to see whether it is written.
+    let mut block = [Block::new()];
+    disk.read(&mut block, entry.entry_block).unwrap();
+    let at = entry.entry_offset as usize + 26;
+    block[0].contents[at..at + 2].copy_from_slice(&0xFFF0u16.to_le_bytes());
+    disk.write(&block, entry.entry_block).unwrap();
+    let (fat_block, at) = fat16_entry(&disk, 0xFFF0);
+    disk.read(&mut block, fat_block).unwrap();
+    block[0].contents[at..at + 2].copy_from_slice(&0x1234u16.to_le_bytes());
+    disk.write(&block, fat_block).unwrap();
+
+    let (result, disk) = fat16_truncate(disk, "BROKEN.DAT");
+    assert!(matches!(result, Err(embedded_sdmmc::Error::FormatError(_))));
+    // Refused before anything changed
+    assert_eq!(
+        fat16_entry_size_and_cluster(&disk, &entry),
+        (64 * 1024, 0xFFF0)
+    );
+    disk.read(&mut block, fat_block).unwrap();
+    assert_eq!(block[0].contents[at..at + 2], 0x1234u16.to_le_bytes());
+}
+
+#[test]
+fn truncate_rejects_a_first_link_outside_the_volume() {
+    use embedded_sdmmc::{Block, BlockDevice};
+    let (disk, entry) = fat16_file("BROKEN.DAT", 64 * 1024);
+    let (_, first) = fat16_entry_size_and_cluster(&disk, &entry);
+    // Link the first cluster to cluster 1, which is not a data cluster
+    let mut block = [Block::new()];
+    let (fat_block, at) = fat16_entry(&disk, u32::from(first));
+    disk.read(&mut block, fat_block).unwrap();
+    block[0].contents[at..at + 2].copy_from_slice(&1u16.to_le_bytes());
+    disk.write(&block, fat_block).unwrap();
+    let reserved = fat16_reserved_entries(&disk);
+
+    let (result, disk) = fat16_truncate(disk, "BROKEN.DAT");
+    assert!(matches!(result, Err(embedded_sdmmc::Error::FormatError(_))));
+    // Refused before anything changed
+    assert_eq!(fat16_reserved_entries(&disk), reserved);
+    assert_eq!(
+        fat16_entry_size_and_cluster(&disk, &entry),
+        (64 * 1024, first)
+    );
+    disk.read(&mut block, fat_block).unwrap();
+    assert_eq!(block[0].contents[at..at + 2], 1u16.to_le_bytes());
+}
+
 // ****************************************************************************
 //
 // End Of File

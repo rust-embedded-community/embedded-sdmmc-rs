@@ -695,17 +695,22 @@ where
                             entry: dir_entry,
                             dirty: false,
                         };
-                        match &mut data.open_volumes[volume_idx].volume_type {
-                            VolumeType::Fat(fat) => fat.truncate_cluster_chain(
-                                &mut data.block_cache,
-                                file.entry.cluster,
-                            )?,
+                        let rest = match &mut data.open_volumes[volume_idx].volume_type {
+                            VolumeType::Fat(fat) => {
+                                fat.cut_cluster_chain(&mut data.block_cache, file.entry.cluster)?
+                            }
                         };
                         file.update_length(0);
-                        match &data.open_volumes[volume_idx].volume_type {
+                        match &mut data.open_volumes[volume_idx].volume_type {
                             VolumeType::Fat(fat) => {
                                 file.entry.mtime = self.time_source.get_timestamp();
                                 fat.write_entry_to_disk(&mut data.block_cache, &file.entry)?;
+                                // Free the rest only once the entry no longer
+                                // covers it: a failure there still leaves an
+                                // empty file
+                                if let Some(rest) = rest {
+                                    fat.free_cluster_chain(&mut data.block_cache, rest)?;
+                                }
                             }
                         };
 
@@ -845,17 +850,22 @@ where
                             entry: dir_entry,
                             dirty: false,
                         };
-                        match &mut data.open_volumes[volume_idx].volume_type {
-                            VolumeType::Fat(fat) => fat.truncate_cluster_chain(
-                                &mut data.block_cache,
-                                file.entry.cluster,
-                            )?,
+                        let rest = match &mut data.open_volumes[volume_idx].volume_type {
+                            VolumeType::Fat(fat) => {
+                                fat.cut_cluster_chain(&mut data.block_cache, file.entry.cluster)?
+                            }
                         };
                         file.update_length(0);
-                        match &data.open_volumes[volume_idx].volume_type {
+                        match &mut data.open_volumes[volume_idx].volume_type {
                             VolumeType::Fat(fat) => {
                                 file.entry.mtime = self.time_source.get_timestamp();
                                 fat.write_entry_to_disk(&mut data.block_cache, &file.entry)?;
+                                // Free the rest only once the entry no longer
+                                // covers it: a failure there still leaves an
+                                // empty file
+                                if let Some(rest) = rest {
+                                    fat.free_cluster_chain(&mut data.block_cache, rest)?;
+                                }
                             }
                         };
 

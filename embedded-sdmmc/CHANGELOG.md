@@ -15,6 +15,7 @@ The format is based on [Keep a Changelog] and this project adheres to [Semantic 
 - Fixed writing to a nearly full volume allocating clusters past the end of the volume, which overwrote whatever followed it on the disk (such as the next partition)
 - Fixed the last free cluster of a volume being impossible to write: allocating it failed with `Error::DiskFull`, left it linked past the end of the file, and left the free cluster count one too high
 - Fixed `delete_entry_in_dir` leaving the deleted file's (or empty directory's) clusters allocated: the space was lost until the disk was checked. A corrupt cluster chain now stops the delete with an error instead of freeing clusters outside the volume
+- Fixed opening a file with `Mode::ReadWriteTruncate` (or `ReadWriteCreateOrTruncate`) counting one cluster too few as freed. A corrupt cluster chain now fails the open with an error instead of freeing clusters outside the volume: the file is unchanged if its first cluster or link is the corrupt one, and empty otherwise
 
 ## [Version 0.10.0] - 2026-07-24
 
