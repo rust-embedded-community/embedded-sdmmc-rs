@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog] and this project adheres to [Semantic 
 
 ## [Unreleased]
 
+### Added
+
+- SEND_CID command
+- Parsing of the manufacturing date of CID
+
 ## [v0.1.0]
 
 Initial release

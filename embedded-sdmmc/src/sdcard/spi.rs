@@ -100,6 +100,15 @@ where
         inner.erase_single_block_enabled()
     }
 
+    /// Get the card's identification.
+    ///
+    /// This will trigger card (re-)initialisation.
+    pub fn get_card_identification(&self) -> Result<cid::Cid, Error> {
+        let mut inner = self.inner.borrow_mut();
+        inner.check_init()?;
+        inner.read_cid()
+    }
+
     /// Mark the card as requiring a reset.
     ///
     /// The next operation will assume the card has been freshly inserted.
@@ -276,6 +285,20 @@ where
     pub fn erase_single_block_enabled(&mut self) -> Result<bool, Error> {
         let csd = self.read_csd()?;
         Ok(csd.erase_single_block_enabled())
+    }
+
+    /// Read the 'card identification' block.
+    pub fn read_cid(&mut self) -> Result<cid::Cid, Error> {
+        if self.card_type.is_none() {
+            return Err(Error::CardNotFound);
+        }
+
+        if self.card_command(CmdId::CMD10_SendCid, 0)? != 0 {
+            return Err(Error::RegisterReadError);
+        }
+        let mut cid_raw: [u8; 16] = [0; 16];
+        self.read_data(&mut cid_raw)?;
+        cid::Cid::new(&cid_raw).map_err(|_| Error::RegisterReadError)
     }
 
     /// Read the 'card specific data' block.

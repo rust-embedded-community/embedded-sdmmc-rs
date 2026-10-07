@@ -62,6 +62,20 @@ impl Cid {
     pub fn product_name_bytes(&self) -> [u8; 5] {
         self.product_name_raw().to_be_bytes()
     }
+
+    /// Manufacturing date: (year, month).
+    ///
+    /// Months are indexed starting with January = 1.
+    /// Years are counted since 2000, so to get the Georgian year,
+    /// add 2000 to the returned value.
+    ///
+    /// For example, `(21, 5)` indicates May of 2021.
+    #[inline]
+    pub fn date_year_month(&self) -> (u16, u8) {
+        let year = self.manufacturing_date().value() >> 4;
+        let month = self.manufacturing_date().value() & 0xf;
+        (year, month as u8)
+    }
 }
 
 #[cfg(test)]
@@ -83,6 +97,7 @@ mod tests {
         // https://www.bahjeez.com/sd-card-manufacturer-ids/: Patriot.
         assert_eq!(cid.manufacturer_id(), 0x12);
         assert_eq!(cid.oem_id(), 0x3456);
+        assert_eq!(cid.date_year_month(), (22, 5));
 
         let product_name_raw = cid.product_name_bytes();
         let product_name = core::str::from_utf8(&product_name_raw).unwrap();
@@ -103,6 +118,7 @@ mod tests {
         // https://www.bahjeez.com/sd-card-manufacturer-ids/: Patriot.
         assert_eq!(cid.manufacturer_id(), 0x12);
         assert_eq!(cid.oem_id(), 0x3456);
+        assert_eq!(cid.date_year_month(), (22, 5));
 
         let product_name_raw = cid.product_name_bytes();
         let product_name = core::str::from_utf8(&product_name_raw).unwrap();
