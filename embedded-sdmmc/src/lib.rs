@@ -16,6 +16,9 @@
 //! couldn't work with a USB Thumb Drive, but we only supply a `BlockDevice`
 //! suitable for reading SD and SDHC cards over SPI.
 //!
+//! In particular, that means the card must be put into SPI mode separately.
+//! See [`SdCard`] documentation.
+//!
 //! ```rust
 //! use embedded_sdmmc::{Error, Mode, SdCard, SdCardError, TimeSource, VolumeIdx, VolumeManager};
 //!
