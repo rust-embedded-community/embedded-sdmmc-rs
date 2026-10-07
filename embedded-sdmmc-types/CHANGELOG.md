@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog] and this project adheres to [Semantic 
 ### Added
 
 - SEND_CID command
+- Parsing of the manufacturing date of CID
 
 ## [v0.1.0]
 
