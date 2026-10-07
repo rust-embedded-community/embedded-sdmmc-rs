@@ -1114,7 +1114,8 @@ impl FatVolume {
                     let block = block_cache
                         .read(this_fat_block_num)
                         .map_err(Error::DeviceError)?;
-                    while this_fat_ent_offset <= Block::LEN - 2 {
+                    while this_fat_ent_offset <= Block::LEN - 2 && current_cluster.0 < end_cluster.0
+                    {
                         let fat_entry = LittleEndian::read_u16(
                             &block[this_fat_ent_offset..=this_fat_ent_offset + 1],
                         );
@@ -1143,7 +1144,8 @@ impl FatVolume {
                     let block = block_cache
                         .read(this_fat_block_num)
                         .map_err(Error::DeviceError)?;
-                    while this_fat_ent_offset <= Block::LEN - 4 {
+                    while this_fat_ent_offset <= Block::LEN - 4 && current_cluster.0 < end_cluster.0
+                    {
                         let fat_entry = LittleEndian::read_u32(
                             &block[this_fat_ent_offset..=this_fat_ent_offset + 3],
                         ) & 0x0FFF_FFFF;
@@ -1207,6 +1209,8 @@ impl FatVolume {
             "Finding next free between {:?}..={:?}",
             new_cluster, end_cluster
         );
+        // The new cluster is allocated either way: when it was the last free
+        // one, there is just no next free cluster to remember
         self.next_free_cluster =
             match self.find_next_free_cluster(block_cache, new_cluster, end_cluster) {
                 Ok(cluster) => Some(cluster),
@@ -1217,9 +1221,11 @@ impl FatVolume {
                         end_cluster,
                     ) {
                         Ok(cluster) => Some(cluster),
+                        Err(Error::NotEnoughSpace) => None,
                         Err(e) => return Err(e),
                     }
                 }
+                Err(Error::NotEnoughSpace) => None,
                 Err(e) => return Err(e),
             };
         debug!("Next free cluster is {:?}", self.next_free_cluster);
