@@ -46,6 +46,8 @@ pub enum CmdId {
     CMD7_SelectCard = 7,
     /// SEND_CSD - read the Card Specific Data (CSD register)
     CMD9_SendCsd = 9,
+    /// SEND_CID - read the Card Identification (CID register)
+    CMD10_SendCid = 10,
     /// STOP_TRANSMISSION - Stop a multiple read or write transfer
     CMD12_StopTransmission = 12,
     /// SEND_STATUS / SEND_TASK_STATUS - Read card status register.
