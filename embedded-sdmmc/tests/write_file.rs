@@ -3,6 +3,7 @@
 use embedded_sdmmc::{Mode, VolumeIdx, VolumeManager};
 
 mod utils;
+use helpers::*;
 
 #[test]
 fn append_file() {
@@ -244,104 +245,6 @@ fn full_volume_uses_its_last_cluster() {
     assert_eq!(block[0].contents[488..492], 0u32.to_le_bytes());
 }
 
-/// The FAT16 partition starts at block 2048.
-const FAT16_START: u32 = 2048;
-/// The FAT32 partition starts at block 264192; its FSInfo sector is the next
-/// one, with the free cluster count at byte 488.
-const FAT32_FSINFO: embedded_sdmmc::BlockIdx = embedded_sdmmc::BlockIdx(264192 + 1);
-
-type TestVolumeManager = VolumeManager<utils::RamDisk<Vec<u8>>, utils::TestTimeSource, 4, 2, 1>;
-
-fn make_volume_manager() -> TestVolumeManager {
-    let disk = utils::make_block_device(utils::DISK_SOURCE).unwrap();
-    VolumeManager::new_with_limits(disk, utils::make_time_source(), 0xAA00_0000)
-}
-
-/// The FAT32 partition's free cluster count, as saved on the disk
-fn saved_free_count(disk: &utils::RamDisk<Vec<u8>>) -> u32 {
-    use embedded_sdmmc::{Block, BlockDevice};
-    let mut block = [Block::new()];
-    disk.read(&mut block, FAT32_FSINFO).unwrap();
-    u32::from_le_bytes(block[0].contents[488..492].try_into().unwrap())
-}
-
-/// The block holding the FAT16 partition's FAT entry for `cluster`, and the
-/// entry's offset in it
-fn fat16_entry(disk: &utils::RamDisk<Vec<u8>>, cluster: u32) -> (embedded_sdmmc::BlockIdx, usize) {
-    use embedded_sdmmc::{Block, BlockDevice, BlockIdx};
-    let mut boot = [Block::new()];
-    disk.read(&mut boot, BlockIdx(FAT16_START)).unwrap();
-    let reserved = u32::from(u16::from_le_bytes([
-        boot[0].contents[14],
-        boot[0].contents[15],
-    ]));
-    let fat_start = FAT16_START + reserved;
-    (
-        BlockIdx(fat_start + cluster * 2 / 512),
-        (cluster * 2 % 512) as usize,
-    )
-}
-
-/// Write a file of `len` bytes to the FAT16 partition's root directory and
-/// close the volume. Returns the disk and the file's directory entry.
-fn fat16_file(name: &str, len: usize) -> (utils::RamDisk<Vec<u8>>, embedded_sdmmc::DirEntry) {
-    let volume_mgr = make_volume_manager();
-    let volume = volume_mgr
-        .open_raw_volume(VolumeIdx(0))
-        .expect("open volume");
-    let root_dir = volume_mgr.open_root_dir(volume).expect("open root dir");
-    let f = volume_mgr
-        .open_file_in_dir(root_dir, name, Mode::ReadWriteCreateOrTruncate)
-        .expect("open file");
-    volume_mgr.write(f, &vec![0xCC; len]).expect("file write");
-    volume_mgr.close_file(f).expect("close file");
-    let entry = volume_mgr
-        .find_directory_entry(root_dir, name)
-        .expect("find entry");
-    volume_mgr.close_dir(root_dir).expect("close dir");
-    volume_mgr.close_volume(volume).expect("close volume");
-    (volume_mgr.free().0, entry)
-}
-
-/// The FAT16 partition's FAT[0] and FAT[1] (the media descriptor and the
-/// end-of-chain marker)
-fn fat16_reserved_entries(disk: &utils::RamDisk<Vec<u8>>) -> [u8; 4] {
-    use embedded_sdmmc::{Block, BlockDevice};
-    let (fat_block, _) = fat16_entry(disk, 0);
-    let mut block = [Block::new()];
-    disk.read(&mut block, fat_block).unwrap();
-    block[0].contents[0..4].try_into().unwrap()
-}
-
-/// Write and delete a file more times than the free space would hold:
-/// fails with a full disk if delete leaves the file's clusters allocated.
-/// Returns the disk once the volume is closed.
-fn write_and_delete(
-    volume_idx: VolumeIdx,
-    file_mib: usize,
-    rounds: usize,
-) -> utils::RamDisk<Vec<u8>> {
-    let volume_mgr = make_volume_manager();
-    let volume = volume_mgr.open_raw_volume(volume_idx).expect("open volume");
-    let root_dir = volume_mgr.open_root_dir(volume).expect("open root dir");
-    let data = vec![0xCC; file_mib * 1024 * 1024];
-    for round in 0..rounds {
-        let f = volume_mgr
-            .open_file_in_dir(root_dir, "LEAK.DAT", Mode::ReadWriteCreateOrTruncate)
-            .expect("open file");
-        volume_mgr
-            .write(f, &data)
-            .unwrap_or_else(|e| panic!("write in round {round}: {e:?}"));
-        volume_mgr.close_file(f).expect("close file");
-        volume_mgr
-            .delete_entry_in_dir(root_dir, "LEAK.DAT")
-            .expect("delete file");
-    }
-    volume_mgr.close_dir(root_dir).expect("close dir");
-    volume_mgr.close_volume(volume).expect("close volume");
-    volume_mgr.free().0
-}
-
 #[test]
 fn delete_frees_clusters_fat16() {
     // About 64 MiB is free on the FAT16 partition
@@ -355,26 +258,6 @@ fn delete_frees_clusters_fat32() {
     let disk = write_and_delete(VolumeIdx(1), 8, 41);
     // Every cluster allocated was freed and counted again
     assert_eq!(saved_free_count(&disk), before);
-}
-
-/// Delete `name` from the FAT16 partition's root directory of `disk`
-fn fat16_delete(
-    disk: utils::RamDisk<Vec<u8>>,
-    name: &str,
-) -> (
-    Result<(), embedded_sdmmc::Error<utils::Error>>,
-    utils::RamDisk<Vec<u8>>,
-) {
-    let volume_mgr: TestVolumeManager =
-        VolumeManager::new_with_limits(disk, utils::make_time_source(), 0xAA00_0000);
-    let volume = volume_mgr
-        .open_raw_volume(VolumeIdx(0))
-        .expect("open volume");
-    let root_dir = volume_mgr.open_root_dir(volume).expect("open root dir");
-    let result = volume_mgr.delete_entry_in_dir(root_dir, name);
-    volume_mgr.close_dir(root_dir).expect("close dir");
-    volume_mgr.close_volume(volume).expect("close volume");
-    (result, volume_mgr.free().0)
 }
 
 #[test]
@@ -464,29 +347,6 @@ fn truncate_counts_every_freed_cluster() {
     assert_eq!(saved_free_count(&volume_mgr.free().0), before + 255);
 }
 
-/// Open `name` in the FAT16 partition's root directory of `disk` with
-/// `ReadWriteTruncate`
-fn fat16_truncate(
-    disk: utils::RamDisk<Vec<u8>>,
-    name: &str,
-) -> (
-    Result<(), embedded_sdmmc::Error<utils::Error>>,
-    utils::RamDisk<Vec<u8>>,
-) {
-    let volume_mgr: TestVolumeManager =
-        VolumeManager::new_with_limits(disk, utils::make_time_source(), 0xAA00_0000);
-    let volume = volume_mgr
-        .open_raw_volume(VolumeIdx(0))
-        .expect("open volume");
-    let root_dir = volume_mgr.open_root_dir(volume).expect("open root dir");
-    let result = volume_mgr
-        .open_file_in_dir(root_dir, name, Mode::ReadWriteTruncate)
-        .map(|f| volume_mgr.close_file(f).expect("close file"));
-    volume_mgr.close_dir(root_dir).expect("close dir");
-    volume_mgr.close_volume(volume).expect("close volume");
-    (result, volume_mgr.free().0)
-}
-
 #[test]
 fn truncate_stops_at_a_link_outside_the_volume() {
     use embedded_sdmmc::{Block, BlockDevice};
@@ -518,21 +378,6 @@ fn truncate_stops_at_a_link_outside_the_volume() {
     let (fat_block, at) = fat16_entry(&disk, first);
     disk.read(&mut block, fat_block).unwrap();
     assert!(u16::from_le_bytes([block[0].contents[at], block[0].contents[at + 1]]) >= 0xFFF8);
-}
-
-/// The size and first cluster in a FAT16 directory entry
-fn fat16_entry_size_and_cluster(
-    disk: &utils::RamDisk<Vec<u8>>,
-    entry: &embedded_sdmmc::DirEntry,
-) -> (u32, u16) {
-    use embedded_sdmmc::{Block, BlockDevice};
-    let mut block = [Block::new()];
-    disk.read(&mut block, entry.entry_block).unwrap();
-    let e = &block[0].contents[entry.entry_offset as usize..];
-    (
-        u32::from_le_bytes([e[28], e[29], e[30], e[31]]),
-        u16::from_le_bytes([e[26], e[27]]),
-    )
 }
 
 #[test]
@@ -586,15 +431,6 @@ fn truncate_rejects_a_first_link_outside_the_volume() {
     );
     disk.read(&mut block, fat_block).unwrap();
     assert_eq!(block[0].contents[at..at + 2], 1u16.to_le_bytes());
-}
-
-/// Set the FAT32 partition's saved free cluster count
-fn set_saved_free_count(disk: &utils::RamDisk<Vec<u8>>, count: u32) {
-    use embedded_sdmmc::{Block, BlockDevice};
-    let mut block = [Block::new()];
-    disk.read(&mut block, FAT32_FSINFO).unwrap();
-    block[0].contents[488..492].copy_from_slice(&count.to_le_bytes());
-    disk.write(&block, FAT32_FSINFO).unwrap();
 }
 
 #[test]
@@ -692,6 +528,185 @@ fn free_count_above_the_cluster_count_becomes_unknown() {
     volume_mgr.close_dir(root_dir).expect("close dir");
     volume_mgr.close_volume(volume).expect("close volume");
     assert_eq!(saved_free_count(&volume_mgr.free().0), 0xFFFF_FFFF);
+}
+
+/// Helpers for the tests above
+mod helpers {
+    use super::utils;
+    use embedded_sdmmc::{Mode, VolumeIdx, VolumeManager};
+
+    /// The FAT16 partition starts at block 2048.
+    pub const FAT16_START: u32 = 2048;
+
+    /// The FAT32 partition starts at block 264192; its FSInfo sector is the next
+    /// one, with the free cluster count at byte 488.
+    pub const FAT32_FSINFO: embedded_sdmmc::BlockIdx = embedded_sdmmc::BlockIdx(264192 + 1);
+
+    pub type TestVolumeManager =
+        VolumeManager<utils::RamDisk<Vec<u8>>, utils::TestTimeSource, 4, 2, 1>;
+
+    pub fn make_volume_manager() -> TestVolumeManager {
+        let disk = utils::make_block_device(utils::DISK_SOURCE).unwrap();
+        VolumeManager::new_with_limits(disk, utils::make_time_source(), 0xAA00_0000)
+    }
+
+    /// The FAT32 partition's free cluster count, as saved on the disk
+    pub fn saved_free_count(disk: &utils::RamDisk<Vec<u8>>) -> u32 {
+        use embedded_sdmmc::{Block, BlockDevice};
+        let mut block = [Block::new()];
+        disk.read(&mut block, FAT32_FSINFO).unwrap();
+        u32::from_le_bytes(block[0].contents[488..492].try_into().unwrap())
+    }
+
+    /// The block holding the FAT16 partition's FAT entry for `cluster`, and the
+    /// entry's offset in it
+    pub fn fat16_entry(
+        disk: &utils::RamDisk<Vec<u8>>,
+        cluster: u32,
+    ) -> (embedded_sdmmc::BlockIdx, usize) {
+        use embedded_sdmmc::{Block, BlockDevice, BlockIdx};
+        let mut boot = [Block::new()];
+        disk.read(&mut boot, BlockIdx(FAT16_START)).unwrap();
+        let reserved = u32::from(u16::from_le_bytes([
+            boot[0].contents[14],
+            boot[0].contents[15],
+        ]));
+        let fat_start = FAT16_START + reserved;
+        (
+            BlockIdx(fat_start + cluster * 2 / 512),
+            (cluster * 2 % 512) as usize,
+        )
+    }
+
+    /// Write a file of `len` bytes to the FAT16 partition's root directory and
+    /// close the volume. Returns the disk and the file's directory entry.
+    pub fn fat16_file(
+        name: &str,
+        len: usize,
+    ) -> (utils::RamDisk<Vec<u8>>, embedded_sdmmc::DirEntry) {
+        let volume_mgr = make_volume_manager();
+        let volume = volume_mgr
+            .open_raw_volume(VolumeIdx(0))
+            .expect("open volume");
+        let root_dir = volume_mgr.open_root_dir(volume).expect("open root dir");
+        let f = volume_mgr
+            .open_file_in_dir(root_dir, name, Mode::ReadWriteCreateOrTruncate)
+            .expect("open file");
+        volume_mgr.write(f, &vec![0xCC; len]).expect("file write");
+        volume_mgr.close_file(f).expect("close file");
+        let entry = volume_mgr
+            .find_directory_entry(root_dir, name)
+            .expect("find entry");
+        volume_mgr.close_dir(root_dir).expect("close dir");
+        volume_mgr.close_volume(volume).expect("close volume");
+        (volume_mgr.free().0, entry)
+    }
+
+    /// The FAT16 partition's FAT[0] and FAT[1] (the media descriptor and the
+    /// end-of-chain marker)
+    pub fn fat16_reserved_entries(disk: &utils::RamDisk<Vec<u8>>) -> [u8; 4] {
+        use embedded_sdmmc::{Block, BlockDevice};
+        let (fat_block, _) = fat16_entry(disk, 0);
+        let mut block = [Block::new()];
+        disk.read(&mut block, fat_block).unwrap();
+        block[0].contents[0..4].try_into().unwrap()
+    }
+
+    /// Write and delete a file more times than the free space would hold:
+    /// fails with a full disk if delete leaves the file's clusters allocated.
+    /// Returns the disk once the volume is closed.
+    pub fn write_and_delete(
+        volume_idx: VolumeIdx,
+        file_mib: usize,
+        rounds: usize,
+    ) -> utils::RamDisk<Vec<u8>> {
+        let volume_mgr = make_volume_manager();
+        let volume = volume_mgr.open_raw_volume(volume_idx).expect("open volume");
+        let root_dir = volume_mgr.open_root_dir(volume).expect("open root dir");
+        let data = vec![0xCC; file_mib * 1024 * 1024];
+        for round in 0..rounds {
+            let f = volume_mgr
+                .open_file_in_dir(root_dir, "LEAK.DAT", Mode::ReadWriteCreateOrTruncate)
+                .expect("open file");
+            volume_mgr
+                .write(f, &data)
+                .unwrap_or_else(|e| panic!("write in round {round}: {e:?}"));
+            volume_mgr.close_file(f).expect("close file");
+            volume_mgr
+                .delete_entry_in_dir(root_dir, "LEAK.DAT")
+                .expect("delete file");
+        }
+        volume_mgr.close_dir(root_dir).expect("close dir");
+        volume_mgr.close_volume(volume).expect("close volume");
+        volume_mgr.free().0
+    }
+
+    /// Delete `name` from the FAT16 partition's root directory of `disk`
+    pub fn fat16_delete(
+        disk: utils::RamDisk<Vec<u8>>,
+        name: &str,
+    ) -> (
+        Result<(), embedded_sdmmc::Error<utils::Error>>,
+        utils::RamDisk<Vec<u8>>,
+    ) {
+        let volume_mgr: TestVolumeManager =
+            VolumeManager::new_with_limits(disk, utils::make_time_source(), 0xAA00_0000);
+        let volume = volume_mgr
+            .open_raw_volume(VolumeIdx(0))
+            .expect("open volume");
+        let root_dir = volume_mgr.open_root_dir(volume).expect("open root dir");
+        let result = volume_mgr.delete_entry_in_dir(root_dir, name);
+        volume_mgr.close_dir(root_dir).expect("close dir");
+        volume_mgr.close_volume(volume).expect("close volume");
+        (result, volume_mgr.free().0)
+    }
+
+    /// Open `name` in the FAT16 partition's root directory of `disk` with
+    /// `ReadWriteTruncate`
+    pub fn fat16_truncate(
+        disk: utils::RamDisk<Vec<u8>>,
+        name: &str,
+    ) -> (
+        Result<(), embedded_sdmmc::Error<utils::Error>>,
+        utils::RamDisk<Vec<u8>>,
+    ) {
+        let volume_mgr: TestVolumeManager =
+            VolumeManager::new_with_limits(disk, utils::make_time_source(), 0xAA00_0000);
+        let volume = volume_mgr
+            .open_raw_volume(VolumeIdx(0))
+            .expect("open volume");
+        let root_dir = volume_mgr.open_root_dir(volume).expect("open root dir");
+        let result = volume_mgr
+            .open_file_in_dir(root_dir, name, Mode::ReadWriteTruncate)
+            .map(|f| volume_mgr.close_file(f).expect("close file"));
+        volume_mgr.close_dir(root_dir).expect("close dir");
+        volume_mgr.close_volume(volume).expect("close volume");
+        (result, volume_mgr.free().0)
+    }
+
+    /// The size and first cluster in a FAT16 directory entry
+    pub fn fat16_entry_size_and_cluster(
+        disk: &utils::RamDisk<Vec<u8>>,
+        entry: &embedded_sdmmc::DirEntry,
+    ) -> (u32, u16) {
+        use embedded_sdmmc::{Block, BlockDevice};
+        let mut block = [Block::new()];
+        disk.read(&mut block, entry.entry_block).unwrap();
+        let e = &block[0].contents[entry.entry_offset as usize..];
+        (
+            u32::from_le_bytes([e[28], e[29], e[30], e[31]]),
+            u16::from_le_bytes([e[26], e[27]]),
+        )
+    }
+
+    /// Set the FAT32 partition's saved free cluster count
+    pub fn set_saved_free_count(disk: &utils::RamDisk<Vec<u8>>, count: u32) {
+        use embedded_sdmmc::{Block, BlockDevice};
+        let mut block = [Block::new()];
+        disk.read(&mut block, FAT32_FSINFO).unwrap();
+        block[0].contents[488..492].copy_from_slice(&count.to_le_bytes());
+        disk.write(&block, FAT32_FSINFO).unwrap();
+    }
 }
 
 // ****************************************************************************
