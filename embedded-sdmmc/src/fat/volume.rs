@@ -194,9 +194,9 @@ impl FatVolume {
                 let block = block_cache
                     .read_mut(fat32_info.info_location)
                     .map_err(Error::DeviceError)?;
-                if let Some(count) = self.free_clusters_count {
-                    block[488..492].copy_from_slice(&count.to_le_bytes());
-                }
+                // 0xFFFF_FFFF is the "unknown" value of the spec
+                let count = self.free_clusters_count.unwrap_or(0xFFFF_FFFF);
+                block[488..492].copy_from_slice(&count.to_le_bytes());
                 if let Some(next_free_cluster) = self.next_free_cluster {
                     block[492..496].copy_from_slice(&next_free_cluster.0.to_le_bytes());
                 }
@@ -1230,8 +1230,10 @@ impl FatVolume {
             };
         debug!("Next free cluster is {:?}", self.next_free_cluster);
         // Record that we've allocated a cluster
-        if let Some(ref mut number_free_cluster) = self.free_clusters_count {
-            *number_free_cluster -= 1;
+        if let Some(number_free_cluster) = self.free_clusters_count {
+            // The count is only a hint: one that would go below zero is
+            // wrong, so it becomes unknown
+            self.free_clusters_count = number_free_cluster.checked_sub(1);
         };
         if zero {
             let start_block_idx = self.cluster_to_block(new_cluster);
@@ -1246,51 +1248,100 @@ impl FatVolume {
         Ok(new_cluster)
     }
 
-    /// Marks the input cluster as an EOF and all the subsequent clusters in the chain as free
-    pub(crate) fn truncate_cluster_chain<D>(
+    /// Is `cluster` one of this volume's data clusters?
+    fn is_data_cluster(&self, cluster: ClusterId) -> bool {
+        cluster.0 >= RESERVED_ENTRIES && cluster.0 < self.cluster_count + RESERVED_ENTRIES
+    }
+
+    /// Can a chain start at `cluster`: none (an empty file), or one of this
+    /// volume's data clusters?
+    pub(crate) fn is_chain_start(&self, cluster: ClusterId) -> bool {
+        cluster.0 < RESERVED_ENTRIES || self.is_data_cluster(cluster)
+    }
+
+    /// Marks every cluster in the chain starting at `first_cluster` as free
+    ///
+    /// Stops with an error at a link outside the volume (a corrupt chain),
+    /// once the cluster holding that link is freed
+    pub(crate) fn free_cluster_chain<D>(
+        &mut self,
+        block_cache: &mut BlockCache<D>,
+        first_cluster: ClusterId,
+    ) -> Result<(), Error<D::Error>>
+    where
+        D: BlockDevice,
+    {
+        if first_cluster.0 < RESERVED_ENTRIES {
+            // file doesn't have any valid cluster allocated, there is nothing to do
+            return Ok(());
+        }
+        if !self.is_data_cluster(first_cluster) {
+            return Err(Error::FormatError("cluster chain leaves the volume"));
+        }
+        if let Some(ref mut next_free_cluster) = self.next_free_cluster {
+            if next_free_cluster.0 > first_cluster.0 {
+                *next_free_cluster = first_cluster;
+            }
+        } else {
+            self.next_free_cluster = Some(first_cluster);
+        }
+        let mut next = first_cluster;
+        loop {
+            // Read the link before the entry holding it is freed
+            let link = match self.next_cluster(block_cache, next) {
+                Ok(n) => Some(n),
+                Err(Error::EndOfFile) => None,
+                Err(e) => return Err(e),
+            };
+            self.update_fat(block_cache, next, ClusterId::EMPTY)?;
+            // Record that we've freed a cluster
+            if let Some(number_free_cluster) = self.free_clusters_count {
+                // The count is only a hint: one that would go above the number
+                // of clusters is wrong, so it becomes unknown
+                self.free_clusters_count = number_free_cluster
+                    .checked_add(1)
+                    .filter(|n| *n <= self.cluster_count);
+            };
+            match link {
+                Some(n) if self.is_data_cluster(n) => next = n,
+                Some(_) => return Err(Error::FormatError("cluster chain leaves the volume")),
+                None => break,
+            }
+        }
+        Ok(())
+    }
+
+    /// Marks the input cluster as an EOF, and returns the rest of the chain
+    /// (for `free_cluster_chain`), if there is any
+    ///
+    /// Nothing is written if the chain is corrupt
+    pub(crate) fn cut_cluster_chain<D>(
         &mut self,
         block_cache: &mut BlockCache<D>,
         cluster: ClusterId,
-    ) -> Result<(), Error<D::Error>>
+    ) -> Result<Option<ClusterId>, Error<D::Error>>
     where
         D: BlockDevice,
     {
         if cluster.0 < RESERVED_ENTRIES {
             // file doesn't have any valid cluster allocated, there is nothing to do
-            return Ok(());
+            return Ok(None);
         }
-        let mut next = {
+        if !self.is_data_cluster(cluster) {
+            return Err(Error::FormatError("cluster chain leaves the volume"));
+        }
+        let next = {
             match self.next_cluster(block_cache, cluster) {
                 Ok(n) => n,
-                Err(Error::EndOfFile) => return Ok(()),
+                Err(Error::EndOfFile) => return Ok(None),
                 Err(e) => return Err(e),
             }
         };
-        if let Some(ref mut next_free_cluster) = self.next_free_cluster {
-            if next_free_cluster.0 > next.0 {
-                *next_free_cluster = next;
-            }
-        } else {
-            self.next_free_cluster = Some(next);
+        if !self.is_data_cluster(next) {
+            return Err(Error::FormatError("cluster chain leaves the volume"));
         }
         self.update_fat(block_cache, cluster, ClusterId::END_OF_FILE)?;
-        loop {
-            match self.next_cluster(block_cache, next) {
-                Ok(n) => {
-                    self.update_fat(block_cache, next, ClusterId::EMPTY)?;
-                    next = n;
-                }
-                Err(Error::EndOfFile) => {
-                    self.update_fat(block_cache, next, ClusterId::EMPTY)?;
-                    break;
-                }
-                Err(e) => return Err(e),
-            }
-            if let Some(ref mut number_free_cluster) = self.free_clusters_count {
-                *number_free_cluster += 1;
-            };
-        }
-        Ok(())
+        Ok(Some(next))
     }
 
     /// Writes a Directory Entry to the disk
@@ -1484,7 +1535,11 @@ where
                 .map_err(Error::DeviceError)?;
             let info_sector =
                 InfoSector::create_from_bytes(info_block).map_err(Error::FormatError)?;
-            volume.free_clusters_count = info_sector.free_clusters_count();
+            // The count is only a hint: one above the number of clusters is
+            // wrong, so it is unknown
+            volume.free_clusters_count = info_sector
+                .free_clusters_count()
+                .filter(|n| *n <= volume.cluster_count);
             volume.next_free_cluster = info_sector.next_free_cluster();
 
             Ok(VolumeType::Fat(volume))
