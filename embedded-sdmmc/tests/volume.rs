@@ -1,18 +1,12 @@
 //! Volume related tests
 
+use crate::utils::TestVolumeManager;
+
 mod utils;
 
 #[test]
 fn open_all_volumes() {
-    let time_source = utils::make_time_source();
-    let disk = utils::make_block_device(utils::DISK_SOURCE).unwrap();
-    let volume_mgr: embedded_sdmmc::VolumeManager<
-        utils::RamDisk<Vec<u8>>,
-        utils::TestTimeSource,
-        4,
-        4,
-        2,
-    > = embedded_sdmmc::VolumeManager::new_with_limits(disk, time_source, 0x1000_0000);
+    let volume_mgr = TestVolumeManager::new();
 
     // Open Volume 0
     let fat16_volume = volume_mgr
@@ -22,7 +16,7 @@ fn open_all_volumes() {
     // Fail to Open Volume 0 again
     assert!(matches!(
         volume_mgr.open_raw_volume(embedded_sdmmc::VolumeIdx(0)),
-        Err(embedded_sdmmc::Error::VolumeAlreadyOpen)
+        Err(embedded_sdmmc::Error::VolumeAlreadyOpen),
     ));
 
     volume_mgr.close_volume(fat16_volume).expect("close fat16");
@@ -80,13 +74,8 @@ fn open_all_volumes() {
 
 #[test]
 fn close_volume_too_early() {
-    let time_source = utils::make_time_source();
-    let disk = utils::make_block_device(utils::DISK_SOURCE).unwrap();
-    let volume_mgr = embedded_sdmmc::VolumeManager::new(disk, time_source);
-
-    let volume = volume_mgr
-        .open_raw_volume(embedded_sdmmc::VolumeIdx(0))
-        .expect("open volume 0");
+    let mut volume_mgr = TestVolumeManager::new();
+    let volume = volume_mgr.open_fat16_volume();
     let root_dir = volume_mgr.open_root_dir(volume).expect("open root dir");
 
     // Dir open
@@ -110,16 +99,12 @@ fn close_volume_too_early() {
 
 #[test]
 fn has_open_handles_reports_open_dirs() {
-    let time_source = utils::make_time_source();
-    let disk = utils::make_block_device(utils::DISK_SOURCE).unwrap();
-    let volume_mgr = embedded_sdmmc::VolumeManager::new(disk, time_source);
+    let mut volume_mgr = TestVolumeManager::new();
 
     // No handles open
     assert!(!volume_mgr.has_open_handles());
 
-    let volume = volume_mgr
-        .open_raw_volume(embedded_sdmmc::VolumeIdx(0))
-        .expect("open volume 0");
+    let volume = volume_mgr.open_fat16_volume();
     let root_dir = volume_mgr.open_root_dir(volume).expect("open root dir");
 
     // A directory is open but no files — should report true

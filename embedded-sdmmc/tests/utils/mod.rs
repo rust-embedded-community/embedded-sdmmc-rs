@@ -1,8 +1,13 @@
 //! Useful library code for tests
 
-use std::io::prelude::*;
+#![allow(unused)]
 
-use embedded_sdmmc::{Block, BlockCount, BlockDevice, BlockIdx};
+use std::{
+    io::prelude::*,
+    ops::{Deref, DerefMut},
+};
+
+use embedded_sdmmc::{Block, BlockCount, BlockDevice, BlockIdx, RawVolume};
 
 /// This file contains:
 ///
@@ -175,6 +180,68 @@ pub fn make_time_source() -> TestTimeSource {
 #[allow(unused)]
 pub fn get_time_source_string() -> &'static str {
     "2003-04-04 13:30:04"
+}
+
+use super::utils;
+use embedded_sdmmc::{Mode, VolumeIdx, VolumeManager};
+
+/// The FAT16 partition starts at block 2048.
+pub const FAT16_START: u32 = 2048;
+
+/// The FAT32 partition starts at block 264192; its FSInfo sector is the next
+/// one, with the free cluster count at byte 488.
+pub const FAT32_FSINFO: embedded_sdmmc::BlockIdx = embedded_sdmmc::BlockIdx(264192 + 1);
+
+pub struct TestVolumeManager {
+    volume_mgr: VolumeManager<utils::RamDisk<Vec<u8>>, utils::TestTimeSource, 4, 2, 2>,
+}
+
+impl TestVolumeManager {
+    pub fn new() -> TestVolumeManager {
+        let disk = utils::make_block_device(utils::DISK_SOURCE).unwrap();
+        Self::mount(disk)
+    }
+
+    pub fn mount(disk: utils::RamDisk<Vec<u8>>) -> TestVolumeManager {
+        TestVolumeManager {
+            volume_mgr: VolumeManager::new_with_limits(
+                disk,
+                utils::make_time_source(),
+                0xAA00_0000,
+            ),
+        }
+    }
+
+    pub fn unmount(self) -> utils::RamDisk<Vec<u8>> {
+        let (disk, time_source) = self.volume_mgr.free();
+        disk
+    }
+
+    pub fn open_fat16_volume(&mut self) -> RawVolume {
+        self.volume_mgr
+            .open_raw_volume(VolumeIdx(0))
+            .expect("open volume")
+    }
+
+    pub fn open_fat32_volume(&mut self) -> RawVolume {
+        self.volume_mgr
+            .open_raw_volume(VolumeIdx(1))
+            .expect("open volume")
+    }
+}
+
+impl Deref for TestVolumeManager {
+    type Target = VolumeManager<utils::RamDisk<Vec<u8>>, utils::TestTimeSource, 4, 2, 2>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.volume_mgr
+    }
+}
+
+impl DerefMut for TestVolumeManager {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.volume_mgr
+    }
 }
 
 // ****************************************************************************

@@ -2,6 +2,8 @@
 
 use sha2::Digest;
 
+use crate::utils::TestVolumeManager;
+
 mod utils;
 
 static TEST_DAT_SHA256_SUM: &[u8] =
@@ -9,13 +11,9 @@ static TEST_DAT_SHA256_SUM: &[u8] =
 
 #[test]
 fn read_file_512_blocks() {
-    let time_source = utils::make_time_source();
-    let disk = utils::make_block_device(utils::DISK_SOURCE).unwrap();
-    let volume_mgr = embedded_sdmmc::VolumeManager::new(disk, time_source);
+    let mut volume_mgr = TestVolumeManager::new();
 
-    let fat16_volume = volume_mgr
-        .open_raw_volume(embedded_sdmmc::VolumeIdx(0))
-        .expect("open volume 0");
+    let fat16_volume = volume_mgr.open_fat16_volume();
     let root_dir = volume_mgr
         .open_root_dir(fat16_volume)
         .expect("open root dir");
@@ -51,13 +49,9 @@ fn read_file_512_blocks() {
 
 #[test]
 fn read_file_all() {
-    let time_source = utils::make_time_source();
-    let disk = utils::make_block_device(utils::DISK_SOURCE).unwrap();
-    let volume_mgr = embedded_sdmmc::VolumeManager::new(disk, time_source);
+    let mut volume_mgr = TestVolumeManager::new();
 
-    let fat16_volume = volume_mgr
-        .open_raw_volume(embedded_sdmmc::VolumeIdx(0))
-        .expect("open volume 0");
+    let fat16_volume = volume_mgr.open_fat16_volume();
     let root_dir = volume_mgr
         .open_root_dir(fat16_volume)
         .expect("open root dir");
@@ -85,13 +79,9 @@ fn read_file_all() {
 
 #[test]
 fn read_file_prime_blocks() {
-    let time_source = utils::make_time_source();
-    let disk = utils::make_block_device(utils::DISK_SOURCE).unwrap();
-    let volume_mgr = embedded_sdmmc::VolumeManager::new(disk, time_source);
+    let mut volume_mgr = TestVolumeManager::new();
 
-    let fat16_volume = volume_mgr
-        .open_raw_volume(embedded_sdmmc::VolumeIdx(0))
-        .expect("open volume 0");
+    let fat16_volume = volume_mgr.open_fat16_volume();
     let root_dir = volume_mgr
         .open_root_dir(fat16_volume)
         .expect("open root dir");
@@ -128,13 +118,9 @@ fn read_file_prime_blocks() {
 
 #[test]
 fn read_file_backwards() {
-    let time_source = utils::make_time_source();
-    let disk = utils::make_block_device(utils::DISK_SOURCE).unwrap();
-    let volume_mgr = embedded_sdmmc::VolumeManager::new(disk, time_source);
+    let mut volume_mgr = TestVolumeManager::new();
 
-    let fat16_volume = volume_mgr
-        .open_raw_volume(embedded_sdmmc::VolumeIdx(0))
-        .expect("open volume 0");
+    let fat16_volume = volume_mgr.open_fat16_volume();
     let root_dir = volume_mgr
         .open_root_dir(fat16_volume)
         .expect("open root dir");
@@ -186,13 +172,8 @@ fn read_file_backwards() {
 
 #[test]
 fn read_file_with_odd_seek() {
-    let time_source = utils::make_time_source();
-    let disk = utils::make_block_device(utils::DISK_SOURCE).unwrap();
-    let volume_mgr = embedded_sdmmc::VolumeManager::new(disk, time_source);
-
-    let volume = volume_mgr
-        .open_volume(embedded_sdmmc::VolumeIdx(0))
-        .unwrap();
+    let mut volume_mgr = TestVolumeManager::new();
+    let volume = volume_mgr.open_fat16_volume().to_volume(&volume_mgr);
     let root_dir = volume.open_root_dir().unwrap();
     let f = root_dir
         .open_file_in_dir("64MB.DAT", embedded_sdmmc::Mode::ReadOnly)
