@@ -27,11 +27,14 @@ use embedded_sdmmc::{Block, BlockCount, BlockDevice, BlockIdx};
 /// total 8
 /// -rwxrwxrwx  1 jonathan  staff  3500  9 Dec  2018 TEST.DAT
 /// $ ls -l /Volumes/P-FAT32
-/// total 131088
-/// -rwxrwxrwx  1 jonathan  staff  67108864  9 Dec  2018 64MB.DAT
-/// -rwxrwxrwx  1 jonathan  staff         0  9 Dec  2018 EMPTY.DAT
-/// -rwxrwxrwx@ 1 jonathan  staff       258 21 Sep 09:48 README.TXT
-/// drwxrwxrwx  1 jonathan  staff      4096  9 Dec  2018 TEST
+/// total 131112
+/// -rwx------  1 jonathan  staff  67108864  9 Dec  2018 64MB.DAT
+/// -rwx------  1 jonathan  staff       258 25 Oct  2024 Copy of Readme.txt
+/// -rwx------  1 jonathan  staff         0  9 Dec  2018 EMPTY.DAT
+/// -rwx------  1 jonathan  staff       258 21 Sep  2023 README.TXT
+/// drwx------  1 jonathan  staff      4096  9 Dec  2018 TEST
+/// drwx------  1 jonathan  staff      4096 25 Oct  2024 This is a long file name £99
+/// -rwx------  1 jonathan  staff       258 24 Oct 09:09 Xopy of Readme.txt
 /// $ ls -l /Volumes/P-FAT32/TEST
 /// total 8
 /// -rwxrwxrwx  1 jonathan  staff  3500  9 Dec  2018 TEST.DAT
