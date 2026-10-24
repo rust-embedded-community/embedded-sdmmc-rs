@@ -99,9 +99,16 @@ fn open_lfn() {
         VolumeManager::new_with_limits(disk, time_source, 0xAA00_0000);
     let volume = volume_mgr.open_volume(VolumeIdx(1)).expect("open volume");
     let root_dir = volume.open_root_dir().expect("open root dir");
-    let _f = root_dir
+    let f = root_dir
         .open_long_name_file_in_dir("Copy of Readme.txt", Mode::ReadOnly)
         .expect("open file");
+    _ = f.close();
+    // This file comes after "Copy of Readme.txt" and differs only in the first character
+    // This checks issue #263
+    let f = root_dir
+        .open_long_name_file_in_dir("Xopy of Readme.txt", Mode::ReadOnly)
+        .expect("open file");
+    _ = f.close();
 
     assert!(matches!(
         root_dir.open_long_name_file_in_dir("Copy of Readme.tx", Mode::ReadOnly),

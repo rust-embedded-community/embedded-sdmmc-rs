@@ -916,6 +916,7 @@ impl FatVolume {
                             debug!("Looking at char '{}'", c);
                             let Some(r) = remaining.strip_suffix(c) else {
                                 debug!("No, didn't want that");
+                                // Start looking for a new entry
                                 state = SeqState::Waiting;
                                 return ControlFlow::Continue(());
                             };
