@@ -92,16 +92,6 @@ fn fat16_root_directory_listing() {
         ),
         (
             ExpectedDirEntry {
-                name: String::from("FSEVEN~4"),
-                mtime: String::from("2024-10-25 16:30:42"),
-                ctime: String::from("2024-10-25 16:30:42"),
-                size: 0,
-                is_dir: true,
-            },
-            Some(String::from(".fseventsd")),
-        ),
-        (
-            ExpectedDirEntry {
                 name: String::from("P-FAT16"),
                 mtime: String::from("2024-10-30 18:43:12"),
                 ctime: String::from("2024-10-30 18:43:12"),
@@ -272,16 +262,6 @@ fn fat32_root_directory_listing() {
         ),
         (
             ExpectedDirEntry {
-                name: String::from("FSEVEN~4"),
-                mtime: String::from("2024-10-25 16:30:42"),
-                ctime: String::from("2024-10-25 16:30:42"),
-                size: 0,
-                is_dir: true,
-            },
-            Some(String::from(".fseventsd")),
-        ),
-        (
-            ExpectedDirEntry {
                 name: String::from("P-FAT32"),
                 mtime: String::from("2024-10-30 18:43:16"),
                 ctime: String::from("2024-10-30 18:43:16"),
@@ -309,6 +289,16 @@ fn fat32_root_directory_listing() {
                 is_dir: false,
             },
             Some(String::from("Copy of Readme.txt")),
+        ),
+        (
+            ExpectedDirEntry {
+                name: String::from("XOPYO~16.TXT"),
+                mtime: String::from("2026-10-24 09:09:42"),
+                ctime: String::from("2026-10-24 09:09:42"),
+                size: 258,
+                is_dir: false,
+            },
+            Some(String::from("Xopy of Readme.txt")),
         ),
     ];
 
